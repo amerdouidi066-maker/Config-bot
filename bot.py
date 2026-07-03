@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – معدل للعمل على Railway
-تم إزالة parse_mode='Markdown' لمنع أخطاء التنسيق
+🔥 SHADOW LEGION v105.0 – النسخة النهائية للعمل على Railway
+مع دعم الروابط المشفرة، رسائل احترافية، وإرسال آمن للنتائج
 """
 
 import os
@@ -26,6 +26,7 @@ import tempfile
 import glob
 import shutil
 import getpass
+import asyncio
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -189,6 +190,46 @@ def get_chrome_driver():
     return driver
 
 # ====================== DEPLOY ======================
+def extract_project_id(link):
+    """استخراج project_id من الرابط حتى لو كان مشفراً"""
+    decoded = urllib.parse.unquote(link)
+    match = re.search(r'[?&]project=([^&]+)', decoded)
+    if match:
+        return match.group(1)
+    match = re.search(r'project%3D([^&]+)', link)
+    if match:
+        return match.group(1)
+    match = re.search(r'[?&]project=([^&]+)', link)
+    if match:
+        return match.group(1)
+    return None
+
+def extract_from_link(link):
+    data = {}
+    project_id = extract_project_id(link)
+    if project_id:
+        data['project_id'] = project_id
+    
+    decoded_link = urllib.parse.unquote(link)
+    
+    match = re.search(r'[Ee]mail=([^&]+)', decoded_link)
+    if match: 
+        data['email'] = urllib.parse.unquote(match.group(1))
+    else:
+        match = re.search(r'Email%3D([^&]+)', link)
+        if match:
+            data['email'] = urllib.parse.unquote(match.group(1))
+    
+    match = re.search(r'token=([^&]+)', decoded_link)
+    if match: 
+        data['token'] = match.group(1)
+    else:
+        match = re.search(r'token%3D([^&]+)', link)
+        if match:
+            data['token'] = match.group(1)
+    
+    return data
+
 def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
     driver = None
     try:
@@ -204,10 +245,10 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
         time.sleep(5)
 
-        match = re.search(r'project=([^&]+)', lab_url)
-        if not match:
+        project_id = extract_project_id(lab_url)
+        if not project_id:
             raise Exception("الرابط لا يحتوي على project_id")
-        project_id = match.group(1)
+        logger.info(f"✅ تم استخراج project_id: {project_id}")
 
         logger.info("☁️ جاري تمكين Cloud Run API...")
         driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
@@ -247,7 +288,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'JSON')]"))).click()
         time.sleep(1)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
-        time.sleep(4)
+        time.sleep(6)
 
         download_dir = tempfile.gettempdir()
         list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
@@ -329,16 +370,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
             except: pass
         logger.error(f"❌ فشل النشر: {e}")
         raise e
-
-def extract_from_link(link):
-    data = {}
-    match = re.search(r'project=([^&]+)', link)
-    if match: data['project_id'] = match.group(1)
-    match = re.search(r'Email=([^&]+)', link)
-    if match: data['email'] = urllib.parse.unquote(match.group(1))
-    match = re.search(r'token=([^&]+)', link)
-    if match: data['token'] = match.group(1)
-    return data
 
 def deploy_with_token(link_data, region):
     project_id = link_data.get('project_id')
@@ -587,19 +618,36 @@ async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     link = update.message.text
     region = context.user_data.get('region', DEFAULT_REGION)
+    
     if not link.startswith('http'):
-        await update.message.reply_text("❌ رابط غير صحيح.")
+        await update.message.reply_text("❌ رابط غير صحيح. يرجى إرسال رابط صالح.")
         return 1
+    
+    project_id = extract_project_id(link)
+    if not project_id:
+        await update.message.reply_text("❌ الرابط لا يحتوي على project_id الصحيح. تأكد من الرابط وأرسله مجدداً.")
+        return 1
+    
     task_queue.put((user_id, link, region))
-    await update.message.reply_text("✅ تمت إضافة طلبك إلى طابور الانتظار!")
+    await update.message.reply_text(
+        "✅ **جاري تجهيز طلبك ...**\n\n"
+        "📡 سيتم إعلامك فور اكتمال النشر.\n"
+        "⏳ قد تستغرق العملية من 3 إلى 5 دقائق.\n\n"
+        "🔔 **تنبيه:** ستصل النتيجة تلقائياً هنا، لا حاجة لإعادة إرسال الرابط."
+    )
+    
+    loop = asyncio.get_running_loop()
+    bot = context.bot
     
     def monitor():
         while True:
             user = get_user(user_id)
             if user and user.get('status') in ('completed', 'error'):
-                result = user.get('last_result', "⚠️ حدث خطأ")
-                import asyncio
-                asyncio.run(update.message.reply_text(result))  # 🔥 تم إزالة parse_mode='Markdown'
+                result = user.get('last_result', "⚠️ حدث خطأ غير متوقع.")
+                asyncio.run_coroutine_threadsafe(
+                    bot.send_message(chat_id=user_id, text=result),
+                    loop
+                )
                 break
             time.sleep(5)
     
@@ -698,7 +746,7 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY (بدون أخطاء Markdown)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY (النسخة النهائية)")
     app.run_polling()
 
 if __name__ == "__main__":
