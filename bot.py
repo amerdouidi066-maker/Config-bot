@@ -2,9 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – النسخة النهائية المتكاملة
-مع حل API لإنشاء حساب الخدمة، والتبديل التلقائي إلى Selenium الاحتياطي
-جاهز للنسخ واللصق على Railway
+🔥 SHADOW LEGION v105.0 – النسخة النهائية مع تحسين Selenium القوي
 """
 
 import os
@@ -40,6 +38,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 import psutil
 from cryptography.fernet import Fernet
@@ -170,7 +169,7 @@ def get_chrome_driver():
     driver.implicitly_wait(10)
     return driver
 
-# ====================== دوال API لإنشاء حساب الخدمة والمفتاح ======================
+# ====================== دوال API ======================
 def create_service_account_api(project_id, token):
     url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -183,7 +182,7 @@ def create_service_account_api(project_id, token):
         get_r = requests.get(get_url, headers=headers)
         if get_r.status_code == 200:
             return get_r.json()["email"]
-    raise Exception(f"فشل إنشاء حساب الخدمة عبر API (الكود {r.status_code}): {r.text}")
+    raise Exception(f"فشل API (الكود {r.status_code}): {r.text}")
 
 def create_service_account_key_api(project_id, email, token):
     url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts/{email}/keys"
@@ -193,9 +192,8 @@ def create_service_account_key_api(project_id, email, token):
     if r.status_code in [200, 201]:
         key_data = r.json()["privateKeyData"]
         return base64.b64decode(key_data).decode('utf-8')
-    raise Exception(f"فشل إنشاء مفتاح الخدمة عبر API (الكود {r.status_code}): {r.text}")
+    raise Exception(f"فشل Key API (الكود {r.status_code}): {r.text}")
 
-# ====================== DEPLOY (المباشر عبر API أولاً) ======================
 def deploy_raw_token(project_id, token, region):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     service_name = f"shadow-{int(time.time())}"
@@ -221,7 +219,7 @@ def deploy_raw_token(project_id, token, region):
             return build_vless_response(service_url, region)
     raise Exception(f"فشل النشر: {r.status_code}")
 
-# ====================== دالة Selenium المحسّنة (مع API أولاً) ======================
+# ====================== Selenium المحسّن بشكل كبير ======================
 def deploy_with_selenium(lab_url, email, password, region, send_message):
     driver = None
     max_retries = 2
@@ -234,11 +232,11 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
         raise Exception("project_id مفقود")
     
     # =========================================================
-    # 🔥 المحاولة الأولى: إنشاء حساب الخدمة عبر API
+    # 🔥 المحاولة الأولى: API (كما كانت)
     # =========================================================
     if token:
         try:
-            send_message("🔧 **محاولة إنشاء حساب الخدمة عبر API (أسرع وأكثر استقراراً)...**")
+            send_message("🔧 **محاولة إنشاء حساب الخدمة عبر API...**")
             service_account_email = create_service_account_api(project_id, token)
             send_message(f"✅ **تم إنشاء حساب الخدمة:** `{service_account_email}`")
             
@@ -302,16 +300,16 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             return build_vless_response(service_url, region)
             
         except Exception as e:
-            send_message(f"⚠️ **فشلت طريقة API (السبب: {str(e)[:100]}). جاري التبديل إلى الطريقة الرسومية (Selenium)...**")
+            send_message(f"⚠️ **فشلت طريقة API (السبب: {str(e)[:100]}). جاري التبديل إلى Selenium...**")
     
     # =========================================================
-    # 🔥 الطريقة الرسومية (Selenium) – احتياطية
+    # 🔥 الطريقة الرسومية (Selenium) – محسّنة جداً
     # =========================================================
     for attempt in range(max_retries):
         try:
             send_message(f"🌐 **محاولة Selenium {attempt+1} من {max_retries}...**")
             driver = get_chrome_driver()
-            wait = WebDriverWait(driver, 40)
+            wait = WebDriverWait(driver, 60)  # زيادة الانتظار إلى 60 ثانية
 
             send_message("📧 **جاري إدخال البريد الإلكتروني...**")
             driver.get("https://accounts.google.com/")
@@ -333,8 +331,9 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
 
             send_message("👤 **جاري إنشاء حساب الخدمة (طريقة Selenium)...**")
             driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-            time.sleep(5)
+            time.sleep(8)  # انتظار إضافي لتحميل الصفحة
             
+            # إغلاق أي نافذة منبثقة
             try:
                 close_btn = driver.find_element(By.XPATH, "//*[@aria-label='Close' or contains(text(), 'Dismiss')]")
                 close_btn.click()
@@ -342,28 +341,93 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             except:
                 pass
 
-            create_button = None
-            try:
-                create_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]")))
-            except:
-                try:
-                    create_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'CREATE SERVICE ACCOUNT')]")))
-                except:
-                    try:
-                        create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Create Service Account']")))
-                    except:
-                        raise Exception("لم نتمكن من العثور على زر 'Create Service Account'.")
+            # قائمة موسعة من المحددات للزر
+            selectors = [
+                "//*[contains(text(), 'Create Service Account')]",
+                "//*[contains(text(), 'CREATE SERVICE ACCOUNT')]",
+                "button[aria-label='Create Service Account']",
+                "//*[@role='button' and contains(., 'Create')]",
+                "//*[contains(@class, 'create-service-account')]",
+                "//*[@jsname='...']",  # بعض المعرفات الديناميكية
+            ]
             
-            create_button.click()
+            create_button = None
+            for sel in selectors:
+                try:
+                    if sel.startswith("//"):
+                        create_button = wait.until(EC.element_to_be_clickable((By.XPATH, sel)))
+                    else:
+                        create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, sel)))
+                    break
+                except:
+                    continue
+            
+            # إذا لم يتم العثور عليه، حاول البحث عن زر يحتوي على "Create" في أي مكان
+            if not create_button:
+                # البحث عن جميع الأزرار التي تحتوي على "Create"
+                buttons = driver.find_elements(By.XPATH, "//*[@role='button' and contains(., 'Create')]")
+                if buttons:
+                    create_button = buttons[0]
+                else:
+                    # جرب البحث عن أي عنصر يحتوي على النص "Create" ويمكن النقر عليه
+                    elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Create')]")
+                    for el in elements:
+                        try:
+                            if el.is_enabled() and el.is_displayed():
+                                create_button = el
+                                break
+                        except:
+                            continue
+            
+            if not create_button:
+                # المحاولة الأخيرة: استخدام JavaScript للبحث عن الزر
+                js_script = """
+                var buttons = document.querySelectorAll('button, [role="button"]');
+                for (var i=0; i<buttons.length; i++) {
+                    if (buttons[i].innerText.includes('Create') && buttons[i].offsetParent !== null) {
+                        return buttons[i];
+                    }
+                }
+                return null;
+                """
+                create_button = driver.execute_script(js_script)
+                if create_button:
+                    # نستخدم JavaScript للنقر مباشرة
+                    driver.execute_script("arguments[0].click();", create_button)
+                    create_button = None  # لمنع النقر مرة أخرى
+            
+            if not create_button:
+                raise Exception("لم نتمكن من العثور على زر 'Create Service Account' حتى بعد محاولات متعددة.")
+            
+            # النقر على الزر
+            try:
+                create_button.click()
+            except:
+                driver.execute_script("arguments[0].click();", create_button)
             time.sleep(3)
+            
+            # إدخال اسم الحساب
             wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
             time.sleep(1)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create') and @type='submit']"))).click()
+            
+            # النقر على زر CREATE في النافذة الأولى
+            try:
+                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create') and @type='submit']"))).click()
+            except:
+                # محاولة بديلة
+                driver.find_element(By.XPATH, "//*[contains(text(), 'Create')]").click()
             time.sleep(3)
+            
+            # اختيار دور Cloud Run Admin
             role_field = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@placeholder, 'Select a role')]")))
             role_field.send_keys("Cloud Run Admin" + Keys.RETURN)
             time.sleep(2)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
+            
+            # النقر على زر DONE
+            try:
+                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
+            except:
+                driver.find_element(By.XPATH, "//*[contains(text(), 'Done')]").click()
             time.sleep(4)
 
             send_message("📄 **جاري تنزيل مفتاح JSON...**")
@@ -456,7 +520,8 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
                 send_message(f"⚠️ **محاولة Selenium {attempt+1} فشلت، إعادة المحاولة خلال 10 ثوانٍ...**")
                 time.sleep(10)
             else:
-                raise e
+                # إذا فشل كل شيء، نقدم رسالة توضيحية
+                raise Exception("فشل إنشاء حساب الخدمة حتى بعد المحاولات المتكررة. قد يكون مشروع Qwiklabs لا يسمح بإنشاء حسابات خدمة. يُرجى استخدام مشروع GCP حقيقي.")
 
 # ====================== QUEUE ======================
 task_queue = queue.Queue()
@@ -560,7 +625,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 النسخة النهائية – مع حل API لإنشاء حساب الخدمة\n"
+        "📡 النسخة النهائية مع Selenium فائق القوة\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -702,7 +767,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مع حل API لإنشاء حساب الخدمة)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING (نسخة Selenium فائقة القوة)")
     app.run_polling()
 
 if __name__ == "__main__":
