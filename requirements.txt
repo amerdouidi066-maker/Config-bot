@@ -1,4 +1,4 @@
-python-telegram-bot==20.6
+python-telegram-bot==20.8
 requests==2.31.0
 rsa==4.9
 selenium==4.23.1
