@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – نسخة مطابقة للبوت في الصورة (cora vpn / زقز)
-مع تحديثات متتالية وتبديل تلقائي إلى Selenium
+🔥 SHADOW LEGION v105.0 – نسخة متوافقة مع Railway (إصلاح tab crashed)
+مع تحسين إعدادات Chrome وإضافة Xvfb
 """
 
 import os
@@ -48,10 +48,10 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN environment variable not set")
 
-DEFAULT_REGION = "us-central1"  # مثل الصورة
+DEFAULT_REGION = "us-central1"
 
 REGIONS = {
-    "us-central1": "🇺🇸 آيوا",
+    "us-central1": "🇺🇸 أيوا",
     "europe-west1": "🇧🇪 بلجيكا",
     "europe-west3": "🇩🇪 فرانكفورت",
     "europe-west4": "🇳🇱 هولندا",
@@ -146,7 +146,7 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الـ Cloud Run**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== SELENIUM ======================
+# ====================== CHROME DRIVER (محسّن لتجنب "tab crashed") ======================
 def get_chrome_driver():
     options = Options()
     options.add_argument('--headless=new')
@@ -155,8 +155,19 @@ def get_chrome_driver():
     options.add_argument('--disable-gpu')
     options.add_argument('--incognito')
     options.add_argument('--window-size=1920,1080')
+    options.add_argument('--disable-software-rasterizer')
+    options.add_argument('--disable-extensions')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--remote-debugging-port=9222')
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    options.add_experimental_option('useAutomationExtension', False)
+    
     service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
+    driver = webdriver.Chrome(service=service, options=options)
+    driver.set_page_load_timeout(60)
+    driver.implicitly_wait(10)
+    return driver
 
 # ====================== DEPLOY ======================
 def deploy_raw_token(project_id, token, region):
@@ -177,7 +188,7 @@ def deploy_raw_token(project_id, token, region):
     url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
     r = requests.post(url, headers=headers, json=body, timeout=60)
     if r.status_code == 401:
-        raise Exception("RANELI")  # رمز خاص للتبديل إلى Selenium
+        raise Exception("RANELI")
     if r.status_code in (200, 201):
         service_url = r.json().get('status', {}).get('url')
         if service_url:
@@ -194,10 +205,10 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
         send_message("📧 **جاري إدخال البريد الإلكتروني...**")
         driver.get("https://accounts.google.com/")
         wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
-        time.sleep(2)
+        time.sleep(3)
         send_message("🔑 **جاري إدخال كلمة المرور...**")
         wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
-        time.sleep(5)
+        time.sleep(6)
 
         project_id = extract_project_id(lab_url)
         if not project_id:
@@ -205,7 +216,7 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
 
         send_message("☁️ **جاري تمكين Cloud Run API...**")
         driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
-        time.sleep(3)
+        time.sleep(5)
         try:
             wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Enable')]"))).click()
             time.sleep(5)
@@ -214,34 +225,34 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
 
         send_message("👤 **جاري إنشاء حساب الخدمة...**")
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-        time.sleep(3)
+        time.sleep(5)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]"))).click()
-        time.sleep(2)
+        time.sleep(3)
         wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
-        time.sleep(2)
+        time.sleep(3)
         role_field = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@placeholder, 'Select a role')]")))
         role_field.send_keys("Cloud Run Admin" + Keys.RETURN)
-        time.sleep(1)
+        time.sleep(2)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
-        time.sleep(3)
+        time.sleep(4)
 
         send_message("📄 **جاري تنزيل مفتاح JSON...**")
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-        time.sleep(2)
+        time.sleep(3)
         account = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'shadow-bot')]")))
         account.click()
-        time.sleep(2)
+        time.sleep(3)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Keys')]"))).click()
-        time.sleep(2)
+        time.sleep(3)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Add Key')]"))).click()
-        time.sleep(1)
+        time.sleep(2)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create New Key')]"))).click()
-        time.sleep(1)
+        time.sleep(2)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'JSON')]"))).click()
-        time.sleep(1)
+        time.sleep(2)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
-        time.sleep(6)
+        time.sleep(10)
 
         download_dir = tempfile.gettempdir()
         list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
@@ -335,7 +346,7 @@ def process_queue():
                 def send_message(text):
                     asyncio.run_coroutine_threadsafe(bot.send_message(chat_id=user_id, text=text), loop)
 
-                send_message("🔄 **جاري الدخول إلى الـ Lab وبدء التجهيز...**\nتم التحقق من صلاحية الرابط سيتم ربط الحساب وبدء عملية الإنشاء...")
+                send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**\nتم التحقق من صلاحية الرابط سيتم ربط الحساب وبدء عملية الإنشاء...")
                 time.sleep(1)
 
                 link_data = extract_from_link(link)
@@ -415,7 +426,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 النسخة الاحترافية – مثل البوت في الصورة\n"
+        "📡 النسخة المحسّنة – متوافقة مع Railway\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -557,7 +568,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مطابق للبوت في الصورة)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مع إصلاح tab crashed)")
     app.run_polling()
 
 if __name__ == "__main__":
