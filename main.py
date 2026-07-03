@@ -2,34 +2,39 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 THE ARCHITECT // ULTIMATE BOT v41.0 (PRODUCTION READY)
-🚀 بوت متطور يعمل على Railway – يتعامل مع صلاحية الروابط ويعيد المحاولة تلقائياً.
+🔥 THE ARCHITECT // ULTIMATE BOT v42.0 (PRO EDITION)
+🚀 بوت احترافي مع اختيار المناطق – واجهة أنيقة بدون لوجو.
 """
 
 import os, sys, time, re, json, base64, hashlib, tempfile, glob, threading, queue, subprocess, logging, sqlite3, urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime
 from flask import Flask
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 # ============================================================
-# 1. إعدادات التسجيل
+# 1. الإعدادات الأساسية
 # ============================================================
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ============================================================
-# 2. الإعدادات الأساسية
-# ============================================================
 TOKEN = os.environ.get("TOKEN", "توكن_التاعك_هنا")
 DEFAULT_EMAIL = os.environ.get("EMAIL", "")
 DEFAULT_PASSWORD = os.environ.get("PASSWORD", "")
-MAX_RETRIES = 3
-SESSION_TIMEOUT = 600  # 10 دقائق
+
+# ============================================================
+# 2. قائمة المناطق (متاحة للنشر)
+# ============================================================
+REGIONS = {
+    "europe-west1": "🇧🇪 بلجيكا (europe-west1)",
+    "europe-west3": "🇩🇪 فرانكفورت (europe-west3)",
+    "europe-west4": "🇳🇱 هولندا (europe-west4)",
+    "us-central1": "🇺🇸 آيوا (us-central1)",
+    "us-east1": "🇺🇸 ساوث كارولينا (us-east1)",
+    "asia-southeast1": "🇸🇬 سنغافورة (asia-southeast1)"
+}
+DEFAULT_REGION = "europe-west1"
 
 # ============================================================
 # 3. خادم Flask (Keep-Alive)
@@ -71,7 +76,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import requests, rsa
 
 # ============================================================
-# 5. قاعدة البيانات
+# 5. قاعدة البيانات (SQLite)
 # ============================================================
 DB_PATH = "users.db"
 
@@ -139,7 +144,7 @@ def create_or_update_user(user_id, **kwargs):
             INSERT INTO users (user_id, email, password, lab_url, region, last_deploy)
             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (user_id, kwargs.get('email') or DEFAULT_EMAIL, kwargs.get('password') or DEFAULT_PASSWORD,
-              kwargs.get('lab_url'), kwargs.get('region') or "europe-west1"))
+              kwargs.get('lab_url'), kwargs.get('region') or DEFAULT_REGION))
     conn.commit()
     conn.close()
 
@@ -166,7 +171,7 @@ def add_history(user_id, lab_url, service_url, vless_link, success=1):
 init_db()
 
 # ============================================================
-# 6. دوال التشفير والنشر
+# 6. دوال التشفير والنشر (مع دعم المنطقة)
 # ============================================================
 def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
 
@@ -204,7 +209,7 @@ def get_access_token(creds):
         raise Exception(f"فشل Token: {resp.status_code}")
     return resp.json().get("access_token")
 
-def deploy_via_rest_api(project_id, token):
+def deploy_via_rest_api(project_id, token, region):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     service_name = f"vip-{int(time.time())}"
     body = {
@@ -222,7 +227,7 @@ def deploy_via_rest_api(project_id, token):
             }
         }
     }
-    url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/europe-west1/services"
+    url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
     r = requests.post(url, headers=headers, json=body, timeout=60)
     if r.status_code in (200, 201):
         return r.json().get('status', {}).get('url')
@@ -241,26 +246,23 @@ def extract_from_link(link):
     if match: data['token'] = match.group(1)
     return data
 
-def deploy_with_sso(link_data):
-    """النشر مع اكتشاف انتهاء صلاحية الرابط وإعادة المحاولة."""
+def deploy_with_sso(link_data, region):
     project_id = link_data.get('project_id')
     email = link_data.get('email')
     token = link_data.get('token')
     if not project_id:
         raise Exception("الرابط لا يحتوي على project_id")
 
-    # 1. محاولة النشر باستخدام token مباشرة
     if token:
         try:
-            service_url = deploy_via_rest_api(project_id, token)
+            service_url = deploy_via_rest_api(project_id, token, region)
             vless = generate_vless(service_url)
-            return (f"✅ **تم النشر!**\n🌐 {service_url}\n🔗 VLESS:\n`{vless}`", service_url, vless)
+            return (f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: `{service_url}`\n🔗 رابط VLESS:\n`{vless}`", service_url, vless)
         except Exception as e:
             if "منتهي الصلاحية" in str(e):
                 raise Exception("❌ الرابط منتهي الصلاحية. يرجى إرسال رابط جديد.")
-            logger.warning(f"فشل النشر باستخدام token: {e}")
+            logger.warning(f"فشل token: {e}")
 
-    # 2. استخدام Selenium مع البريد وكلمة المرور
     email = email or DEFAULT_EMAIL
     password = DEFAULT_PASSWORD
     if not email or not password:
@@ -289,14 +291,12 @@ def deploy_with_sso(link_data):
         driver = webdriver.Chrome(service=service, options=options)
         wait = WebDriverWait(driver, 20)
 
-        # تسجيل الدخول
         driver.get("https://accounts.google.com/")
         wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
         time.sleep(2)
         wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
         time.sleep(5)
 
-        # تفعيل Cloud Run API
         driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
         time.sleep(3)
         try:
@@ -304,7 +304,6 @@ def deploy_with_sso(link_data):
             time.sleep(5)
         except: pass
 
-        # إنشاء حساب خدمة
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
         time.sleep(3)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]"))).click()
@@ -318,7 +317,6 @@ def deploy_with_sso(link_data):
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
         time.sleep(3)
 
-        # تنزيل المفتاح
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
         time.sleep(2)
         account = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'auto-bot')]")))
@@ -344,11 +342,10 @@ def deploy_with_sso(link_data):
         os.remove(latest_file)
         driver.quit()
 
-        # النشر عبر REST API
         access_token = get_access_token(creds)
-        service_url = deploy_via_rest_api(project_id, access_token)
+        service_url = deploy_via_rest_api(project_id, access_token, region)
         vless = generate_vless(service_url)
-        return (f"✅ **تم النشر!**\n🌐 {service_url}\n🔗 VLESS:\n`{vless}`", service_url, vless)
+        return (f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: `{service_url}`\n🔗 رابط VLESS:\n`{vless}`", service_url, vless)
 
     except Exception as e:
         if driver:
@@ -357,7 +354,7 @@ def deploy_with_sso(link_data):
         raise e
 
 # ============================================================
-# 7. نظام الطابور المتقدم
+# 7. نظام الطابور (مع تخزين المنطقة)
 # ============================================================
 task_queue = queue.Queue()
 processing = False
@@ -368,17 +365,14 @@ def process_queue():
         if not task_queue.empty() and not processing:
             processing = True
             try:
-                user_id, link = task_queue.get()
-                logger.info(f"📌 معالجة طلب المستخدم {user_id}")
+                user_id, link, region = task_queue.get()
+                logger.info(f"📌 معالجة طلب المستخدم {user_id} في المنطقة {region}")
                 link_data = extract_from_link(link)
-                result_msg, service_url, vless_link = deploy_with_sso(link_data)
+                result_msg, service_url, vless_link = deploy_with_sso(link_data, region)
                 update_user_status(user_id, 'completed', result_msg)
                 add_history(user_id, link, service_url, vless_link, success=1)
-                logger.info(f"✅ تم النشر للمستخدم {user_id}")
             except Exception as e:
                 error_msg = str(e)
-                if "منتهي الصلاحية" in error_msg:
-                    error_msg = "❌ الرابط منتهي الصلاحية. يرجى إرسال رابط جديد عبر الزر."
                 logger.error(error_msg)
                 update_user_status(user_id, 'error', error_msg)
                 add_history(user_id, link, None, None, success=0)
@@ -389,27 +383,26 @@ def process_queue():
 Thread(target=process_queue, daemon=True).start()
 
 # ============================================================
-# 8. واجهة البوت
+# 8. واجهة البوت الاحترافية (بدون لوجو)
 # ============================================================
 async def start(update: Update, context):
     user_id = update.effective_user.id
     create_or_update_user(user_id)
-    logo = """
-    █████╗ ██████╗  ██████╗██╗  ██╗██╗████████╗ ██████╗██╗   ██╗██╗  ██╗
-   ██╔══██╗██╔══██╗██╔════╝██║  ██║██║╚══██╔══╝██╔════╝██║   ██║╚██╗██╔╝
-   ███████║██████╔╝██║     ███████║██║   ██║   ██║     ██║   ██║ ╚███╔╝ 
-   ██╔══██║██╔══██╗██║     ██╔══██║██║   ██║   ██║     ██║   ██║ ██╔██╗ 
-   ██║  ██║██║  ██║╚██████╗██║  ██║██║   ██║   ╚██████╗╚██████╔╝██╔╝ ██╗
-   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝  ╚═╝
-    """
-    keyboard = [[InlineKeyboardButton("🚀 تشغيل خدمة سريعة", callback_data='deploy')]]
+    keyboard = [
+        [InlineKeyboardButton("🚀 تشغيل خدمة سريعة", callback_data='deploy')],
+        [InlineKeyboardButton("📋 حالتك", callback_data='status')],
+        [InlineKeyboardButton("📜 سجل النشر", callback_data='history')],
+        [InlineKeyboardButton("🌍 تغيير المنطقة الافتراضية", callback_data='change_region')]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        f"`{logo}`\n\n"
-        "🔥 **THE ARCHITECT // v41.0**\n"
-        "📡 **أرسل رابط مختبر Google Skills** (SSO).\n"
-        "سأنشر الخدمة تلقائياً.\n\n"
-        "💡 إذا ظهرت رسالة 'رابط منتهي'، فقط أرسل رابطاً جديداً.",
+        "🔥 **مرحباً بك في ARCHITECT BOT**\n"
+        "────────────────────\n"
+        "📌 **اختر الإجراء المناسب:**\n"
+        "• اضغط على *تشغيل خدمة سريعة* لبدء النشر.\n"
+        "• يمكنك اختيار المنطقة قبل النشر.\n"
+        "• تابع حالتك وسجل النشر عبر الأزرار أدناه.\n\n"
+        "💡 *ملاحظة:* البوت يعمل مع روابط مختبرات Qwiklabs (SSO).",
         parse_mode='Markdown',
         reply_markup=reply_markup
     )
@@ -417,24 +410,56 @@ async def start(update: Update, context):
 async def deploy_button(update: Update, context):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🔗 أرسل رابط مختبر Google Skills (SSO) الآن.")
-    context.user_data['state'] = 'awaiting_lab'
+    # عرض أزرار المناطق
+    keyboard = []
+    for code, name in REGIONS.items():
+        keyboard.append([InlineKeyboardButton(name, callback_data=f"region_{code}")])
+    keyboard.append([InlineKeyboardButton("🔙 إلغاء", callback_data="cancel_region")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        "🌍 **اختر المنطقة التي تريد النشر عليها:**\n"
+        "────────────────────\n"
+        "سيتم استخدام المنطقة المختارة لإنشاء خدمة Cloud Run.",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
     return 0
+
+async def region_callback(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "cancel_region":
+        await query.edit_message_text("❌ تم إلغاء العملية.")
+        return ConversationHandler.END
+
+    region = data.replace("region_", "")
+    context.user_data['region'] = region
+    await query.edit_message_text(
+        f"✅ تم اختيار المنطقة: **{REGIONS.get(region, region)}**\n\n"
+        "🔗 **الآن أرسل رابط مختبر Google Skills (SSO):**",
+        parse_mode='Markdown'
+    )
+    return 1
 
 async def receive_lab(update: Update, context):
     user_id = update.effective_user.id
     link = update.message.text
+    region = context.user_data.get('region', DEFAULT_REGION)
+
     if not link.startswith('http'):
         await update.message.reply_text("❌ الرابط غير صحيح. يجب أن يبدأ بـ http.")
-        return 0
-    task_queue.put((user_id, link))
-    create_or_update_user(user_id, lab_url=link)
+        return 1
+
+    task_queue.put((user_id, link, region))
+    create_or_update_user(user_id, lab_url=link, region=region)
     await update.message.reply_text(
         "✅ **تمت إضافة طلبك إلى طابور الانتظار!**\n"
-        "🔄 سيتم النشر تلقائياً.\n"
+        f"🌍 المنطقة: **{REGIONS.get(region, region)}**\n"
+        "🔄 سيتم النشر تلقائياً خلال دقائق.\n"
         "📨 سنرسل لك النتيجة فور اكتمال الخدمة."
     )
-    # مراقبة النتيجة
+
     def monitor():
         while True:
             user = get_user(user_id)
@@ -445,11 +470,17 @@ async def receive_lab(update: Update, context):
                 break
             time.sleep(5)
     Thread(target=monitor, daemon=True).start()
+
     context.user_data.clear()
     return ConversationHandler.END
 
+async def cancel_operation(update: Update, context):
+    context.user_data.clear()
+    await update.message.reply_text("❌ تم إلغاء العملية.")
+    return ConversationHandler.END
+
 # ============================================================
-# 9. أوامر إضافية
+# 9. أوامر الحالة والسجل والإعدادات
 # ============================================================
 async def status_command(update: Update, context):
     user_id = update.effective_user.id
@@ -458,11 +489,12 @@ async def status_command(update: Update, context):
         await update.message.reply_text("❌ لا توجد بيانات لك.")
         return
     await update.message.reply_text(
-        f"📋 **حالتك**\n\n"
+        f"📋 **حالتك الشخصية**\n"
+        "────────────────────\n"
         f"📧 البريد: `{user.get('email')}`\n"
-        f"🌍 المنطقة: `{user.get('region')}`\n"
+        f"🌍 المنطقة الافتراضية: `{REGIONS.get(user.get('region'), user.get('region'))}`\n"
         f"📊 عدد عمليات النشر: `{user.get('deploy_count', 0)}`\n"
-        f"🔄 الحالة: `{user.get('status', 'idle')}`\n"
+        f"🔄 الحالة الحالية: `{user.get('status', 'idle')}`\n"
         f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}",
         parse_mode='Markdown'
     )
@@ -480,11 +512,45 @@ async def history_command(update: Update, context):
     if not rows:
         await update.message.reply_text("📜 لا يوجد سجل نشر.")
         return
-    lines = ["📜 **آخر عمليات النشر:**"]
+    lines = ["📜 **آخر 5 عمليات نشر:**"]
     for i, (lab_url, service_url, vless_link, deployed_at, success) in enumerate(rows, 1):
         status_icon = "✅" if success else "❌"
-        lines.append(f"{i}. {status_icon} `{lab_url[:60]}...`\n   {deployed_at}")
+        lines.append(f"{i}. {status_icon} `{lab_url[:50]}...`\n   📅 {deployed_at}")
     await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+
+async def change_region_command(update: Update, context):
+    query = update.callback_query
+    if query:
+        await query.answer()
+    keyboard = []
+    for code, name in REGIONS.items():
+        keyboard.append([InlineKeyboardButton(name, callback_data=f"setregion_{code}")])
+    keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="back_menu")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    msg = "🌍 **اختر منطقتك الافتراضية الجديدة:**"
+    if query:
+        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def set_region_callback(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "back_menu":
+        await start(update, context)
+        return
+    region = data.replace("setregion_", "")
+    user_id = query.from_user.id
+    create_or_update_user(user_id, region=region)
+    await query.edit_message_text(
+        f"✅ تم تغيير المنطقة الافتراضية إلى **{REGIONS.get(region, region)}**.",
+        parse_mode='Markdown'
+    )
+    await start(update, context)
+
+async def back_to_menu(update: Update, context):
+    await start(update, context)
 
 # ============================================================
 # 10. تشغيل البوت
@@ -492,15 +558,26 @@ async def history_command(update: Update, context):
 def main():
     keep_alive()
     app = ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("history", history_command))
+
     conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(deploy_button, pattern='deploy')],
-        states={0: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_lab)]},
-        fallbacks=[]
+        entry_points=[
+            CallbackQueryHandler(deploy_button, pattern='^deploy$'),
+            CallbackQueryHandler(change_region_command, pattern='^change_region$')
+        ],
+        states={
+            0: [CallbackQueryHandler(region_callback, pattern='^(region_|cancel_region)')],
+            1: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_lab)]
+        },
+        fallbacks=[CommandHandler("cancel", cancel_operation)]
     )
     app.add_handler(conv)
+    app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
+    app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
+
     logger.info("✅ البوت جاهز. استخدم /start.")
     app.run_polling()
 
