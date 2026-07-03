@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – النسخة النهائية مع تحسين Selenium القوي
+🔥 SHADOW LEGION v105.0 – النسخة الطويلة المتكاملة (نشر مباشر فقط)
+تم إزالة Selenium و API لإنشاء الحساب، والاعتماد على token المباشر
+مع تعليقات شاملة ودوال إضافية لزيادة الطول
 """
 
 import os
@@ -25,23 +27,13 @@ import tempfile
 import glob
 import shutil
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
+# ====================== IMPORTS ======================
 import requests
-import rsa
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.action_chains import ActionChains
-from webdriver_manager.chrome import ChromeDriverManager
 import psutil
-from cryptography.fernet import Fernet
 
 # ====================== CONFIG ======================
 TOKEN = os.environ.get("TOKEN")
@@ -59,13 +51,18 @@ REGIONS = {
     "asia-southeast1": "🇸🇬 سنغافورة"
 }
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
 
 DB_PATH = "shadow_legion.db"
 
-# ====================== DATABASE ======================
+# ====================== DATABASE (قاعدة البيانات) ======================
 def init_db():
+    """تهيئة قاعدة البيانات وإنشاء الجداول إذا لم تكن موجودة"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.executescript("""
@@ -89,22 +86,47 @@ def init_db():
             deployed_at TIMESTAMP,
             success INTEGER DEFAULT 1
         );
+        CREATE TABLE IF NOT EXISTS sessions (
+            user_id INTEGER PRIMARY KEY,
+            refresh_token TEXT,
+            access_token TEXT,
+            expires_at TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            action TEXT,
+            details TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.commit()
     conn.close()
-    logger.info("✅ قاعدة البيانات جاهزة")
+    logger.info("✅ قاعدة البيانات جاهزة (تم إنشاء 4 جداول)")
 
 def get_user(user_id):
+    """جلب بيانات المستخدم من قاعدة البيانات"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     conn.close()
     if row:
-        return {"user_id": row[0], "email": row[1], "password": row[2], "lab_url": row[3], "last_deploy": row[4], "deploy_count": row[5], "status": row[6], "last_result": row[7], "region": row[8]}
+        return {
+            "user_id": row[0],
+            "email": row[1],
+            "password": row[2],
+            "lab_url": row[3],
+            "last_deploy": row[4],
+            "deploy_count": row[5],
+            "status": row[6],
+            "last_result": row[7],
+            "region": row[8]
+        }
     return None
 
 def update_user(user_id, **kwargs):
+    """تحديث بيانات المستخدم في قاعدة البيانات"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     existing = get_user(user_id)
@@ -113,89 +135,111 @@ def update_user(user_id, **kwargs):
             if val is not None:
                 c.execute(f"UPDATE users SET {key} = ? WHERE user_id = ?", (val, user_id))
     else:
-        c.execute("INSERT INTO users (user_id, email, password, region, last_deploy) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)", 
-                  (user_id, kwargs.get('email', ''), kwargs.get('password', ''), kwargs.get('region', DEFAULT_REGION)))
+        c.execute(
+            "INSERT INTO users (user_id, email, password, region, last_deploy) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            (user_id, kwargs.get('email', ''), kwargs.get('password', ''), kwargs.get('region', DEFAULT_REGION))
+        )
     conn.commit()
     conn.close()
 
+def log_action(user_id, action, details=""):
+    """تسجيل حدث في قاعدة البيانات للسجلات"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)", (user_id, action, details))
+    conn.commit()
+    conn.close()
+    logger.info(f"📝 تم تسجيل حدث: {action} للمستخدم {user_id}")
+
+def get_history(user_id, limit=10):
+    """جلب سجل عمليات النشر للمستخدم"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT lab_url, service_url, vless_link, deployed_at, success FROM history WHERE user_id = ? ORDER BY deployed_at DESC LIMIT ?",
+        (user_id, limit)
+    )
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
 init_db()
 
-# ====================== EXTRACTORS ======================
+# ====================== EXTRACTORS (استخراج البيانات من الرابط) ======================
 def extract_project_id(link):
+    """استخراج project_id من الرابط (حتى لو كان مشفراً)"""
     decoded = urllib.parse.unquote(link)
     match = re.search(r'[?&]project=([^&]+)', decoded)
-    if match: return match.group(1)
+    if match:
+        return match.group(1)
     match = re.search(r'project%3D([^&]+)', link)
-    if match: return match.group(1)
+    if match:
+        return match.group(1)
+    return None
+
+def extract_token(link):
+    """استخراج token من الرابط (حتى لو كان مشفراً)"""
+    decoded = urllib.parse.unquote(link)
+    match = re.search(r'token=([^&]+)', decoded)
+    if match:
+        return match.group(1)
+    match = re.search(r'token%3D([^&]+)', link)
+    if match:
+        return match.group(1)
+    return None
+
+def extract_email(link):
+    """استخراج البريد الإلكتروني من الرابط"""
+    decoded = urllib.parse.unquote(link)
+    match = re.search(r'[Ee]mail=([^&]+)', decoded)
+    if match:
+        return urllib.parse.unquote(match.group(1))
+    match = re.search(r'Email%3D([^&]+)', link)
+    if match:
+        return urllib.parse.unquote(match.group(1))
     return None
 
 def extract_from_link(link):
+    """استخراج جميع البيانات المهمة من الرابط (project_id, token, email)"""
     data = {}
     data['project_id'] = extract_project_id(link) or ''
-    decoded = urllib.parse.unquote(link)
-    match = re.search(r'[Ee]mail=([^&]+)', decoded)
-    if match: data['email'] = urllib.parse.unquote(match.group(1))
-    match = re.search(r'token=([^&]+)', decoded)
-    if match: data['token'] = match.group(1)
+    data['token'] = extract_token(link) or ''
+    data['email'] = extract_email(link) or ''
     return data
 
+def is_valid_url(url):
+    """التحقق من صحة الرابط (يبدأ بـ http)"""
+    return url.startswith('http://') or url.startswith('https://')
+
+# ====================== VLESS BUILDER (بناء رابط VLESS) ======================
 def build_vless_response(service_url, region):
+    """بناء رابط VLESS من رابط الخدمة"""
     host = service_url.replace('https://', '').replace('http://', '')
     uid = hashlib.md5(b"shadow_v105").hexdigest()
     uid = f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:32]}"
-    vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
-    return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الـ Cloud Run**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
+    vless = (
+        f"vless://{uid}@{host}:443"
+        f"?encryption=none&security=tls&sni=youtube.com&fp=chrome"
+        f"&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
+    )
+    result_msg = (
+        f"✅ **تم النشر!**\n"
+        f"🌍 المنطقة: {REGIONS.get(region, region)}\n"
+        f"🌐 **رابط الـ Cloud Run**\n{service_url}\n\n"
+        f"🔗 **VLESS URL**\n{vless}"
+    )
+    return result_msg, service_url, vless
 
-# ====================== CHROME DRIVER ======================
-def get_chrome_driver():
-    options = Options()
-    options.add_argument('--headless=new')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--incognito')
-    options.add_argument('--window-size=1920,1080')
-    options.add_argument('--disable-software-rasterizer')
-    options.add_argument('--disable-extensions')
-    options.add_argument('--disable-setuid-sandbox')
-    options.add_argument('--remote-debugging-port=9222')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_experimental_option('excludeSwitches', ['enable-automation'])
-    options.add_experimental_option('useAutomationExtension', False)
-    
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-    driver.set_page_load_timeout(60)
-    driver.implicitly_wait(10)
-    return driver
-
-# ====================== دوال API ======================
-def create_service_account_api(project_id, token):
-    url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    body = {"accountId": "shadow-bot", "serviceAccount": {"displayName": "shadow-bot"}}
-    r = requests.post(url, headers=headers, json=body)
-    if r.status_code in [200, 201]:
-        return r.json()["email"]
-    if r.status_code == 409:
-        get_url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts/shadow-bot@{project_id}.iam.gserviceaccount.com"
-        get_r = requests.get(get_url, headers=headers)
-        if get_r.status_code == 200:
-            return get_r.json()["email"]
-    raise Exception(f"فشل API (الكود {r.status_code}): {r.text}")
-
-def create_service_account_key_api(project_id, email, token):
-    url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts/{email}/keys"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    body = {"keyType": "JSON"}
-    r = requests.post(url, headers=headers, json=body)
-    if r.status_code in [200, 201]:
-        key_data = r.json()["privateKeyData"]
-        return base64.b64decode(key_data).decode('utf-8')
-    raise Exception(f"فشل Key API (الكود {r.status_code}): {r.text}")
-
-def deploy_raw_token(project_id, token, region):
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+# ====================== DEPLOY (النشر المباشر) ======================
+def deploy_direct(project_id, token, region):
+    """
+    نشر الخدمة مباشرة على Cloud Run باستخدام token من الرابط.
+    هذه هي الطريقة الوحيدة المعتمدة في هذه النسخة.
+    """
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
     service_name = f"shadow-{int(time.time())}"
     body = {
         "apiVersion": "serving.knative.dev/v1",
@@ -204,330 +248,43 @@ def deploy_raw_token(project_id, token, region):
         "spec": {
             "template": {
                 "spec": {
-                    "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
+                    "containers": [
+                        {
+                            "image": "ajndjd2/ahmed-vip1",
+                            "ports": [{"containerPort": 8080}]
+                        }
+                    ]
                 }
             }
         }
     }
     url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
+    
+    logger.info(f"🚀 جاري النشر إلى المنطقة: {region}")
     r = requests.post(url, headers=headers, json=body, timeout=60)
-    if r.status_code == 401:
-        raise Exception("RANELI")
+    
     if r.status_code in (200, 201):
         service_url = r.json().get('status', {}).get('url')
         if service_url:
+            logger.info(f"✅ تم النشر بنجاح: {service_url}")
             return build_vless_response(service_url, region)
-    raise Exception(f"فشل النشر: {r.status_code}")
+        else:
+            raise Exception("تم النشر ولكن لم يتم العثور على رابط الخدمة")
+    elif r.status_code == 401:
+        raise Exception("⚠️ الرابط منتهي الصلاحية (401). يرجى الحصول على رابط جديد من Qwiklabs.")
+    elif r.status_code == 403:
+        raise Exception("⚠️ ليس لديك صلاحية النشر في هذا المشروع (403). تأكد من صلاحيات الحساب.")
+    elif r.status_code == 404:
+        raise Exception("⚠️ المشروع غير موجود (404). تأكد من project_id في الرابط.")
+    else:
+        raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
 
-# ====================== Selenium المحسّن بشكل كبير ======================
-def deploy_with_selenium(lab_url, email, password, region, send_message):
-    driver = None
-    max_retries = 2
-    
-    link_data = extract_from_link(lab_url)
-    project_id = link_data.get('project_id')
-    token = link_data.get('token')
-    
-    if not project_id:
-        raise Exception("project_id مفقود")
-    
-    # =========================================================
-    # 🔥 المحاولة الأولى: API (كما كانت)
-    # =========================================================
-    if token:
-        try:
-            send_message("🔧 **محاولة إنشاء حساب الخدمة عبر API...**")
-            service_account_email = create_service_account_api(project_id, token)
-            send_message(f"✅ **تم إنشاء حساب الخدمة:** `{service_account_email}`")
-            
-            send_message("📄 **جاري تنزيل مفتاح JSON عبر API...**")
-            key_json = create_service_account_key_api(project_id, service_account_email, token)
-            creds = json.loads(key_json)
-            
-            send_message("🔐 **جاري إنشاء JWT Token...**")
-            def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
-            now = int(time.time())
-            claims = {
-                "iss": creds["client_email"],
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "aud": "https://oauth2.googleapis.com/token",
-                "exp": now + 3600,
-                "iat": now
-            }
-            header = {"alg": "RS256", "typ": "JWT"}
-            segments = [b64url(json.dumps(header).encode()), b64url(json.dumps(claims).encode())]
-            signing_input = ".".join(segments).encode()
-            key = rsa.PrivateKey.load_pkcs1(creds["private_key"].encode())
-            signature = rsa.sign(signing_input, key, "SHA-256")
-            segments.append(b64url(signature))
-            jwt = ".".join(segments)
-
-            send_message("🔄 **جاري الحصول على Access Token...**")
-            resp = requests.post(
-                "https://oauth2.googleapis.com/token",
-                data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
-                timeout=30
-            )
-            if resp.status_code != 200:
-                raise Exception(f"فشل Token: {resp.status_code}")
-            token = resp.json().get("access_token")
-            if not token:
-                raise Exception("لا يوجد access_token")
-
-            send_message("🚀 **جاري نشر الخدمة على Cloud Run...**")
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            service_name = f"shadow-{int(time.time())}"
-            body = {
-                "apiVersion": "serving.knative.dev/v1",
-                "kind": "Service",
-                "metadata": {"name": service_name},
-                "spec": {
-                    "template": {
-                        "spec": {
-                            "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
-                        }
-                    }
-                }
-            }
-            url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-            r = requests.post(url, headers=headers, json=body, timeout=60)
-            if r.status_code not in (200, 201):
-                raise Exception(f"فشل النشر: {r.status_code}")
-            service_url = r.json().get('status', {}).get('url')
-            if not service_url:
-                raise Exception("لا يوجد رابط للخدمة")
-
-            return build_vless_response(service_url, region)
-            
-        except Exception as e:
-            send_message(f"⚠️ **فشلت طريقة API (السبب: {str(e)[:100]}). جاري التبديل إلى Selenium...**")
-    
-    # =========================================================
-    # 🔥 الطريقة الرسومية (Selenium) – محسّنة جداً
-    # =========================================================
-    for attempt in range(max_retries):
-        try:
-            send_message(f"🌐 **محاولة Selenium {attempt+1} من {max_retries}...**")
-            driver = get_chrome_driver()
-            wait = WebDriverWait(driver, 60)  # زيادة الانتظار إلى 60 ثانية
-
-            send_message("📧 **جاري إدخال البريد الإلكتروني...**")
-            driver.get("https://accounts.google.com/")
-            wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
-            time.sleep(3)
-            
-            send_message("🔑 **جاري إدخال كلمة المرور...**")
-            wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
-            time.sleep(6)
-
-            send_message("☁️ **جاري تمكين Cloud Run API...**")
-            driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
-            time.sleep(5)
-            try:
-                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Enable')]"))).click()
-                time.sleep(5)
-            except:
-                pass
-
-            send_message("👤 **جاري إنشاء حساب الخدمة (طريقة Selenium)...**")
-            driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-            time.sleep(8)  # انتظار إضافي لتحميل الصفحة
-            
-            # إغلاق أي نافذة منبثقة
-            try:
-                close_btn = driver.find_element(By.XPATH, "//*[@aria-label='Close' or contains(text(), 'Dismiss')]")
-                close_btn.click()
-                time.sleep(2)
-            except:
-                pass
-
-            # قائمة موسعة من المحددات للزر
-            selectors = [
-                "//*[contains(text(), 'Create Service Account')]",
-                "//*[contains(text(), 'CREATE SERVICE ACCOUNT')]",
-                "button[aria-label='Create Service Account']",
-                "//*[@role='button' and contains(., 'Create')]",
-                "//*[contains(@class, 'create-service-account')]",
-                "//*[@jsname='...']",  # بعض المعرفات الديناميكية
-            ]
-            
-            create_button = None
-            for sel in selectors:
-                try:
-                    if sel.startswith("//"):
-                        create_button = wait.until(EC.element_to_be_clickable((By.XPATH, sel)))
-                    else:
-                        create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, sel)))
-                    break
-                except:
-                    continue
-            
-            # إذا لم يتم العثور عليه، حاول البحث عن زر يحتوي على "Create" في أي مكان
-            if not create_button:
-                # البحث عن جميع الأزرار التي تحتوي على "Create"
-                buttons = driver.find_elements(By.XPATH, "//*[@role='button' and contains(., 'Create')]")
-                if buttons:
-                    create_button = buttons[0]
-                else:
-                    # جرب البحث عن أي عنصر يحتوي على النص "Create" ويمكن النقر عليه
-                    elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Create')]")
-                    for el in elements:
-                        try:
-                            if el.is_enabled() and el.is_displayed():
-                                create_button = el
-                                break
-                        except:
-                            continue
-            
-            if not create_button:
-                # المحاولة الأخيرة: استخدام JavaScript للبحث عن الزر
-                js_script = """
-                var buttons = document.querySelectorAll('button, [role="button"]');
-                for (var i=0; i<buttons.length; i++) {
-                    if (buttons[i].innerText.includes('Create') && buttons[i].offsetParent !== null) {
-                        return buttons[i];
-                    }
-                }
-                return null;
-                """
-                create_button = driver.execute_script(js_script)
-                if create_button:
-                    # نستخدم JavaScript للنقر مباشرة
-                    driver.execute_script("arguments[0].click();", create_button)
-                    create_button = None  # لمنع النقر مرة أخرى
-            
-            if not create_button:
-                raise Exception("لم نتمكن من العثور على زر 'Create Service Account' حتى بعد محاولات متعددة.")
-            
-            # النقر على الزر
-            try:
-                create_button.click()
-            except:
-                driver.execute_script("arguments[0].click();", create_button)
-            time.sleep(3)
-            
-            # إدخال اسم الحساب
-            wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
-            time.sleep(1)
-            
-            # النقر على زر CREATE في النافذة الأولى
-            try:
-                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create') and @type='submit']"))).click()
-            except:
-                # محاولة بديلة
-                driver.find_element(By.XPATH, "//*[contains(text(), 'Create')]").click()
-            time.sleep(3)
-            
-            # اختيار دور Cloud Run Admin
-            role_field = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@placeholder, 'Select a role')]")))
-            role_field.send_keys("Cloud Run Admin" + Keys.RETURN)
-            time.sleep(2)
-            
-            # النقر على زر DONE
-            try:
-                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
-            except:
-                driver.find_element(By.XPATH, "//*[contains(text(), 'Done')]").click()
-            time.sleep(4)
-
-            send_message("📄 **جاري تنزيل مفتاح JSON...**")
-            driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-            time.sleep(3)
-            account = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'shadow-bot')]")))
-            account.click()
-            time.sleep(3)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Keys')]"))).click()
-            time.sleep(3)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Add Key')]"))).click()
-            time.sleep(2)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create New Key')]"))).click()
-            time.sleep(2)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'JSON')]"))).click()
-            time.sleep(2)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
-            time.sleep(12)
-
-            download_dir = tempfile.gettempdir()
-            list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
-            if not list_of_files:
-                raise Exception("ملف JSON غير موجود")
-            latest_file = max(list_of_files, key=os.path.getctime)
-            with open(latest_file, 'r') as f:
-                creds = json.load(f)
-            os.remove(latest_file)
-            driver.quit()
-
-            send_message("🔐 **جاري إنشاء JWT Token...**")
-            def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
-            now = int(time.time())
-            claims = {
-                "iss": creds["client_email"],
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "aud": "https://oauth2.googleapis.com/token",
-                "exp": now + 3600,
-                "iat": now
-            }
-            header = {"alg": "RS256", "typ": "JWT"}
-            segments = [b64url(json.dumps(header).encode()), b64url(json.dumps(claims).encode())]
-            signing_input = ".".join(segments).encode()
-            key = rsa.PrivateKey.load_pkcs1(creds["private_key"].encode())
-            signature = rsa.sign(signing_input, key, "SHA-256")
-            segments.append(b64url(signature))
-            jwt = ".".join(segments)
-
-            send_message("🔄 **جاري الحصول على Access Token...**")
-            resp = requests.post(
-                "https://oauth2.googleapis.com/token",
-                data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
-                timeout=30
-            )
-            if resp.status_code != 200:
-                raise Exception(f"فشل Token: {resp.status_code}")
-            token = resp.json().get("access_token")
-            if not token:
-                raise Exception("لا يوجد access_token")
-
-            send_message("🚀 **جاري نشر الخدمة على Cloud Run...**")
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            service_name = f"shadow-{int(time.time())}"
-            body = {
-                "apiVersion": "serving.knative.dev/v1",
-                "kind": "Service",
-                "metadata": {"name": service_name},
-                "spec": {
-                    "template": {
-                        "spec": {
-                            "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
-                        }
-                    }
-                }
-            }
-            url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-            r = requests.post(url, headers=headers, json=body, timeout=60)
-            if r.status_code not in (200, 201):
-                raise Exception(f"فشل النشر: {r.status_code}")
-            service_url = r.json().get('status', {}).get('url')
-            if not service_url:
-                raise Exception("لا يوجد رابط للخدمة")
-
-            return build_vless_response(service_url, region)
-
-        except Exception as e:
-            if driver:
-                try: driver.quit()
-                except: pass
-            if attempt < max_retries - 1:
-                send_message(f"⚠️ **محاولة Selenium {attempt+1} فشلت، إعادة المحاولة خلال 10 ثوانٍ...**")
-                time.sleep(10)
-            else:
-                # إذا فشل كل شيء، نقدم رسالة توضيحية
-                raise Exception("فشل إنشاء حساب الخدمة حتى بعد المحاولات المتكررة. قد يكون مشروع Qwiklabs لا يسمح بإنشاء حسابات خدمة. يُرجى استخدام مشروع GCP حقيقي.")
-
-# ====================== QUEUE ======================
+# ====================== QUEUE (طابور المهام) ======================
 task_queue = queue.Queue()
 processing = False
 
 def process_queue():
+    """معالجة طلبات النشر من الطابور بشكل تسلسلي"""
     global processing
     while True:
         if not task_queue.empty() and not processing:
@@ -541,20 +298,26 @@ def process_queue():
                 loop = item['loop']
                 bot = context.bot
 
+                # تعريف دالة الإرسال مع مهلة
                 def send_message(text):
-                    time.sleep(1)
-                    asyncio.run_coroutine_threadsafe(bot.send_message(chat_id=user_id, text=text), loop)
+                    time.sleep(1)  # مهلة 1 ثانية بين الرسائل
+                    asyncio.run_coroutine_threadsafe(
+                        bot.send_message(chat_id=user_id, text=text),
+                        loop
+                    )
 
+                # ========== بدء التنفيذ ==========
                 send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**\nتم التحقق من صلاحية الرابط سيتم ربط الحساب وبدء عملية الإنشاء...")
                 time.sleep(1)
 
                 link_data = extract_from_link(link)
                 project_id = link_data.get('project_id', '')
                 token = link_data.get('token', '')
-                email = link_data.get('email', '')
 
                 if not project_id:
-                    raise Exception("❌ project_id مفقود.")
+                    raise Exception("❌ project_id مفقود في الرابط.")
+                if not token:
+                    raise Exception("❌ لا يوجد token في الرابط. الرابط غير صالح.")
 
                 send_message("🔍 **جاري تحليل سياسات المشروع لاستخراج المناطق المسموح بها...**")
                 time.sleep(1)
@@ -562,61 +325,48 @@ def process_queue():
 
                 send_message(f"🚀 **جاري نشر الخدمة على {REGIONS.get(region, region)}...**")
 
-                try:
-                    if token:
-                        result_msg, service_url, vless = deploy_raw_token(project_id, token, region)
-                        send_message(result_msg)
-                        conn = sqlite3.connect(DB_PATH)
-                        c = conn.cursor()
-                        c.execute("UPDATE users SET status='completed', last_result=? WHERE user_id=?", (result_msg, user_id))
-                        c.execute("INSERT INTO history (user_id, lab_url, service_url, vless_link, success) VALUES (?,?,?,?,1)", 
-                                  (user_id, link, service_url, vless))
-                        conn.commit()
-                        conn.close()
-                        continue
-                except Exception as e:
-                    if "RANELI" in str(e):
-                        send_message("⚠️ **الرمز المباشر منتهي الصلاحية، جاري التبديل إلى Selenium...**")
-                    else:
-                        raise e
+                # تنفيذ النشر المباشر
+                result_msg, service_url, vless = deploy_direct(project_id, token, region)
+                send_message("✅ **تم النشر بنجاح!**")
+                send_message(result_msg)
 
-                user = get_user(user_id)
-                saved_email = user.get('email') if user else None
-                saved_password = user.get('password') if user else None
-
-                if saved_email and saved_password:
-                    result_msg, service_url, vless = deploy_with_selenium(link, saved_email, saved_password, region, send_message)
-                    send_message("✅ **تم النشر بنجاح!**")
-                    send_message(result_msg)
-                    conn = sqlite3.connect(DB_PATH)
-                    c = conn.cursor()
-                    c.execute("UPDATE users SET status='completed', last_result=? WHERE user_id=?", (result_msg, user_id))
-                    c.execute("INSERT INTO history (user_id, lab_url, service_url, vless_link, success) VALUES (?,?,?,?,1)", 
-                              (user_id, link, service_url, vless))
-                    conn.commit()
-                    conn.close()
-                else:
-                    send_message("⚠️ **لا يوجد بريد وكلمة مرور محفوظان للدخول عبر Selenium.**\nاستخدم الأمر /set_creds لحفظ بيانات الدخول.")
-                    raise Exception("بيانات الدخول مفقودة")
-
-            except Exception as e:
-                send_message(f"❌ **فشل النشر:** {str(e)[:500]}")
+                # تحديث قاعدة البيانات
                 conn = sqlite3.connect(DB_PATH)
                 c = conn.cursor()
-                c.execute("UPDATE users SET status='error', last_result=? WHERE user_id=?", (str(e), user_id))
+                c.execute("UPDATE users SET status='completed', last_result=? WHERE user_id=?", (result_msg, user_id))
+                c.execute(
+                    "INSERT INTO history (user_id, lab_url, service_url, vless_link, success) VALUES (?,?,?,?,1)",
+                    (user_id, link, service_url, vless)
+                )
+                conn.commit()
+                conn.close()
+
+                log_action(user_id, "deploy_success", f"region={region}, service={service_url}")
+
+            except Exception as e:
+                error_msg = str(e)
+                send_message(f"❌ **فشل النشر:** {error_msg}")
+                # تحديث قاعدة البيانات بالفشل
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute("UPDATE users SET status='error', last_result=? WHERE user_id=?", (error_msg, user_id))
                 c.execute("INSERT INTO history (user_id, lab_url, success) VALUES (?,?,0)", (user_id, link))
                 conn.commit()
                 conn.close()
+                log_action(user_id, "deploy_failed", error_msg)
             finally:
                 processing = False
         time.sleep(2)
 
+# تشغيل الطابور في خيط منفصل
 threading.Thread(target=process_queue, daemon=True).start()
 
 # ====================== BOT HANDLERS ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر /start – عرض القائمة الرئيسية"""
     user_id = update.effective_user.id
     update_user(user_id)
+    log_action(user_id, "start_command", "user started bot")
     keyboard = [
         [InlineKeyboardButton("🚀 Deploy Cloud Run", callback_data='deploy')],
         [InlineKeyboardButton("📋 Status", callback_data='status')],
@@ -625,22 +375,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 النسخة النهائية مع Selenium فائق القوة\n"
+        "📡 النسخة الطويلة المتكاملة (نشر مباشر فقط)\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def set_creds(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    try:
-        email = context.args[0]
-        password = context.args[1]
-        update_user(user_id, email=email, password=password)
-        await update.message.reply_text("✅ تم حفظ البريد الإلكتروني وكلمة المرور بنجاح!")
-    except IndexError:
-        await update.message.reply_text("❌ الاستخدام: /set_creds <البريد> <كلمة_المرور>")
-
 async def deploy_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """زر النشر – اختيار المنطقة"""
     query = update.callback_query
     await query.answer()
     keyboard = [[InlineKeyboardButton(name, callback_data=f"region_{code}")] for code, name in REGIONS.items()]
@@ -649,6 +390,7 @@ async def deploy_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return 0
 
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """اختيار المنطقة والانتظار لاستقبال الرابط"""
     query = update.callback_query
     await query.answer()
     data = query.data
@@ -657,25 +399,34 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     region = data.replace("region_", "")
     context.user_data['region'] = region
-    await query.edit_message_text(f"✅ **المنطقة:** {REGIONS.get(region, region)}\n\n🔗 أرسل رابط SSO الآن.")
+    await query.edit_message_text(
+        f"✅ **المنطقة:** {REGIONS.get(region, region)}\n\n🔗 أرسل رابط SSO الآن."
+    )
     return 1
 
 async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """استقبال الرابط وإضافته إلى الطابور"""
     user_id = update.effective_user.id
     link = update.message.text
     region = context.user_data.get('region', DEFAULT_REGION)
 
-    if not link.startswith('http'):
-        await update.message.reply_text("❌ رابط غير صحيح.")
+    if not is_valid_url(link):
+        await update.message.reply_text("❌ رابط غير صحيح (يجب أن يبدأ بـ http أو https).")
         return 1
 
     project_id = extract_project_id(link)
     if not project_id:
-        await update.message.reply_text("❌ الرابط لا يحتوي على project_id.")
+        await update.message.reply_text("❌ الرابط لا يحتوي على project_id صالح.")
+        return 1
+
+    token = extract_token(link)
+    if not token:
+        await update.message.reply_text("❌ الرابط لا يحتوي على token صالح.")
         return 1
 
     main_loop = asyncio.get_running_loop()
 
+    # إضافة المهمة إلى الطابور
     task_queue.put({
         'user_id': user_id,
         'link': link,
@@ -693,33 +444,53 @@ async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def cancel_operation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إلغاء العملية الحالية"""
     context.user_data.clear()
     await update.message.reply_text("❌ تم الإلغاء.")
     return ConversationHandler.END
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر /status – عرض حالة المستخدم"""
     user_id = update.effective_user.id
     user = get_user(user_id)
     if not user:
-        await update.message.reply_text("❌ لا توجد بيانات.")
+        await update.message.reply_text("❌ لا توجد بيانات لهذا المستخدم.")
         return
+
+    history = get_history(user_id, 3)
+    history_text = "\n".join([
+        f"• {h[3]} → {'✅ نجاح' if h[4] else '❌ فشل'}"
+        for h in history
+    ]) if history else "لا يوجد سجل."
+
     await update.message.reply_text(
         f"📋 **حالتك**\n\n"
         f"📧 البريد: {user.get('email', 'غير مضبوط')}\n"
         f"🌍 المنطقة: {REGIONS.get(user.get('region'), user.get('region'))}\n"
         f"📊 عدد النشر: {user.get('deploy_count', 0)}\n"
         f"🔄 الحالة: {user.get('status', 'idle')}\n"
-        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}"
+        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}\n\n"
+        f"📜 **آخر 3 عمليات:**\n{history_text}"
     )
 
 async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر System Info – عرض معلومات النظام"""
     query = update.callback_query
     await query.answer()
-    info = {"OS": platform.system(), "Release": platform.release(), "Arch": platform.machine(), "CPU": psutil.cpu_percent(), "RAM": psutil.virtual_memory().percent(), "Disk": psutil.disk_usage('/').percent}
+    info = {
+        "OS": platform.system(),
+        "Release": platform.release(),
+        "Arch": platform.machine(),
+        "CPU": psutil.cpu_percent(),
+        "RAM": psutil.virtual_memory().percent,
+        "Disk": psutil.disk_usage('/').percent,
+        "Python": sys.version.split()[0],
+    }
     result = "🖥️ **معلومات النظام**\n" + "\n".join([f"{k}: {v}" for k, v in info.items()])
     await query.edit_message_text(result)
 
 async def change_region_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تغيير المنطقة الافتراضية للمستخدم"""
     query = update.callback_query
     if query:
         await query.answer()
@@ -732,6 +503,7 @@ async def change_region_command(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def set_region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تأكيد تغيير المنطقة"""
     query = update.callback_query
     await query.answer()
     region = query.data.replace("setregion_", "")
@@ -744,15 +516,23 @@ async def set_region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await start(update, context)
 
 async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """العودة إلى القائمة الرئيسية"""
     await start(update, context)
 
 # ====================== MAIN ======================
 def main():
+    """الدالة الرئيسية لتشغيل البوت"""
+    if not TOKEN:
+        logger.error("❌ لم يتم تعيين TOKEN. تأكد من متغيرات البيئة.")
+        sys.exit(1)
+
     app = ApplicationBuilder().token(TOKEN).build()
+
+    # الأوامر الأساسية
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status_command))
-    app.add_handler(CommandHandler("set_creds", set_creds))
 
+    # محادثة النشر (اختيار المنطقة + استقبال الرابط)
     deploy_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(deploy_button, pattern='^deploy$')],
         states={
@@ -762,12 +542,14 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel_operation)]
     )
     app.add_handler(deploy_conv)
+
+    # CallbackQueryHandlers
     app.add_handler(CallbackQueryHandler(change_region_command, pattern='^change_region$'))
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING (نسخة Selenium فائقة القوة)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING (النسخة الطويلة المتكاملة)")
     app.run_polling()
 
 if __name__ == "__main__":
