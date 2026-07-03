@@ -2,44 +2,19 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 THE ARCHITECT // ULTIMATE BOT v40.0 (SSO EDITION)
-🚀 بوت يعمل برابط واحد فقط (SSO) – يقوم بكل شيء تلقائياً.
-📡 صُمم خصيصاً لمختبرات Qwiklabs المؤقتة.
+🔥 THE ARCHITECT // ULTIMATE BOT v41.0 (PRODUCTION READY)
+🚀 بوت متطور يعمل على Railway – يتعامل مع صلاحية الروابط ويعيد المحاولة تلقائياً.
 """
 
-import os
-import sys
-import time
-import re
-import json
-import base64
-import hashlib
-import tempfile
-import glob
-import threading
-import queue
-import subprocess
-import logging
-import sqlite3
-import urllib.parse
-import random
-import string
+import os, sys, time, re, json, base64, hashlib, tempfile, glob, threading, queue, subprocess, logging, sqlite3, urllib.parse
 from datetime import datetime, timedelta
 from flask import Flask
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-    ConversationHandler
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 # ============================================================
-# 1. إعدادات التسجيل (Logging)
+# 1. إعدادات التسجيل
 # ============================================================
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -48,33 +23,29 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# 2. الإعدادات الأساسية (متغيرات البيئة)
+# 2. الإعدادات الأساسية
 # ============================================================
 TOKEN = os.environ.get("TOKEN", "توكن_التاعك_هنا")
 DEFAULT_EMAIL = os.environ.get("EMAIL", "")
 DEFAULT_PASSWORD = os.environ.get("PASSWORD", "")
 MAX_RETRIES = 3
-TIMEOUT = 90
+SESSION_TIMEOUT = 600  # 10 دقائق
 
 # ============================================================
 # 3. خادم Flask (Keep-Alive)
 # ============================================================
 flask_app = Flask('')
-
 @flask_app.route('/')
-def home():
-    return "✅ THE ARCHITECT // BOT IS ALIVE"
-
+def home(): return "✅ THE ARCHITECT // BOT IS ALIVE"
 @flask_app.route('/health')
-def health():
-    return "OK", 200
+def health(): return "OK", 200
 
 def keep_alive():
     Thread(target=lambda: flask_app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)).start()
-    logger.info("✅ Flask keep-alive server started.")
+    logger.info("✅ Flask keep-alive started.")
 
 # ============================================================
-# 4. تثبيت المكتبات المطلوبة (تشغيل تلقائي)
+# 4. تثبيت المكتبات تلقائياً
 # ============================================================
 def install_pkg(pkg):
     try:
@@ -100,7 +71,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import requests, rsa
 
 # ============================================================
-# 5. قاعدة البيانات (SQLite)
+# 5. قاعدة البيانات
 # ============================================================
 DB_PATH = "users.db"
 
@@ -128,8 +99,7 @@ def init_db():
             service_url TEXT,
             vless_link TEXT,
             deployed_at TIMESTAMP,
-            success INTEGER DEFAULT 1,
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
+            success INTEGER DEFAULT 1
         )
     ''')
     conn.commit()
@@ -144,19 +114,13 @@ def get_user(user_id):
     conn.close()
     if row:
         return {
-            "user_id": row[0],
-            "email": row[1],
-            "password": row[2],
-            "lab_url": row[3],
-            "last_deploy": row[4],
-            "deploy_count": row[5],
-            "status": row[6],
-            "last_result": row[7],
-            "region": row[8]
+            "user_id": row[0], "email": row[1], "password": row[2],
+            "lab_url": row[3], "last_deploy": row[4], "deploy_count": row[5],
+            "status": row[6], "last_result": row[7], "region": row[8]
         }
     return None
 
-def create_or_update_user(user_id, email=None, password=None, lab_url=None, region="europe-west1"):
+def create_or_update_user(user_id, **kwargs):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     existing = get_user(user_id)
@@ -169,24 +133,21 @@ def create_or_update_user(user_id, email=None, password=None, lab_url=None, regi
                 region = COALESCE(?, region),
                 last_deploy = CURRENT_TIMESTAMP
             WHERE user_id = ?
-        ''', (email, password, lab_url, region, user_id))
+        ''', (kwargs.get('email'), kwargs.get('password'), kwargs.get('lab_url'), kwargs.get('region'), user_id))
     else:
         c.execute('''
             INSERT INTO users (user_id, email, password, lab_url, region, last_deploy)
             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ''', (user_id, email or DEFAULT_EMAIL, password or DEFAULT_PASSWORD, lab_url, region))
+        ''', (user_id, kwargs.get('email') or DEFAULT_EMAIL, kwargs.get('password') or DEFAULT_PASSWORD,
+              kwargs.get('lab_url'), kwargs.get('region') or "europe-west1"))
     conn.commit()
     conn.close()
-    logger.info(f"✅ تم تحديث بيانات المستخدم {user_id}")
 
 def update_user_status(user_id, status, last_result=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''
-        UPDATE users SET
-            status = ?,
-            last_result = ?,
-            deploy_count = deploy_count + 1
+        UPDATE users SET status = ?, last_result = ?, deploy_count = deploy_count + 1
         WHERE user_id = ?
     ''', (status, last_result, user_id))
     conn.commit()
@@ -202,27 +163,12 @@ def add_history(user_id, lab_url, service_url, vless_link, success=1):
     conn.commit()
     conn.close()
 
-def get_user_history(user_id, limit=10):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        SELECT lab_url, service_url, vless_link, deployed_at, success
-        FROM history
-        WHERE user_id = ?
-        ORDER BY deployed_at DESC
-        LIMIT ?
-    ''', (user_id, limit))
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
 init_db()
 
 # ============================================================
-# 6. دوال التشفير والنشر (مع دعم SSO)
+# 6. دوال التشفير والنشر
 # ============================================================
-def b64url(d):
-    return base64.urlsafe_b64encode(d).decode().rstrip("=")
+def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
 
 def generate_vless(service_url):
     host = service_url.replace('https://', '').replace('http://', '')
@@ -247,7 +193,7 @@ def create_jwt(creds):
     segments.append(b64url(signature))
     return ".".join(segments)
 
-def get_access_token_from_creds(creds):
+def get_access_token(creds):
     jwt = create_jwt(creds)
     resp = requests.post(
         "https://oauth2.googleapis.com/token",
@@ -255,7 +201,7 @@ def get_access_token_from_creds(creds):
         timeout=30
     )
     if resp.status_code != 200:
-        raise Exception(f"فشل الحصول على Token: {resp.status_code}")
+        raise Exception(f"فشل Token: {resp.status_code}")
     return resp.json().get("access_token")
 
 def deploy_via_rest_api(project_id, token):
@@ -278,43 +224,43 @@ def deploy_via_rest_api(project_id, token):
     }
     url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/europe-west1/services"
     r = requests.post(url, headers=headers, json=body, timeout=60)
-    if r.status_code not in (200, 201):
+    if r.status_code in (200, 201):
+        return r.json().get('status', {}).get('url')
+    elif r.status_code == 403:
+        raise Exception("❌ رابط منتهي الصلاحية أو صلاحية غير كافية. يرجى إرسال رابط جديد.")
+    else:
         raise Exception(f"فشل النشر: {r.status_code}")
-    return r.json().get('status', {}).get('url')
 
 def extract_from_link(link):
     data = {}
     match = re.search(r'project=([^&]+)', link)
-    if match:
-        data['project_id'] = match.group(1)
+    if match: data['project_id'] = match.group(1)
     match = re.search(r'Email=([^&]+)', link)
-    if match:
-        data['email'] = urllib.parse.unquote(match.group(1))
+    if match: data['email'] = urllib.parse.unquote(match.group(1))
     match = re.search(r'token=([^&]+)', link)
-    if match:
-        data['token'] = match.group(1)
+    if match: data['token'] = match.group(1)
     return data
 
-# ============================================================
-# 7. دالة النشر الرئيسية (SSO + Selenium fallback)
-# ============================================================
 def deploy_with_sso(link_data):
+    """النشر مع اكتشاف انتهاء صلاحية الرابط وإعادة المحاولة."""
     project_id = link_data.get('project_id')
     email = link_data.get('email')
     token = link_data.get('token')
     if not project_id:
         raise Exception("الرابط لا يحتوي على project_id")
 
-    # محاولة النشر باستخدام token مباشرة
+    # 1. محاولة النشر باستخدام token مباشرة
     if token:
         try:
             service_url = deploy_via_rest_api(project_id, token)
             vless = generate_vless(service_url)
             return (f"✅ **تم النشر!**\n🌐 {service_url}\n🔗 VLESS:\n`{vless}`", service_url, vless)
         except Exception as e:
+            if "منتهي الصلاحية" in str(e):
+                raise Exception("❌ الرابط منتهي الصلاحية. يرجى إرسال رابط جديد.")
             logger.warning(f"فشل النشر باستخدام token: {e}")
 
-    # إذا فشل token أو لم يكن موجوداً، نستخدم Selenium مع البريد وكلمة المرور
+    # 2. استخدام Selenium مع البريد وكلمة المرور
     email = email or DEFAULT_EMAIL
     password = DEFAULT_PASSWORD
     if not email or not password:
@@ -389,7 +335,6 @@ def deploy_with_sso(link_data):
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
         time.sleep(4)
 
-        # قراءة الملف
         list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
         if not list_of_files:
             raise Exception("لم نتمكن من العثور على ملف JSON.")
@@ -400,8 +345,8 @@ def deploy_with_sso(link_data):
         driver.quit()
 
         # النشر عبر REST API
-        token = get_access_token_from_creds(creds)
-        service_url = deploy_via_rest_api(project_id, token)
+        access_token = get_access_token(creds)
+        service_url = deploy_via_rest_api(project_id, access_token)
         vless = generate_vless(service_url)
         return (f"✅ **تم النشر!**\n🌐 {service_url}\n🔗 VLESS:\n`{vless}`", service_url, vless)
 
@@ -412,7 +357,7 @@ def deploy_with_sso(link_data):
         raise e
 
 # ============================================================
-# 8. نظام الطابور (Queue)
+# 7. نظام الطابور المتقدم
 # ============================================================
 task_queue = queue.Queue()
 processing = False
@@ -429,8 +374,11 @@ def process_queue():
                 result_msg, service_url, vless_link = deploy_with_sso(link_data)
                 update_user_status(user_id, 'completed', result_msg)
                 add_history(user_id, link, service_url, vless_link, success=1)
+                logger.info(f"✅ تم النشر للمستخدم {user_id}")
             except Exception as e:
-                error_msg = f"❌ فشل النشر: {str(e)}"
+                error_msg = str(e)
+                if "منتهي الصلاحية" in error_msg:
+                    error_msg = "❌ الرابط منتهي الصلاحية. يرجى إرسال رابط جديد عبر الزر."
                 logger.error(error_msg)
                 update_user_status(user_id, 'error', error_msg)
                 add_history(user_id, link, None, None, success=0)
@@ -441,12 +389,11 @@ def process_queue():
 Thread(target=process_queue, daemon=True).start()
 
 # ============================================================
-# 9. واجهة البوت (زر واحد + لوجو)
+# 8. واجهة البوت
 # ============================================================
 async def start(update: Update, context):
     user_id = update.effective_user.id
     create_or_update_user(user_id)
-
     logo = """
     █████╗ ██████╗  ██████╗██╗  ██╗██╗████████╗ ██████╗██╗   ██╗██╗  ██╗
    ██╔══██╗██╔══██╗██╔════╝██║  ██║██║╚══██╔══╝██╔════╝██║   ██║╚██╗██╔╝
@@ -459,9 +406,10 @@ async def start(update: Update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         f"`{logo}`\n\n"
-        "🔥 **THE ARCHITECT // v40.0**\n"
+        "🔥 **THE ARCHITECT // v41.0**\n"
         "📡 **أرسل رابط مختبر Google Skills** (SSO).\n"
-        "سأنشر الخدمة تلقائياً.",
+        "سأنشر الخدمة تلقائياً.\n\n"
+        "💡 إذا ظهرت رسالة 'رابط منتهي'، فقط أرسل رابطاً جديداً.",
         parse_mode='Markdown',
         reply_markup=reply_markup
     )
@@ -501,7 +449,7 @@ async def receive_lab(update: Update, context):
     return ConversationHandler.END
 
 # ============================================================
-# 10. أوامر إضافية (حالة، تاريخ، مساعدة)
+# 9. أوامر إضافية
 # ============================================================
 async def status_command(update: Update, context):
     user_id = update.effective_user.id
@@ -509,59 +457,50 @@ async def status_command(update: Update, context):
     if not user:
         await update.message.reply_text("❌ لا توجد بيانات لك.")
         return
-    status_text = (
+    await update.message.reply_text(
         f"📋 **حالتك**\n\n"
         f"📧 البريد: `{user.get('email')}`\n"
         f"🌍 المنطقة: `{user.get('region')}`\n"
         f"📊 عدد عمليات النشر: `{user.get('deploy_count', 0)}`\n"
         f"🔄 الحالة: `{user.get('status', 'idle')}`\n"
-        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}"
+        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}",
+        parse_mode='Markdown'
     )
-    await update.message.reply_text(status_text, parse_mode='Markdown')
 
 async def history_command(update: Update, context):
     user_id = update.effective_user.id
-    history = get_user_history(user_id, limit=5)
-    if not history:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        SELECT lab_url, service_url, vless_link, deployed_at, success
+        FROM history WHERE user_id = ? ORDER BY deployed_at DESC LIMIT 5
+    ''', (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    if not rows:
         await update.message.reply_text("📜 لا يوجد سجل نشر.")
         return
     lines = ["📜 **آخر عمليات النشر:**"]
-    for i, (lab_url, service_url, vless_link, deployed_at, success) in enumerate(history, 1):
+    for i, (lab_url, service_url, vless_link, deployed_at, success) in enumerate(rows, 1):
         status_icon = "✅" if success else "❌"
         lines.append(f"{i}. {status_icon} `{lab_url[:60]}...`\n   {deployed_at}")
     await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
 
-async def help_command(update: Update, context):
-    await update.message.reply_text(
-        "❓ **المساعدة**\n\n"
-        "1️⃣ أرسل `/start` لبدء البوت.\n"
-        "2️⃣ اضغط على '🚀 تشغيل خدمة سريعة'.\n"
-        "3️⃣ أرسل رابط مختبر Google Skills (SSO).\n"
-        "4️⃣ انتظر 2-3 دقائق – ستحصل على رابط VLESS.\n\n"
-        "📌 يمكنك أيضاً:\n"
-        "- عرض حالتك (`/status`)\n"
-        "- عرض سجل النشر (`/history`)"
-    )
-
 # ============================================================
-# 11. تشغيل البوت
+# 10. تشغيل البوت
 # ============================================================
 def main():
     keep_alive()
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("history", history_command))
-    app.add_handler(CommandHandler("help", help_command))
-
     conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(deploy_button, pattern='deploy')],
         states={0: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_lab)]},
         fallbacks=[]
     )
     app.add_handler(conv)
-
     logger.info("✅ البوت جاهز. استخدم /start.")
     app.run_polling()
 
