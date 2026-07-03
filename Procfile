@@ -1,1 +1,2 @@
-pythononpbotn
+
+worker: python bot.py
