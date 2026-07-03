@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – النسخة الأصلية العاملة + تحسين إنشاء حساب الخدمة
-مع مهلة بين الرسائل وآلية إعادة المحاولة
+🔥 SHADOW LEGION v105.0 – النسخة النهائية مع إنشاء حساب الخدمة عبر API
+حل جذري لمشكلة "فشل إنشاء حساب الخدمة" باستخدام REST API أولاً
 """
 
 import os
@@ -169,7 +169,38 @@ def get_chrome_driver():
     driver.implicitly_wait(10)
     return driver
 
-# ====================== DEPLOY (بالمحددات الأصلية التي تعمل) ======================
+# ====================== دوال API لإنشاء حساب الخدمة والمفتاح (الحل الجذري) ======================
+def create_service_account_api(project_id, token):
+    """إنشاء حساب خدمة عبر REST API (يتجاوز الواجهة الرسومية)"""
+    url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    body = {
+        "accountId": "shadow-bot",
+        "serviceAccount": {"displayName": "shadow-bot"}
+    }
+    r = requests.post(url, headers=headers, json=body)
+    if r.status_code in [200, 201]:
+        return r.json()["email"]
+    if r.status_code == 409:
+        # الحساب موجود بالفعل، نحاول جلب بريده الإلكتروني
+        get_url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts/shadow-bot@{project_id}.iam.gserviceaccount.com"
+        get_r = requests.get(get_url, headers=headers)
+        if get_r.status_code == 200:
+            return get_r.json()["email"]
+    raise Exception(f"فشل إنشاء حساب الخدمة عبر API (الكود {r.status_code}): {r.text}")
+
+def create_service_account_key_api(project_id, email, token):
+    """إنشاء مفتاح JSON لحساب الخدمة عبر REST API"""
+    url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts/{email}/keys"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    body = {"keyType": "JSON"}
+    r = requests.post(url, headers=headers, json=body)
+    if r.status_code in [200, 201]:
+        key_data = r.json()["privateKeyData"]
+        return base64.b64decode(key_data).decode('utf-8')
+    raise Exception(f"فشل إنشاء مفتاح الخدمة عبر API (الكود {r.status_code}): {r.text}")
+
+# ====================== DEPLOY (بالمحددات الأصلية + API) ======================
 def deploy_raw_token(project_id, token, region):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     service_name = f"shadow-{int(time.time())}"
@@ -195,15 +226,99 @@ def deploy_raw_token(project_id, token, region):
             return build_vless_response(service_url, region)
     raise Exception(f"فشل النشر: {r.status_code}")
 
-# ====================== دالة Selenium المحسّنة (مع تحسين خدمة الحساب) ======================
+# ====================== دالة Selenium المحسّنة (مع API أولاً) ======================
 def deploy_with_selenium(lab_url, email, password, region, send_message):
     driver = None
     max_retries = 2
+    
+    # استخراج الرابط للحصول على الـ token
+    link_data = extract_from_link(lab_url)
+    project_id = link_data.get('project_id')
+    token = link_data.get('token')
+    
+    if not project_id:
+        raise Exception("project_id مفقود")
+    
+    # =========================================================
+    # 🔥 الخطوة الجديدة: محاولة إنشاء حساب الخدمة عبر API أولاً
+    # =========================================================
+    if token:
+        try:
+            send_message("🔧 **محاولة إنشاء حساب الخدمة عبر API (أسرع وأكثر استقراراً)...**")
+            service_account_email = create_service_account_api(project_id, token)
+            send_message(f"✅ **تم إنشاء حساب الخدمة:** `{service_account_email}`")
+            
+            send_message("📄 **جاري تنزيل مفتاح JSON عبر API...**")
+            key_json = create_service_account_key_api(project_id, service_account_email, token)
+            creds = json.loads(key_json)
+            
+            send_message("🔐 **جاري إنشاء JWT Token...**")
+            def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
+            now = int(time.time())
+            claims = {
+                "iss": creds["client_email"],
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "aud": "https://oauth2.googleapis.com/token",
+                "exp": now + 3600,
+                "iat": now
+            }
+            header = {"alg": "RS256", "typ": "JWT"}
+            segments = [b64url(json.dumps(header).encode()), b64url(json.dumps(claims).encode())]
+            signing_input = ".".join(segments).encode()
+            key = rsa.PrivateKey.load_pkcs1(creds["private_key"].encode())
+            signature = rsa.sign(signing_input, key, "SHA-256")
+            segments.append(b64url(signature))
+            jwt = ".".join(segments)
+
+            send_message("🔄 **جاري الحصول على Access Token...**")
+            resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
+                timeout=30
+            )
+            if resp.status_code != 200:
+                raise Exception(f"فشل Token: {resp.status_code}")
+            token = resp.json().get("access_token")
+            if not token:
+                raise Exception("لا يوجد access_token")
+
+            send_message("🚀 **جاري نشر الخدمة على Cloud Run...**")
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            service_name = f"shadow-{int(time.time())}"
+            body = {
+                "apiVersion": "serving.knative.dev/v1",
+                "kind": "Service",
+                "metadata": {"name": service_name},
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
+                        }
+                    }
+                }
+            }
+            url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
+            r = requests.post(url, headers=headers, json=body, timeout=60)
+            if r.status_code not in (200, 201):
+                raise Exception(f"فشل النشر: {r.status_code}")
+            service_url = r.json().get('status', {}).get('url')
+            if not service_url:
+                raise Exception("لا يوجد رابط للخدمة")
+
+            return build_vless_response(service_url, region)
+            
+        except Exception as e:
+            send_message(f"⚠️ **فشلت طريقة API (السبب: {str(e)[:100]}). جاري التبديل إلى الطريقة الرسومية (Selenium)...**")
+            # نستمر إلى الطريقة الرسومية أدناه
+    
+    # =========================================================
+    # 🔥 الطريقة الرسومية (Selenium) – احتياطية إذا فشلت API
+    # =========================================================
     for attempt in range(max_retries):
         try:
-            send_message(f"🌐 **محاولة {attempt+1} من {max_retries}...**")
+            send_message(f"🌐 **محاولة Selenium {attempt+1} من {max_retries}...**")
             driver = get_chrome_driver()
-            wait = WebDriverWait(driver, 40)  # زيادة الوقت إلى 40 ثانية
+            wait = WebDriverWait(driver, 40)
 
             send_message("📧 **جاري إدخال البريد الإلكتروني...**")
             driver.get("https://accounts.google.com/")
@@ -214,10 +329,6 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
             time.sleep(6)
 
-            project_id = extract_project_id(lab_url)
-            if not project_id:
-                raise Exception("project_id مفقود")
-
             send_message("☁️ **جاري تمكين Cloud Run API...**")
             driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
             time.sleep(5)
@@ -227,14 +338,11 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             except:
                 pass
 
-            # ====================================================
-            # 🔥 الخطوة المحسّنة: إنشاء حساب الخدمة
-            # ====================================================
-            send_message("👤 **جاري إنشاء حساب الخدمة...**")
+            send_message("👤 **جاري إنشاء حساب الخدمة (طريقة Selenium)...**")
             driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
             time.sleep(5)
             
-            # إغلاق أي نافذة منبثقة (Pop-up) إذا ظهرت
+            # إغلاق أي نافذة منبثقة
             try:
                 close_btn = driver.find_element(By.XPATH, "//*[@aria-label='Close' or contains(text(), 'Dismiss')]")
                 close_btn.click()
@@ -242,42 +350,29 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             except:
                 pass
 
-            # محاولة النقر على زر "CREATE SERVICE ACCOUNT" بطرق متعددة
             create_button = None
             try:
-                # الطريقة الأولى: باستخدام النص الكامل
                 create_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]")))
             except:
                 try:
-                    # الطريقة الثانية: باستخدام النص المختصر (قد يكون + CREATE)
                     create_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'CREATE SERVICE ACCOUNT')]")))
                 except:
                     try:
-                        # الطريقة الثالثة: باستخدام CSS selector للزر الأساسي
                         create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Create Service Account']")))
                     except:
-                        raise Exception("لم نتمكن من العثور على زر 'Create Service Account'، قد تكون واجهة Google تغيرت.")
+                        raise Exception("لم نتمكن من العثور على زر 'Create Service Account'.")
             
             create_button.click()
             time.sleep(3)
-            
-            # إدخال اسم الحساب
             wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
             time.sleep(1)
-            
-            # النقر على زر CREATE (في النافذة المنبثقة الأولى)
             wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create') and @type='submit']"))).click()
             time.sleep(3)
-            
-            # اختيار دور Cloud Run Admin
             role_field = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@placeholder, 'Select a role')]")))
             role_field.send_keys("Cloud Run Admin" + Keys.RETURN)
             time.sleep(2)
-            
-            # النقر على زر DONE
             wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
             time.sleep(4)
-            # ====================================================
 
             send_message("📄 **جاري تنزيل مفتاح JSON...**")
             driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
@@ -366,7 +461,7 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
                 try: driver.quit()
                 except: pass
             if attempt < max_retries - 1:
-                send_message(f"⚠️ **محاولة {attempt+1} فشلت، إعادة المحاولة خلال 10 ثوانٍ...**")
+                send_message(f"⚠️ **محاولة Selenium {attempt+1} فشلت، إعادة المحاولة خلال 10 ثوانٍ...**")
                 time.sleep(10)
             else:
                 raise e
@@ -389,11 +484,9 @@ def process_queue():
                 loop = item['loop']
                 bot = context.bot
 
-                # ========== مهلة بين الرسائل ==========
                 def send_message(text):
-                    time.sleep(1)  # ⏳ مهلة 1 ثانية
+                    time.sleep(1)
                     asyncio.run_coroutine_threadsafe(bot.send_message(chat_id=user_id, text=text), loop)
-                # ======================================
 
                 send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**\nتم التحقق من صلاحية الرابط سيتم ربط الحساب وبدء عملية الإنشاء...")
                 time.sleep(1)
@@ -450,7 +543,7 @@ def process_queue():
                     raise Exception("بيانات الدخول مفقودة")
 
             except Exception as e:
-                send_message(f"❌ **فشل النشر:** {str(e)}")
+                send_message(f"❌ **فشل النشر:** {str(e)[:500]}")
                 conn = sqlite3.connect(DB_PATH)
                 c = conn.cursor()
                 c.execute("UPDATE users SET status='error', last_result=? WHERE user_id=?", (str(e), user_id))
@@ -475,7 +568,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 النسخة المحسّنة – مع تحسين إنشاء حساب الخدمة\n"
+        "📡 النسخة النهائية – مع حل API لإنشاء حساب الخدمة\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -617,7 +710,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مع تحسين خدمة الحساب)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مع حل API لإنشاء حساب الخدمة)")
     app.run_polling()
 
 if __name__ == "__main__":
