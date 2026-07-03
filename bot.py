@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – النسخة النهائية مع مهلة بين الرسائل
-تم إضافة time.sleep(1) في send_message لحماية البوت من الحظر
+🔥 SHADOW LEGION v105.0 – النسخة الأصلية العاملة + مهلة بين الرسائل
+تم الاحتفاظ بمحددات XPath التي كانت تعمل بنجاح
 """
 
 import os
@@ -146,7 +146,7 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الـ Cloud Run**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== CHROME DRIVER ======================
+# ====================== CHROME DRIVER (محسّن) ======================
 def get_chrome_driver():
     options = Options()
     options.add_argument('--headless=new')
@@ -169,7 +169,7 @@ def get_chrome_driver():
     driver.implicitly_wait(10)
     return driver
 
-# ====================== DEPLOY ======================
+# ====================== DEPLOY (بالمحددات الأصلية التي تعمل) ======================
 def deploy_raw_token(project_id, token, region):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     service_name = f"shadow-{int(time.time())}"
@@ -196,6 +196,7 @@ def deploy_raw_token(project_id, token, region):
     raise Exception(f"فشل النشر: {r.status_code}")
 
 def deploy_with_selenium(lab_url, email, password, region, send_message):
+    """نسخة Selenium الأصلية التي كانت تعمل بنجاح (باستخدام XPath)"""
     driver = None
     max_retries = 2
     for attempt in range(max_retries):
@@ -206,11 +207,11 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
 
             send_message("📧 **جاري إدخال البريد الإلكتروني...**")
             driver.get("https://accounts.google.com/")
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))).send_keys(email + Keys.RETURN)
+            wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
             time.sleep(3)
             
             send_message("🔑 **جاري إدخال كلمة المرور...**")
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']"))).send_keys(password + Keys.RETURN)
+            wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
             time.sleep(6)
 
             project_id = extract_project_id(lab_url)
@@ -221,8 +222,7 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
             time.sleep(5)
             try:
-                enable_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Enable']")))
-                enable_btn.click()
+                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Enable')]"))).click()
                 time.sleep(5)
             except:
                 pass
@@ -230,21 +230,17 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             send_message("👤 **جاري إنشاء حساب الخدمة...**")
             driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
             time.sleep(5)
-            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Create Service Account']"))).click()
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]"))).click()
             time.sleep(3)
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='serviceAccountName']"))).send_keys("shadow-bot")
-            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Create']"))).click()
+            wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
             time.sleep(3)
             
-            role_dropdown = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "div[aria-label='Select a role']")))
-            role_dropdown.click()
-            time.sleep(1)
-            role_search = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder='Filter']")))
-            role_search.send_keys("Cloud Run Admin")
-            time.sleep(1)
-            role_search.send_keys(Keys.RETURN)
-            time.sleep(1)
-            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Done']"))).click()
+            # اختيار دور Cloud Run Admin
+            role_field = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@placeholder, 'Select a role')]")))
+            role_field.send_keys("Cloud Run Admin" + Keys.RETURN)
+            time.sleep(2)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
             time.sleep(4)
 
             send_message("📄 **جاري تنزيل مفتاح JSON...**")
@@ -357,13 +353,11 @@ def process_queue():
                 loop = item['loop']
                 bot = context.bot
 
-                # ============================================================
-                # 🔥 التعديل المطلوب: إضافة مهلة 1 ثانية بين كل رسالة
-                # ============================================================
+                # ========== مهلة بين الرسائل ==========
                 def send_message(text):
-                    time.sleep(1)  # ⏳ مهلة 1 ثانية لحماية البوت من الحظر
+                    time.sleep(1)  # ⏳ مهلة 1 ثانية
                     asyncio.run_coroutine_threadsafe(bot.send_message(chat_id=user_id, text=text), loop)
-                # ============================================================
+                # ======================================
 
                 send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**\nتم التحقق من صلاحية الرابط سيتم ربط الحساب وبدء عملية الإنشاء...")
                 time.sleep(1)
@@ -445,7 +439,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 النسخة المحسّنة مع مهلة بين الرسائل\n"
+        "📡 النسخة الأصلية العاملة + مهلة بين الرسائل\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -587,7 +581,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مع مهلة بين الرسائل)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING (النسخة الأصلية العاملة)")
     app.run_polling()
 
 if __name__ == "__main__":
