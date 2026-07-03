@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – نسخة البوت الاحترافية (مثل الصورة)
-مع تحديثات متتالية وتبديل تلقائي إلى Selenium عند فشل الرابط
+🔥 SHADOW LEGION v105.0 – نسخة مطابقة للبوت في الصورة (cora vpn / زقز)
+مع تحديثات متتالية وتبديل تلقائي إلى Selenium
 """
 
 import os
@@ -48,13 +48,13 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN environment variable not set")
 
-DEFAULT_REGION = "europe-west1"
+DEFAULT_REGION = "us-central1"  # مثل الصورة
 
 REGIONS = {
+    "us-central1": "🇺🇸 آيوا",
     "europe-west1": "🇧🇪 بلجيكا",
     "europe-west3": "🇩🇪 فرانكفورت",
     "europe-west4": "🇳🇱 هولندا",
-    "us-central1": "🇺🇸 آيوا",
     "us-east1": "🇺🇸 ساوث كارولينا",
     "asia-southeast1": "🇸🇬 سنغافورة"
 }
@@ -78,7 +78,7 @@ def init_db():
             deploy_count INTEGER DEFAULT 0,
             status TEXT DEFAULT 'idle',
             last_result TEXT,
-            region TEXT DEFAULT 'europe-west1'
+            region TEXT DEFAULT 'us-central1'
         );
         CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -329,14 +329,14 @@ def process_queue():
                 link = item['link']
                 region = item['region']
                 context = item['context']
-                update = item['update']
+                loop = item['loop']
                 bot = context.bot
-                loop = asyncio.get_event_loop()
 
                 def send_message(text):
                     asyncio.run_coroutine_threadsafe(bot.send_message(chat_id=user_id, text=text), loop)
 
                 send_message("🔄 **جاري الدخول إلى الـ Lab وبدء التجهيز...**\nتم التحقق من صلاحية الرابط سيتم ربط الحساب وبدء عملية الإنشاء...")
+                time.sleep(1)
 
                 link_data = extract_from_link(link)
                 project_id = link_data.get('project_id', '')
@@ -346,7 +346,6 @@ def process_queue():
                 if not project_id:
                     raise Exception("❌ project_id مفقود.")
 
-                # محاولة الرابط المباشر
                 send_message("🔍 **جاري تحليل سياسات المشروع لاستخراج المناطق المسموح بها...**")
                 time.sleep(1)
                 send_message(f"✅ **تم اكتشاف 1 منطقة مسموح بها من السياسات:**\n\n- {REGIONS.get(region, region)}")
@@ -357,7 +356,6 @@ def process_queue():
                     if token:
                         result_msg, service_url, vless = deploy_raw_token(project_id, token, region)
                         send_message(result_msg)
-                        # حفظ النتيجة
                         conn = sqlite3.connect(DB_PATH)
                         c = conn.cursor()
                         c.execute("UPDATE users SET status='completed', last_result=? WHERE user_id=?", (result_msg, user_id))
@@ -372,7 +370,6 @@ def process_queue():
                     else:
                         raise e
 
-                # التبديل إلى Selenium
                 user = get_user(user_id)
                 saved_email = user.get('email') if user else None
                 saved_password = user.get('password') if user else None
@@ -418,7 +415,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 النسخة الاحترافية – تعمل على Railway\n"
+        "📡 النسخة الاحترافية – مثل البوت في الصورة\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -467,7 +464,15 @@ async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ الرابط لا يحتوي على project_id.")
         return 1
 
-    task_queue.put({'user_id': user_id, 'link': link, 'region': region, 'context': context, 'update': update})
+    main_loop = asyncio.get_running_loop()
+
+    task_queue.put({
+        'user_id': user_id,
+        'link': link,
+        'region': region,
+        'context': context,
+        'loop': main_loop
+    })
 
     await update.message.reply_text(
         "✅ **تمت إضافة طلبك إلى طابور الانظار بنجاح!**\n\n"
@@ -552,7 +557,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING (النسخة الاحترافية)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مطابق للبوت في الصورة)")
     app.run_polling()
 
 if __name__ == "__main__":
