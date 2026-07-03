@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – النسخة النهائية للعمل على Railway
-مع دعم الروابط المشفرة، رسائل احترافية، وإرسال آمن للنتائج
+🔥 SHADOW LEGION v105.0 – النسخة النهائية المتكاملة
+مع دعم الروابط المشفرة، رسائل احترافية، ومعالجة 401 برسالة مخصصة
 """
 
 import os
@@ -230,6 +230,69 @@ def extract_from_link(link):
     
     return data
 
+def build_vless_response(service_url, region):
+    host = service_url.replace('https://', '').replace('http://', '')
+    uid = hashlib.md5(b"shadow_v105").hexdigest()
+    uid = f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:32]}"
+    vless = f"vless://{uid}@{host}:443?path=%2F&security=tls&encryption=none&host={host}&type=ws&sni={host}#SHADOW_v105"
+    return (f"✅ تم النشر!\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: {service_url}\n🔗 رابط VLESS:\n{vless}", service_url, vless)
+
+def deploy_raw_token(project_id, token, region):
+    """نشر مباشر باستخدام رمز Bearer Token من الرابط"""
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    service_name = f"shadow-{int(time.time())}"
+    body = {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {"name": service_name},
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [{
+                        "image": "ajndjd2/ahmed-vip1",
+                        "ports": [{"containerPort": 8080}]
+                    }]
+                }
+            }
+        }
+    }
+    url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
+    r = requests.post(url, headers=headers, json=body, timeout=60)
+
+    if r.status_code == 401:
+        logger.error(f"🔥 رابط منتهي الصلاحية: {r.text[:100]}")
+        raise Exception("⚠️ رابط منتهي الصلاحية ويطلب تسجيل الدخول!\nتم إلغاء طلبك، يمكنك المحاولة برابط جديد.")
+
+    if r.status_code in (200, 201):
+        service_url = r.json().get('status', {}).get('url')
+        if service_url:
+            return build_vless_response(service_url, region)
+    
+    raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
+
+def deploy_with_fallback(link_data, region, user_id):
+    """محاولة النشر باستخدام الرمز أولاً، وإلا رسالة مخصصة"""
+    project_id = link_data.get('project_id')
+    token = link_data.get('token')
+    email = link_data.get('email')
+
+    if not project_id:
+        raise Exception("❌ project_id مفقود.")
+
+    if token:
+        logger.info("🔄 محاولة النشر باستخدام رمز Qwiklabs المباشر...")
+        try:
+            result = deploy_raw_token(project_id, token, region)
+            if result:
+                return result
+        except Exception as e:
+            if "منتهي الصلاحية" in str(e):
+                raise e
+            logger.warning(f"⚠️ فشل الرمز المباشر: {e}")
+
+    # إذا لم ينجح الرمز أو لم يكن موجوداً
+    raise Exception("⚠️ رابط منتهي الصلاحية ويطلب تسجيل الدخول!\nتم إلغاء طلبك، يمكنك المحاولة برابط جديد.")
+
 def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
     driver = None
     try:
@@ -356,13 +419,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         if not service_url:
             raise Exception("لا يوجد رابط للخدمة")
 
-        host = service_url.replace('https://', '').replace('http://', '')
-        uid = hashlib.md5(b"shadow_v105").hexdigest()
-        uid = f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:32]}"
-        vless = f"vless://{uid}@{host}:443?path=%2F&security=tls&encryption=none&host={host}&type=ws&sni={host}#SHADOW_v105"
-
-        logger.info("✅ تم النشر بنجاح!")
-        return (f"✅ تم النشر!\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: {service_url}\n🔗 رابط VLESS:\n{vless}", service_url, vless)
+        return build_vless_response(service_url, region)
 
     except Exception as e:
         if driver:
@@ -370,40 +427,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
             except: pass
         logger.error(f"❌ فشل النشر: {e}")
         raise e
-
-def deploy_with_token(link_data, region):
-    project_id = link_data.get('project_id')
-    token = link_data.get('token')
-    if not project_id: raise Exception("❌ الرابط لا يحتوي على project_id")
-    if not token: raise Exception("❌ الرابط لا يحتوي على token")
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    service_name = f"shadow-{int(time.time())}"
-    body = {
-        "apiVersion": "serving.knative.dev/v1",
-        "kind": "Service",
-        "metadata": {"name": service_name},
-        "spec": {
-            "template": {
-                "spec": {
-                    "containers": [{
-                        "image": "ajndjd2/ahmed-vip1",
-                        "ports": [{"containerPort": 8080}]
-                    }]
-                }
-            }
-        }
-    }
-    url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-    r = requests.post(url, headers=headers, json=body, timeout=60)
-    if r.status_code in (200, 201):
-        service_url = r.json().get('status', {}).get('url')
-        if service_url:
-            host = service_url.replace('https://', '').replace('http://', '')
-            uid = hashlib.md5(b"shadow_v105").hexdigest()
-            uid = f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:32]}"
-            vless = f"vless://{uid}@{host}:443?path=%2F&security=tls&encryption=none&host={host}&type=ws&sni={host}#SHADOW_v105"
-            return (f"✅ تم النشر!\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: {service_url}\n🔗 رابط VLESS:\n{vless}", service_url, vless)
-    raise Exception(f"فشل النشر: {r.status_code}")
 
 # ====================== QUEUE ======================
 task_queue = queue.Queue()
@@ -428,10 +451,19 @@ def process_queue():
                     if email and password:
                         result_msg, service_url, vless_link = deploy_with_selenium(link, email, password, region)
                     else:
-                        result_msg, service_url, vless_link = deploy_with_token(link_data, region)
+                        # استخدام الدالة الجديدة التي تتعامل مع 401
+                        result_msg, service_url, vless_link = deploy_with_fallback(link_data, region, user_id)
                 except Exception as e:
-                    link_data = extract_from_link(link)
-                    result_msg, service_url, vless_link = deploy_with_token(link_data, region)
+                    error_msg = str(e)
+                    logger.error(f"❌ فشل التنفيذ: {error_msg}")
+                    # حفظ الخطأ في قاعدة البيانات
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    c.execute("UPDATE users SET status='error', last_result=? WHERE user_id=?", (error_msg, user_id))
+                    c.execute("INSERT INTO history (user_id, lab_url, success) VALUES (?,?,0)", (user_id, link))
+                    conn.commit()
+                    conn.close()
+                    continue  # تخطي باقي المحاولات
 
                 conn = sqlite3.connect(DB_PATH)
                 c = conn.cursor()
@@ -746,7 +778,7 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY (النسخة النهائية)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY (النسخة النهائية مع معالجة 401)")
     app.run_polling()
 
 if __name__ == "__main__":
