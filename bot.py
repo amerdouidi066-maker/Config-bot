@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – النسخة النهائية مع إنشاء حساب الخدمة عبر API
-حل جذري لمشكلة "فشل إنشاء حساب الخدمة" باستخدام REST API أولاً
+🔥 SHADOW LEGION v105.0 – النسخة النهائية المتكاملة
+مع حل API لإنشاء حساب الخدمة، والتبديل التلقائي إلى Selenium الاحتياطي
+جاهز للنسخ واللصق على Railway
 """
 
 import os
@@ -146,7 +147,7 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الـ Cloud Run**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== CHROME DRIVER (محسّن) ======================
+# ====================== CHROME DRIVER ======================
 def get_chrome_driver():
     options = Options()
     options.add_argument('--headless=new')
@@ -169,20 +170,15 @@ def get_chrome_driver():
     driver.implicitly_wait(10)
     return driver
 
-# ====================== دوال API لإنشاء حساب الخدمة والمفتاح (الحل الجذري) ======================
+# ====================== دوال API لإنشاء حساب الخدمة والمفتاح ======================
 def create_service_account_api(project_id, token):
-    """إنشاء حساب خدمة عبر REST API (يتجاوز الواجهة الرسومية)"""
     url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    body = {
-        "accountId": "shadow-bot",
-        "serviceAccount": {"displayName": "shadow-bot"}
-    }
+    body = {"accountId": "shadow-bot", "serviceAccount": {"displayName": "shadow-bot"}}
     r = requests.post(url, headers=headers, json=body)
     if r.status_code in [200, 201]:
         return r.json()["email"]
     if r.status_code == 409:
-        # الحساب موجود بالفعل، نحاول جلب بريده الإلكتروني
         get_url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts/shadow-bot@{project_id}.iam.gserviceaccount.com"
         get_r = requests.get(get_url, headers=headers)
         if get_r.status_code == 200:
@@ -190,7 +186,6 @@ def create_service_account_api(project_id, token):
     raise Exception(f"فشل إنشاء حساب الخدمة عبر API (الكود {r.status_code}): {r.text}")
 
 def create_service_account_key_api(project_id, email, token):
-    """إنشاء مفتاح JSON لحساب الخدمة عبر REST API"""
     url = f"https://iam.googleapis.com/v1/projects/{project_id}/serviceAccounts/{email}/keys"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     body = {"keyType": "JSON"}
@@ -200,7 +195,7 @@ def create_service_account_key_api(project_id, email, token):
         return base64.b64decode(key_data).decode('utf-8')
     raise Exception(f"فشل إنشاء مفتاح الخدمة عبر API (الكود {r.status_code}): {r.text}")
 
-# ====================== DEPLOY (بالمحددات الأصلية + API) ======================
+# ====================== DEPLOY (المباشر عبر API أولاً) ======================
 def deploy_raw_token(project_id, token, region):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     service_name = f"shadow-{int(time.time())}"
@@ -231,7 +226,6 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
     driver = None
     max_retries = 2
     
-    # استخراج الرابط للحصول على الـ token
     link_data = extract_from_link(lab_url)
     project_id = link_data.get('project_id')
     token = link_data.get('token')
@@ -240,7 +234,7 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
         raise Exception("project_id مفقود")
     
     # =========================================================
-    # 🔥 الخطوة الجديدة: محاولة إنشاء حساب الخدمة عبر API أولاً
+    # 🔥 المحاولة الأولى: إنشاء حساب الخدمة عبر API
     # =========================================================
     if token:
         try:
@@ -309,10 +303,9 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             
         except Exception as e:
             send_message(f"⚠️ **فشلت طريقة API (السبب: {str(e)[:100]}). جاري التبديل إلى الطريقة الرسومية (Selenium)...**")
-            # نستمر إلى الطريقة الرسومية أدناه
     
     # =========================================================
-    # 🔥 الطريقة الرسومية (Selenium) – احتياطية إذا فشلت API
+    # 🔥 الطريقة الرسومية (Selenium) – احتياطية
     # =========================================================
     for attempt in range(max_retries):
         try:
@@ -342,7 +335,6 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
             time.sleep(5)
             
-            # إغلاق أي نافذة منبثقة
             try:
                 close_btn = driver.find_element(By.XPATH, "//*[@aria-label='Close' or contains(text(), 'Dismiss')]")
                 close_btn.click()
@@ -658,7 +650,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    info = {"OS": platform.system(), "Release": platform.release(), "Arch": platform.machine(), "CPU": psutil.cpu_percent(), "RAM": psutil.virtual_memory().percent, "Disk": psutil.disk_usage('/').percent}
+    info = {"OS": platform.system(), "Release": platform.release(), "Arch": platform.machine(), "CPU": psutil.cpu_percent(), "RAM": psutil.virtual_memory().percent(), "Disk": psutil.disk_usage('/').percent}
     result = "🖥️ **معلومات النظام**\n" + "\n".join([f"{k}: {v}" for k, v in info.items()])
     await query.edit_message_text(result)
 
