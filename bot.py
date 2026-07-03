@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – النسخة الأصلية العاملة + مهلة بين الرسائل
-تم الاحتفاظ بمحددات XPath التي كانت تعمل بنجاح
+🔥 SHADOW LEGION v105.0 – النسخة الأصلية العاملة + تحسين إنشاء حساب الخدمة
+مع مهلة بين الرسائل وآلية إعادة المحاولة
 """
 
 import os
@@ -195,15 +195,15 @@ def deploy_raw_token(project_id, token, region):
             return build_vless_response(service_url, region)
     raise Exception(f"فشل النشر: {r.status_code}")
 
+# ====================== دالة Selenium المحسّنة (مع تحسين خدمة الحساب) ======================
 def deploy_with_selenium(lab_url, email, password, region, send_message):
-    """نسخة Selenium الأصلية التي كانت تعمل بنجاح (باستخدام XPath)"""
     driver = None
     max_retries = 2
     for attempt in range(max_retries):
         try:
             send_message(f"🌐 **محاولة {attempt+1} من {max_retries}...**")
             driver = get_chrome_driver()
-            wait = WebDriverWait(driver, 30)
+            wait = WebDriverWait(driver, 40)  # زيادة الوقت إلى 40 ثانية
 
             send_message("📧 **جاري إدخال البريد الإلكتروني...**")
             driver.get("https://accounts.google.com/")
@@ -227,21 +227,57 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             except:
                 pass
 
+            # ====================================================
+            # 🔥 الخطوة المحسّنة: إنشاء حساب الخدمة
+            # ====================================================
             send_message("👤 **جاري إنشاء حساب الخدمة...**")
             driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
             time.sleep(5)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]"))).click()
+            
+            # إغلاق أي نافذة منبثقة (Pop-up) إذا ظهرت
+            try:
+                close_btn = driver.find_element(By.XPATH, "//*[@aria-label='Close' or contains(text(), 'Dismiss')]")
+                close_btn.click()
+                time.sleep(2)
+            except:
+                pass
+
+            # محاولة النقر على زر "CREATE SERVICE ACCOUNT" بطرق متعددة
+            create_button = None
+            try:
+                # الطريقة الأولى: باستخدام النص الكامل
+                create_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]")))
+            except:
+                try:
+                    # الطريقة الثانية: باستخدام النص المختصر (قد يكون + CREATE)
+                    create_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'CREATE SERVICE ACCOUNT')]")))
+                except:
+                    try:
+                        # الطريقة الثالثة: باستخدام CSS selector للزر الأساسي
+                        create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Create Service Account']")))
+                    except:
+                        raise Exception("لم نتمكن من العثور على زر 'Create Service Account'، قد تكون واجهة Google تغيرت.")
+            
+            create_button.click()
             time.sleep(3)
+            
+            # إدخال اسم الحساب
             wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
+            time.sleep(1)
+            
+            # النقر على زر CREATE (في النافذة المنبثقة الأولى)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create') and @type='submit']"))).click()
             time.sleep(3)
             
             # اختيار دور Cloud Run Admin
             role_field = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@placeholder, 'Select a role')]")))
             role_field.send_keys("Cloud Run Admin" + Keys.RETURN)
             time.sleep(2)
+            
+            # النقر على زر DONE
             wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
             time.sleep(4)
+            # ====================================================
 
             send_message("📄 **جاري تنزيل مفتاح JSON...**")
             driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
@@ -439,7 +475,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 النسخة الأصلية العاملة + مهلة بين الرسائل\n"
+        "📡 النسخة المحسّنة – مع تحسين إنشاء حساب الخدمة\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -581,7 +617,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING (النسخة الأصلية العاملة)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مع تحسين خدمة الحساب)")
     app.run_polling()
 
 if __name__ == "__main__":
