@@ -3,7 +3,7 @@
 
 """
 🔥 SHADOW LEGION v105.0 – معدل للعمل على Railway
-تم إضافة سجلات مراقبة لمتابعة خطوات النشر على Cloud Run
+تم إزالة parse_mode='Markdown' لمنع أخطاء التنسيق
 """
 
 import os
@@ -30,7 +30,7 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
-# ====================== IMPORTS (فقط الضروري) ======================
+# ====================== IMPORTS ======================
 import requests
 import rsa
 from selenium import webdriver
@@ -171,9 +171,8 @@ def decrypt_data(encrypted):
     f = Fernet(get_fernet_key())
     return json.loads(f.decrypt(encrypted.encode()).decode())
 
-# ====================== SELENIUM SETUP (للعمل على Railway) ======================
+# ====================== SELENIUM ======================
 def get_chrome_driver():
-    """إعداد متصفح Chrome في وضع Headless مع webdriver-manager"""
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
@@ -189,7 +188,7 @@ def get_chrome_driver():
     driver = webdriver.Chrome(service=service, options=options)
     return driver
 
-# ====================== DEPLOY (SELENIUM + REST API) مع سجلات المراقبة ======================
+# ====================== DEPLOY ======================
 def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
     driver = None
     try:
@@ -197,7 +196,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         driver = get_chrome_driver()
         wait = WebDriverWait(driver, 20)
 
-        # تسجيل الدخول إلى Google
         logger.info("📧 جاري إدخال البريد الإلكتروني...")
         driver.get("https://accounts.google.com/")
         wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
@@ -211,7 +209,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
             raise Exception("الرابط لا يحتوي على project_id")
         project_id = match.group(1)
 
-        # تمكين Cloud Run API
         logger.info("☁️ جاري تمكين Cloud Run API...")
         driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
         time.sleep(3)
@@ -221,7 +218,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         except:
             pass
 
-        # إنشاء حساب خدمة
         logger.info("👤 جاري إنشاء حساب الخدمة...")
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
         time.sleep(3)
@@ -236,7 +232,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
         time.sleep(3)
 
-        # تنزيل مفتاح JSON
         logger.info("📄 جاري تنزيل مفتاح JSON...")
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
         time.sleep(2)
@@ -254,7 +249,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
         time.sleep(4)
 
-        # قراءة ملف JSON المُنزَّل
         download_dir = tempfile.gettempdir()
         list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
         if not list_of_files:
@@ -265,7 +259,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         os.remove(latest_file)
         driver.quit()
 
-        # إنشاء JWT
         logger.info("🔐 جاري إنشاء JWT Token...")
         def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
         now = int(time.time())
@@ -284,7 +277,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         segments.append(b64url(signature))
         jwt = ".".join(segments)
 
-        # الحصول على access_token
         logger.info("🔄 جاري الحصول على Access Token...")
         resp = requests.post(
             "https://oauth2.googleapis.com/token",
@@ -297,7 +289,6 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         if not token:
             raise Exception("لا يوجد access_token")
 
-        # نشر الخدمة
         logger.info("🚀 جاري نشر الخدمة على Cloud Run...")
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         service_name = f"shadow-{int(time.time())}"
@@ -330,7 +321,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         vless = f"vless://{uid}@{host}:443?path=%2F&security=tls&encryption=none&host={host}&type=ws&sni={host}#SHADOW_v105"
 
         logger.info("✅ تم النشر بنجاح!")
-        return (f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: `{service_url}`\n🔗 رابط VLESS:\n`{vless}`", service_url, vless)
+        return (f"✅ تم النشر!\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: {service_url}\n🔗 رابط VLESS:\n{vless}", service_url, vless)
 
     except Exception as e:
         if driver:
@@ -380,7 +371,7 @@ def deploy_with_token(link_data, region):
             uid = hashlib.md5(b"shadow_v105").hexdigest()
             uid = f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:32]}"
             vless = f"vless://{uid}@{host}:443?path=%2F&security=tls&encryption=none&host={host}&type=ws&sni={host}#SHADOW_v105"
-            return (f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: `{service_url}`\n🔗 رابط VLESS:\n`{vless}`", service_url, vless)
+            return (f"✅ تم النشر!\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: {service_url}\n🔗 رابط VLESS:\n{vless}", service_url, vless)
     raise Exception(f"فشل النشر: {r.status_code}")
 
 # ====================== QUEUE ======================
@@ -432,7 +423,7 @@ def process_queue():
 
 threading.Thread(target=process_queue, daemon=True).start()
 
-# ====================== TOOLS (بدون مكتبات إضافية) ======================
+# ====================== TOOLS ======================
 def real_system_info():
     info = {
         "OS": platform.system(),
@@ -442,14 +433,14 @@ def real_system_info():
         "RAM": psutil.virtual_memory().percent,
         "Disk": psutil.disk_usage('/').percent
     }
-    return f"🖥️ **معلومات النظام**\n" + "\n".join([f"{k}: {v}" for k, v in info.items()])
+    return f"🖥️ معلومات النظام\n" + "\n".join([f"{k}: {v}" for k, v in info.items()])
 
 def real_process_list():
     try:
         procs = []
         for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
             procs.append(f"{p.info['pid']}: {p.info['name']} (CPU: {p.info['cpu_percent']}%, RAM: {p.info['memory_percent']}%)")
-        return "📋 **العمليات النشطة**\n" + "\n".join(procs[:20])
+        return "📋 العمليات النشطة\n" + "\n".join(procs[:20])
     except:
         return "⚠️ فشل جلب العمليات"
 
@@ -459,7 +450,7 @@ def real_network_info():
             out = subprocess.getoutput("ipconfig")
         else:
             out = subprocess.getoutput("ifconfig || ip a")
-        return f"🌐 **معلومات الشبكة**\n{out[:500]}"
+        return f"🌐 معلومات الشبكة\n{out[:500]}"
     except:
         return "⚠️ فشل جلب معلومات الشبكة"
 
@@ -539,7 +530,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v105.0**\n"
+        "🔥 SHADOW LEGION v105.0\n"
         "📡 نسخة خفيفة – تعمل على Railway\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -561,14 +552,14 @@ async def hacking_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🌐 Network Info", callback_data='tool_net')],
         [InlineKeyboardButton("🔙 Back", callback_data='back')]
     ]
-    await query.edit_message_text("⚔️ **اختر الأداة**", reply_markup=InlineKeyboardMarkup(kb))
+    await query.edit_message_text("⚔️ اختر الأداة", reply_markup=InlineKeyboardMarkup(kb))
 
 async def execute_tool(update: Update, context: ContextTypes.DEFAULT_TYPE, func, name):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(f"⏳ جاري تنفيذ `{name}` ...")
+    await query.edit_message_text(f"⏳ جاري تنفيذ {name} ...")
     result = func()
-    await query.edit_message_text(f"**{name}**\n\n{result}", parse_mode='Markdown')
+    await query.edit_message_text(f"{name}\n\n{result}")
 
 async def deploy_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -577,7 +568,7 @@ async def deploy_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for code, name in REGIONS.items():
         keyboard.append([InlineKeyboardButton(name, callback_data=f"region_{code}")])
     keyboard.append([InlineKeyboardButton("🔙 إلغاء", callback_data="cancel_region")])
-    await query.edit_message_text("🌍 **اختر المنطقة:**", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text("🌍 اختر المنطقة:", reply_markup=InlineKeyboardMarkup(keyboard))
     return 0
 
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -589,7 +580,7 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     region = data.replace("region_", "")
     context.user_data['region'] = region
-    await query.edit_message_text(f"✅ المنطقة: **{REGIONS.get(region, region)}**\n\n🔗 أرسل رابط SSO الآن.")
+    await query.edit_message_text(f"✅ المنطقة: {REGIONS.get(region, region)}\n\n🔗 أرسل رابط SSO الآن.")
     return 1
 
 async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -600,16 +591,18 @@ async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ رابط غير صحيح.")
         return 1
     task_queue.put((user_id, link, region))
-    await update.message.reply_text("✅ **تمت إضافة طلبك إلى طابور الانتظار!**")
+    await update.message.reply_text("✅ تمت إضافة طلبك إلى طابور الانتظار!")
+    
     def monitor():
         while True:
             user = get_user(user_id)
             if user and user.get('status') in ('completed', 'error'):
                 result = user.get('last_result', "⚠️ حدث خطأ")
                 import asyncio
-                asyncio.run(update.message.reply_text(result, parse_mode='Markdown'))
+                asyncio.run(update.message.reply_text(result))  # 🔥 تم إزالة parse_mode='Markdown'
                 break
             time.sleep(5)
+    
     threading.Thread(target=monitor, daemon=True).start()
     context.user_data.clear()
     return ConversationHandler.END
@@ -626,20 +619,19 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ لا توجد بيانات.")
         return
     await update.message.reply_text(
-        f"📋 **حالتك**\n\n"
-        f"📧 البريد: `{user.get('email', 'غير مضبوط')}`\n"
-        f"🌍 المنطقة: `{REGIONS.get(user.get('region'), user.get('region'))}`\n"
-        f"📊 عدد النشر: `{user.get('deploy_count', 0)}`\n"
-        f"🔄 الحالة: `{user.get('status', 'idle')}`\n"
-        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}",
-        parse_mode='Markdown'
+        f"📋 حالتك\n\n"
+        f"📧 البريد: {user.get('email', 'غير مضبوط')}\n"
+        f"🌍 المنطقة: {REGIONS.get(user.get('region'), user.get('region'))}\n"
+        f"📊 عدد النشر: {user.get('deploy_count', 0)}\n"
+        f"🔄 الحالة: {user.get('status', 'idle')}\n"
+        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}"
     )
 
 async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     result = real_system_info()
-    await query.edit_message_text(result, parse_mode='Markdown')
+    await query.edit_message_text(result)
 
 async def change_region_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -650,11 +642,11 @@ async def change_region_command(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard.append([InlineKeyboardButton(name, callback_data=f"setregion_{code}")])
     keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="back_menu")])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    msg = "🌍 **اختر منطقتك الافتراضية الجديدة:**"
+    msg = "🌍 اختر منطقتك الافتراضية الجديدة:"
     if query:
-        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
+        await query.edit_message_text(msg, reply_markup=reply_markup)
     else:
-        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
+        await update.message.reply_text(msg, reply_markup=reply_markup)
 
 async def set_region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -666,7 +658,7 @@ async def set_region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     region = data.replace("setregion_", "")
     user_id = query.from_user.id
     update_user(user_id, region=region)
-    await query.edit_message_text(f"✅ تم تغيير المنطقة إلى **{REGIONS.get(region, region)}**.", parse_mode='Markdown')
+    await query.edit_message_text(f"✅ تم تغيير المنطقة إلى {REGIONS.get(region, region)}.")
     await start(update, context)
 
 async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -706,7 +698,7 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY (مع سجلات المراقبة)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY (بدون أخطاء Markdown)")
     app.run_polling()
 
 if __name__ == "__main__":
