@@ -1,0 +1,6 @@
+python-telegram-bot>=20.0
+selenium>=4.0
+webdriver-manager>=4.0
+requests>=2.31
+rsa>=4.9
+Flask>=3.0
