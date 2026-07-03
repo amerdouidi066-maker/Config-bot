@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – نسخة متوافقة مع Railway (إصلاح tab crashed)
-مع تحسين إعدادات Chrome وإضافة Xvfb
+🔥 SHADOW LEGION v105.0 – النسخة النهائية مع مهلة بين الرسائل
+تم إضافة time.sleep(1) في send_message لحماية البوت من الحظر
 """
 
 import os
@@ -146,7 +146,7 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الـ Cloud Run**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== CHROME DRIVER (محسّن لتجنب "tab crashed") ======================
+# ====================== CHROME DRIVER ======================
 def get_chrome_driver():
     options = Options()
     options.add_argument('--headless=new')
@@ -197,133 +197,147 @@ def deploy_raw_token(project_id, token, region):
 
 def deploy_with_selenium(lab_url, email, password, region, send_message):
     driver = None
-    try:
-        send_message("🌐 **جاري الدخول إلى Google Accounts...**")
-        driver = get_chrome_driver()
-        wait = WebDriverWait(driver, 20)
-
-        send_message("📧 **جاري إدخال البريد الإلكتروني...**")
-        driver.get("https://accounts.google.com/")
-        wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
-        time.sleep(3)
-        send_message("🔑 **جاري إدخال كلمة المرور...**")
-        wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
-        time.sleep(6)
-
-        project_id = extract_project_id(lab_url)
-        if not project_id:
-            raise Exception("project_id مفقود")
-
-        send_message("☁️ **جاري تمكين Cloud Run API...**")
-        driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
-        time.sleep(5)
+    max_retries = 2
+    for attempt in range(max_retries):
         try:
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Enable')]"))).click()
+            send_message(f"🌐 **محاولة {attempt+1} من {max_retries}...**")
+            driver = get_chrome_driver()
+            wait = WebDriverWait(driver, 30)
+
+            send_message("📧 **جاري إدخال البريد الإلكتروني...**")
+            driver.get("https://accounts.google.com/")
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))).send_keys(email + Keys.RETURN)
+            time.sleep(3)
+            
+            send_message("🔑 **جاري إدخال كلمة المرور...**")
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']"))).send_keys(password + Keys.RETURN)
+            time.sleep(6)
+
+            project_id = extract_project_id(lab_url)
+            if not project_id:
+                raise Exception("project_id مفقود")
+
+            send_message("☁️ **جاري تمكين Cloud Run API...**")
+            driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
             time.sleep(5)
-        except:
-            pass
+            try:
+                enable_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Enable']")))
+                enable_btn.click()
+                time.sleep(5)
+            except:
+                pass
 
-        send_message("👤 **جاري إنشاء حساب الخدمة...**")
-        driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-        time.sleep(5)
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]"))).click()
-        time.sleep(3)
-        wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
-        time.sleep(3)
-        role_field = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@placeholder, 'Select a role')]")))
-        role_field.send_keys("Cloud Run Admin" + Keys.RETURN)
-        time.sleep(2)
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
-        time.sleep(4)
+            send_message("👤 **جاري إنشاء حساب الخدمة...**")
+            driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
+            time.sleep(5)
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Create Service Account']"))).click()
+            time.sleep(3)
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='serviceAccountName']"))).send_keys("shadow-bot")
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Create']"))).click()
+            time.sleep(3)
+            
+            role_dropdown = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "div[aria-label='Select a role']")))
+            role_dropdown.click()
+            time.sleep(1)
+            role_search = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder='Filter']")))
+            role_search.send_keys("Cloud Run Admin")
+            time.sleep(1)
+            role_search.send_keys(Keys.RETURN)
+            time.sleep(1)
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Done']"))).click()
+            time.sleep(4)
 
-        send_message("📄 **جاري تنزيل مفتاح JSON...**")
-        driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-        time.sleep(3)
-        account = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'shadow-bot')]")))
-        account.click()
-        time.sleep(3)
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Keys')]"))).click()
-        time.sleep(3)
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Add Key')]"))).click()
-        time.sleep(2)
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create New Key')]"))).click()
-        time.sleep(2)
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'JSON')]"))).click()
-        time.sleep(2)
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
-        time.sleep(10)
+            send_message("📄 **جاري تنزيل مفتاح JSON...**")
+            driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
+            time.sleep(3)
+            account = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'shadow-bot')]")))
+            account.click()
+            time.sleep(3)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Keys')]"))).click()
+            time.sleep(3)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Add Key')]"))).click()
+            time.sleep(2)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create New Key')]"))).click()
+            time.sleep(2)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'JSON')]"))).click()
+            time.sleep(2)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
+            time.sleep(12)
 
-        download_dir = tempfile.gettempdir()
-        list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
-        if not list_of_files:
-            raise Exception("ملف JSON غير موجود")
-        latest_file = max(list_of_files, key=os.path.getctime)
-        with open(latest_file, 'r') as f:
-            creds = json.load(f)
-        os.remove(latest_file)
-        driver.quit()
+            download_dir = tempfile.gettempdir()
+            list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
+            if not list_of_files:
+                raise Exception("ملف JSON غير موجود")
+            latest_file = max(list_of_files, key=os.path.getctime)
+            with open(latest_file, 'r') as f:
+                creds = json.load(f)
+            os.remove(latest_file)
+            driver.quit()
 
-        send_message("🔐 **جاري إنشاء JWT Token...**")
-        def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
-        now = int(time.time())
-        claims = {
-            "iss": creds["client_email"],
-            "scope": "https://www.googleapis.com/auth/cloud-platform",
-            "aud": "https://oauth2.googleapis.com/token",
-            "exp": now + 3600,
-            "iat": now
-        }
-        header = {"alg": "RS256", "typ": "JWT"}
-        segments = [b64url(json.dumps(header).encode()), b64url(json.dumps(claims).encode())]
-        signing_input = ".".join(segments).encode()
-        key = rsa.PrivateKey.load_pkcs1(creds["private_key"].encode())
-        signature = rsa.sign(signing_input, key, "SHA-256")
-        segments.append(b64url(signature))
-        jwt = ".".join(segments)
+            send_message("🔐 **جاري إنشاء JWT Token...**")
+            def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
+            now = int(time.time())
+            claims = {
+                "iss": creds["client_email"],
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "aud": "https://oauth2.googleapis.com/token",
+                "exp": now + 3600,
+                "iat": now
+            }
+            header = {"alg": "RS256", "typ": "JWT"}
+            segments = [b64url(json.dumps(header).encode()), b64url(json.dumps(claims).encode())]
+            signing_input = ".".join(segments).encode()
+            key = rsa.PrivateKey.load_pkcs1(creds["private_key"].encode())
+            signature = rsa.sign(signing_input, key, "SHA-256")
+            segments.append(b64url(signature))
+            jwt = ".".join(segments)
 
-        send_message("🔄 **جاري الحصول على Access Token...**")
-        resp = requests.post(
-            "https://oauth2.googleapis.com/token",
-            data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
-            timeout=30
-        )
-        if resp.status_code != 200:
-            raise Exception(f"فشل Token: {resp.status_code}")
-        token = resp.json().get("access_token")
-        if not token:
-            raise Exception("لا يوجد access_token")
+            send_message("🔄 **جاري الحصول على Access Token...**")
+            resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
+                timeout=30
+            )
+            if resp.status_code != 200:
+                raise Exception(f"فشل Token: {resp.status_code}")
+            token = resp.json().get("access_token")
+            if not token:
+                raise Exception("لا يوجد access_token")
 
-        send_message("🚀 **جاري نشر الخدمة على Cloud Run...**")
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        service_name = f"shadow-{int(time.time())}"
-        body = {
-            "apiVersion": "serving.knative.dev/v1",
-            "kind": "Service",
-            "metadata": {"name": service_name},
-            "spec": {
-                "template": {
-                    "spec": {
-                        "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
+            send_message("🚀 **جاري نشر الخدمة على Cloud Run...**")
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            service_name = f"shadow-{int(time.time())}"
+            body = {
+                "apiVersion": "serving.knative.dev/v1",
+                "kind": "Service",
+                "metadata": {"name": service_name},
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
+                        }
                     }
                 }
             }
-        }
-        url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-        r = requests.post(url, headers=headers, json=body, timeout=60)
-        if r.status_code not in (200, 201):
-            raise Exception(f"فشل النشر: {r.status_code}")
-        service_url = r.json().get('status', {}).get('url')
-        if not service_url:
-            raise Exception("لا يوجد رابط للخدمة")
+            url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
+            r = requests.post(url, headers=headers, json=body, timeout=60)
+            if r.status_code not in (200, 201):
+                raise Exception(f"فشل النشر: {r.status_code}")
+            service_url = r.json().get('status', {}).get('url')
+            if not service_url:
+                raise Exception("لا يوجد رابط للخدمة")
 
-        return build_vless_response(service_url, region)
+            return build_vless_response(service_url, region)
 
-    except Exception as e:
-        if driver:
-            try: driver.quit()
-            except: pass
-        raise e
+        except Exception as e:
+            if driver:
+                try: driver.quit()
+                except: pass
+            if attempt < max_retries - 1:
+                send_message(f"⚠️ **محاولة {attempt+1} فشلت، إعادة المحاولة خلال 10 ثوانٍ...**")
+                time.sleep(10)
+            else:
+                raise e
 
 # ====================== QUEUE ======================
 task_queue = queue.Queue()
@@ -343,8 +357,13 @@ def process_queue():
                 loop = item['loop']
                 bot = context.bot
 
+                # ============================================================
+                # 🔥 التعديل المطلوب: إضافة مهلة 1 ثانية بين كل رسالة
+                # ============================================================
                 def send_message(text):
+                    time.sleep(1)  # ⏳ مهلة 1 ثانية لحماية البوت من الحظر
                     asyncio.run_coroutine_threadsafe(bot.send_message(chat_id=user_id, text=text), loop)
+                # ============================================================
 
                 send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**\nتم التحقق من صلاحية الرابط سيتم ربط الحساب وبدء عملية الإنشاء...")
                 time.sleep(1)
@@ -426,7 +445,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(
         "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 النسخة المحسّنة – متوافقة مع Railway\n"
+        "📡 النسخة المحسّنة مع مهلة بين الرسائل\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -568,7 +587,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مع إصلاح tab crashed)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مع مهلة بين الرسائل)")
     app.run_polling()
 
 if __name__ == "__main__":
