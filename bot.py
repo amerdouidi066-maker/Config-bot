@@ -3,8 +3,7 @@
 
 """
 🔥 SHADOW LEGION v105.0 – معدل للعمل على Railway
-تم حذف المكتبات غير المدعومة (pynput, opencv, mss, pyperclip)
-وتعديل دوال الأدوات لترجع رسائل "غير مدعوم" بدلاً من التعطل.
+تم إضافة سجلات مراقبة لمتابعة خطوات النشر على Cloud Run
 """
 
 import os
@@ -190,17 +189,20 @@ def get_chrome_driver():
     driver = webdriver.Chrome(service=service, options=options)
     return driver
 
-# ====================== DEPLOY (SELENIUM + REST API) ======================
+# ====================== DEPLOY (SELENIUM + REST API) مع سجلات المراقبة ======================
 def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
     driver = None
     try:
+        logger.info("🌐 جاري فتح Google Accounts...")
         driver = get_chrome_driver()
         wait = WebDriverWait(driver, 20)
 
         # تسجيل الدخول إلى Google
+        logger.info("📧 جاري إدخال البريد الإلكتروني...")
         driver.get("https://accounts.google.com/")
         wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
         time.sleep(2)
+        logger.info("🔑 جاري إدخال كلمة المرور...")
         wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
         time.sleep(5)
 
@@ -210,6 +212,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         project_id = match.group(1)
 
         # تمكين Cloud Run API
+        logger.info("☁️ جاري تمكين Cloud Run API...")
         driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
         time.sleep(3)
         try:
@@ -219,6 +222,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
             pass
 
         # إنشاء حساب خدمة
+        logger.info("👤 جاري إنشاء حساب الخدمة...")
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
         time.sleep(3)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create Service Account')]"))).click()
@@ -233,6 +237,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         time.sleep(3)
 
         # تنزيل مفتاح JSON
+        logger.info("📄 جاري تنزيل مفتاح JSON...")
         driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
         time.sleep(2)
         account = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'shadow-bot')]")))
@@ -261,6 +266,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         driver.quit()
 
         # إنشاء JWT
+        logger.info("🔐 جاري إنشاء JWT Token...")
         def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
         now = int(time.time())
         claims = {
@@ -279,6 +285,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         jwt = ".".join(segments)
 
         # الحصول على access_token
+        logger.info("🔄 جاري الحصول على Access Token...")
         resp = requests.post(
             "https://oauth2.googleapis.com/token",
             data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
@@ -291,6 +298,7 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
             raise Exception("لا يوجد access_token")
 
         # نشر الخدمة
+        logger.info("🚀 جاري نشر الخدمة على Cloud Run...")
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         service_name = f"shadow-{int(time.time())}"
         body = {
@@ -321,12 +329,14 @@ def deploy_with_selenium(lab_url, email, password, region="europe-west1"):
         uid = f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:32]}"
         vless = f"vless://{uid}@{host}:443?path=%2F&security=tls&encryption=none&host={host}&type=ws&sni={host}#SHADOW_v105"
 
+        logger.info("✅ تم النشر بنجاح!")
         return (f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 رابط الخدمة: `{service_url}`\n🔗 رابط VLESS:\n`{vless}`", service_url, vless)
 
     except Exception as e:
         if driver:
             try: driver.quit()
             except: pass
+        logger.error(f"❌ فشل النشر: {e}")
         raise e
 
 def extract_from_link(link):
@@ -696,7 +706,7 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY (خفيف)")
+    logger.info("✅ SHADOW LEGION v105.0 RUNNING ON RAILWAY (مع سجلات المراقبة)")
     app.run_polling()
 
 if __name__ == "__main__":
