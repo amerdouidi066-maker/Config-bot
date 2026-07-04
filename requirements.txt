@@ -1,10 +1,10 @@
 python-telegram-bot==20.8
 requests==2.31.0
 rsa==4.9
-undetected-chromedriver==3.5.6
+undetected-chromedriver==3.5.5
 selenium==4.23.1
 psutil==6.0.0
 pillow==10.4.0
 numpy==1.26.4
 cryptography==41.0.7
-setuptools==70.0.0
+setuptools
