@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v132 – Undetected ChromeDriver (بدون تحديد إصدار)
+🔥 SHADOW LEGION v134 – نسخة بدون رسائل طابور
+تم إزالة رسائل "تمت إضافة طلبك" و "أولوية النشر"
 """
 
 import os
@@ -26,6 +27,7 @@ import glob
 import shutil
 import asyncio
 from datetime import datetime, timedelta
+from typing import Optional, Tuple
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
@@ -130,6 +132,17 @@ def update_user(user_id, **kwargs):
     conn.commit()
     conn.close()
 
+def get_history(user_id, limit=5):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT lab_url, service_url, vless_link, deployed_at, success FROM history WHERE user_id = ? ORDER BY deployed_at DESC LIMIT ?",
+        (user_id, limit)
+    )
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
 init_db()
 
 # ====================== EXTRACTORS ======================
@@ -159,7 +172,7 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الخدمة**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== UNDETECTED CHROMEDRIVER (بدون تحديد إصدار) ======================
+# ====================== UNDETECTED CHROMEDRIVER ======================
 def get_ultimate_driver():
     options = uc.ChromeOptions()
     options.add_argument("--no-sandbox")
@@ -197,17 +210,37 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             driver = get_ultimate_driver()
             wait = WebDriverWait(driver, 60)
 
+            send_message("🔑 **جاري تسجيل الدخول إلى Google...**")
             driver.get("https://accounts.google.com/")
-            wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
-            time.sleep(3)
+            time.sleep(2)
             
-            wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
-            time.sleep(6)
+            email_input = wait.until(EC.presence_of_element_located((By.ID, "identifierId")))
+            email_input.clear()
+            email_input.send_keys(email)
+            time.sleep(1)
+            email_input.send_keys(Keys.RETURN)
+            
+            time.sleep(5)
+            
+            password_input = wait.until(EC.presence_of_element_located((By.NAME, "Passwd")))
+            password_input.clear()
+            password_input.send_keys(password)
+            time.sleep(1)
+            password_input.send_keys(Keys.RETURN)
+            
+            time.sleep(8)
+            
+            try:
+                wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Google Cloud')]")))
+                send_message("✅ **تم تسجيل الدخول بنجاح**")
+            except:
+                pass
 
             project_id = extract_project_id(lab_url)
             if not project_id:
                 raise Exception("project_id مفقود")
 
+            send_message("☁️ **جاري تمكين Cloud Run API...**")
             driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
             time.sleep(5)
             try:
@@ -216,10 +249,10 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             except:
                 pass
 
+            send_message("👤 **جاري إنشاء حساب الخدمة...**")
             driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
             time.sleep(10)
             
-            # إغلاق النوافذ المنبثقة
             popup_selectors = [
                 "//*[@aria-label='Close']",
                 "//*[contains(text(), 'Dismiss')]",
@@ -239,7 +272,6 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
                 except:
                     continue
 
-            # البحث عن زر Create Service Account
             create_button = None
             selectors = [
                 "//*[contains(text(), 'Create Service Account')]",
@@ -339,7 +371,7 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             download_dir = tempfile.gettempdir()
             list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
             if not list_of_files:
-                raise Exception("ملف JSON غير موجود")
+                raise Exception("ملف JSON غير موجود بعد التنزيل")
             latest_file = max(list_of_files, key=os.path.getctime)
             with open(latest_file, 'r') as f:
                 creds = json.load(f)
@@ -446,15 +478,17 @@ def process_queue():
                         loop
                     )
 
-                send_message("✅ **تمت إضافة طلبك إلى طابور الانظار بنجاح!**")
-                time.sleep(1)
-                send_message("📌 **أولوية النشر: عادية (ثانية)**\nسيقوم البوت بتشغيل طلبك تلقائياً.")
-                time.sleep(1)
+                # ========== تم حذف رسائل الطابور ==========
+                # لم تعد هناك رسائل "تمت إضافة طلبك" أو "أولوية النشر"
+                # ==========================================
 
                 link_data = extract_from_link(link)
                 project_id = link_data.get('project_id', '')
                 if not project_id:
                     raise Exception("❌ project_id مفقود.")
+
+                send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**")
+                time.sleep(1)
 
                 send_message("🔍 **جاري تحليل سياسات المشروع...**")
                 time.sleep(1)
@@ -512,8 +546,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v132**\n"
-        "📡 Undetected ChromeDriver – إصدار متوافق\n"
+        "🔥 **SHADOW LEGION v134**\n"
+        "📡 نسخة بدون رسائل طابور\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -572,11 +606,10 @@ async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'loop': main_loop
     })
 
-    await update.message.reply_text(
-        "✅ **تمت إضافة طلبك إلى طابور الانظار بنجاح!**\n\n"
-        "📌 **أولوية النشر: عادية (ثانية)**\n"
-        "سيقوم البوت بتشغيل طلبك تلقائياً فور توفر منفذ تشغيل شاغر، وسنرسل لك إشعاراً فوراً عند اكتمال نشر الخدمة."
-    )
+    # ========== تم حذف رسائل تأكيد الإضافة ==========
+    # await update.message.reply_text(...)
+    # ================================================
+
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -591,13 +624,21 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         await update.message.reply_text("❌ لا توجد بيانات.")
         return
+    
+    history = get_history(user_id, 3)
+    history_text = "\n".join([
+        f"• {h[3]} → {'✅ نجاح' if h[4] else '❌ فشل'}"
+        for h in history
+    ]) if history else "لا يوجد سجل."
+
     await update.message.reply_text(
         f"📋 **حالتك**\n\n"
         f"📧 البريد: {user.get('email', 'غير مضبوط')}\n"
         f"🌍 المنطقة: {REGIONS.get(user.get('region'), user.get('region'))}\n"
         f"📊 عدد النشر: {user.get('deploy_count', 0)}\n"
         f"🔄 الحالة: {user.get('status', 'idle')}\n"
-        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}"
+        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}\n\n"
+        f"📜 **آخر 3 عمليات:**\n{history_text}"
     )
 
 async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -661,8 +702,9 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
+    app.add_handler(CallbackQueryHandler(status_command, pattern='^status$'))
 
-    logger.info("✅ SHADOW LEGION v132 RUNNING (متوافق مع Python 3.12)")
+    logger.info("✅ SHADOW LEGION v134 RUNNING (بدون رسائل طابور)")
     app.run_polling()
 
 if __name__ == "__main__":
