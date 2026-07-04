@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v127 – النسخة النهائية المتكاملة
+🔥 SHADOW LEGION v128 – النسخة النهائية المتكاملة
+✅ متصفح متخفي (Stealth) لكشف الحماية
 ✅ استخراج التوكن من الجلسة (Bypass)
-✅ خطة احتياطية محسّنة (إنشاء حساب الخدمة مع إعادة محاولة ومحددات متعددة)
+✅ خطة احتياطية محسّنة (إنشاء حساب الخدمة مع إغلاق النوافذ المنبثقة)
 ✅ تخزين مؤقت للتوكن
-✅ أدوات تخفي متطورة
 ✅ متوافقة مع Railway
 """
 
@@ -235,7 +235,7 @@ def get_ultimate_driver():
     
     return driver
 
-# ====================== TOKEN EXTRACTION (محسّن) ======================
+# ====================== TOKEN EXTRACTION ======================
 def extract_token_from_network_logs(driver):
     logs = driver.get_log('performance')
     for entry in logs:
@@ -340,10 +340,10 @@ def deploy_direct_with_token(project_id, token, region):
     else:
         raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
 
-# ====================== FALLBACK: إنشاء حساب الخدمة (محسّن) ======================
+# ====================== FALLBACK (محسّن لإغلاق النوافذ المنبثقة) ======================
 def deploy_with_legacy_selenium(lab_url, email, password, region, send_message):
     """
-    الطريقة الاحتياطية المحسّنة: تسجيل الدخول وإنشاء حساب خدمة مع إعادة محاولة ومحددات متعددة.
+    الطريقة الاحتياطية المحسّنة - تركز على تخطي النوافذ المنبثقة وإيجاد زر "Create Service Account"
     """
     max_retries = 2
     for attempt in range(max_retries):
@@ -381,15 +381,34 @@ def deploy_with_legacy_selenium(lab_url, email, password, region, send_message):
 
             send_message("👤 جاري إنشاء حساب الخدمة...")
             driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-            time.sleep(8)
+            time.sleep(10)  # انتظار أطول لتحميل الصفحة بالكامل
             
-            try:
-                close_btn = driver.find_element(By.XPATH, "//*[@aria-label='Close' or contains(text(), 'Dismiss')]")
-                close_btn.click()
-                time.sleep(2)
-            except:
-                pass
+            # ===========================================================
+            # 🔥 الخطوة الجديدة: إغلاق أي نافذة منبثقة أو إعلان
+            # ===========================================================
+            popup_selectors = [
+                "//*[@aria-label='Close']",
+                "//*[contains(text(), 'Dismiss')]",
+                "//*[contains(text(), 'Skip')]",
+                "//*[contains(text(), 'No thanks')]",
+                "//*[contains(text(), 'Got it')]",
+                "//*[contains(text(), 'Take a tour')]",
+                "//button[@aria-label='Close']"
+            ]
+            for sel in popup_selectors:
+                try:
+                    popup = driver.find_element(By.XPATH, sel)
+                    if popup and popup.is_displayed():
+                        popup.click()
+                        time.sleep(2)
+                        send_message("🗑️ تم إغلاق نافذة منبثقة")
+                        break
+                except:
+                    continue
 
+            # ===========================================================
+            # 🔥 البحث عن زر "Create Service Account" بطرق متعددة جداً
+            # ===========================================================
             create_button = None
             selectors = [
                 "//*[contains(text(), 'Create Service Account')]",
@@ -397,7 +416,9 @@ def deploy_with_legacy_selenium(lab_url, email, password, region, send_message):
                 "button[aria-label='Create Service Account']",
                 "//*[@role='button' and contains(., 'Create')]",
                 "//*[contains(@class, 'create-service-account')]",
-                "//button[contains(., 'Create')]"
+                "//button[contains(., 'Create')]",
+                "//*[@jsname='...']",
+                "//*[@data-testid='create-service-account-button']"
             ]
             for sel in selectors:
                 try:
@@ -409,6 +430,7 @@ def deploy_with_legacy_selenium(lab_url, email, password, region, send_message):
                 except:
                     continue
             
+            # 🔥 إذا لم يتم العثور، استخدم JavaScript للبحث عن أي زر يحوي "Create"
             if not create_button:
                 js_script = """
                     var buttons = document.querySelectorAll('button, [role="button"]');
@@ -421,18 +443,41 @@ def deploy_with_legacy_selenium(lab_url, email, password, region, send_message):
                 """
                 create_button = driver.execute_script(js_script)
                 if create_button:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", create_button)
+                    time.sleep(1)
                     driver.execute_script("arguments[0].click();", create_button)
-                    create_button = None
+                    create_button = None  # لمنع النقر مجدداً
             
             if not create_button:
-                raise Exception("لم نتمكن من العثور على زر 'Create Service Account'.")
+                # محاولة أخيرة: التحديث وإعادة المحاولة
+                send_message("⚠️ لم يتم العثور على الزر، جاري تحديث الصفحة...")
+                driver.refresh()
+                time.sleep(8)
+                for sel in selectors:
+                    try:
+                        if sel.startswith("//"):
+                            create_button = wait.until(EC.element_to_be_clickable((By.XPATH, sel)))
+                        else:
+                            create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, sel)))
+                        break
+                    except:
+                        continue
+                if not create_button:
+                    raise Exception("لم نتمكن من العثور على زر 'Create Service Account' حتى بعد التحديث.")
             
+            # النقر على الزر (باستخدام JavaScript كحل أخير)
             try:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", create_button)
+                time.sleep(1)
                 create_button.click()
             except:
                 driver.execute_script("arguments[0].click();", create_button)
-            time.sleep(3)
+            send_message("✅ تم النقر على زر Create Service Account")
+            time.sleep(4)
             
+            # ===========================================================
+            # 🔥 باقي الخطوات (إدخال الاسم، اختيار الدور، إلخ)
+            # ===========================================================
             wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
             time.sleep(1)
             
@@ -710,8 +755,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v127**\n"
-        "📡 النسخة النهائية المتكاملة\n"
+        "🔥 **SHADOW LEGION v128**\n"
+        "📡 النسخة النهائية – متصفح متخفي + خطة احتياطية محسّنة\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -862,7 +907,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v127 RUNNING (متكاملة)")
+    logger.info("✅ SHADOW LEGION v128 RUNNING (متصفح متخفي + خطة احتياطية)")
     app.run_polling()
 
 if __name__ == "__main__":
