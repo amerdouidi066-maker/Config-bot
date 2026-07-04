@@ -2,8 +2,14 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v121 – نسخة محسنة مع محاولة إعادة واحدة
-تم تحسين معالجة الأخطاء وإعطاء رسائل واضحة
+🔥 SHADOW LEGION v125 – النسخة النهائية المتكاملة
+✅ أدوات تخفي متطورة (Evasion)
+✅ استخراج التوكن من الجلسة (Bypass)
+✅ تخزين مؤقت للتوكن (Cache)
+✅ إعادة محاولة واحدة
+✅ قاعدة بيانات SQLite
+✅ أوامر تلغرام كاملة
+✅ متوافقة مع Railway
 """
 
 import os
@@ -95,24 +101,19 @@ def init_db():
             deployed_at TIMESTAMP,
             success INTEGER DEFAULT 1
         );
+        CREATE TABLE IF NOT EXISTS token_cache (
+            user_id INTEGER PRIMARY KEY,
+            access_token TEXT,
+            expiry TIMESTAMP
+        );
     """)
     conn.commit()
     conn.close()
     logger.info("✅ قاعدة البيانات جاهزة")
 
 def init_cache_db():
-    conn = sqlite3.connect(CACHE_DB)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS token_cache (
-            user_id INTEGER PRIMARY KEY,
-            access_token TEXT,
-            expiry TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-    logger.info("✅ قاعدة التخزين المؤقت جاهزة")
+    # تم دمجها في init_db، لكن نتركها للتوافق
+    pass
 
 def get_user(user_id):
     conn = sqlite3.connect(DB_PATH)
@@ -151,7 +152,7 @@ def update_user(user_id, **kwargs):
     conn.close()
 
 def get_cached_token(user_id: int) -> Optional[Tuple[str, datetime]]:
-    conn = sqlite3.connect(CACHE_DB)
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT access_token, expiry FROM token_cache WHERE user_id = ?", (user_id,))
     row = c.fetchone()
@@ -165,7 +166,7 @@ def get_cached_token(user_id: int) -> Optional[Tuple[str, datetime]]:
 
 def save_token(user_id: int, access_token: str, expiry_seconds: int = 3600):
     expiry = datetime.now() + timedelta(seconds=expiry_seconds)
-    conn = sqlite3.connect(CACHE_DB)
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
         "INSERT OR REPLACE INTO token_cache (user_id, access_token, expiry) VALUES (?, ?, ?)",
@@ -176,14 +177,13 @@ def save_token(user_id: int, access_token: str, expiry_seconds: int = 3600):
     logger.info(f"✅ تم تخزين التوكن للمستخدم {user_id}")
 
 def clear_cached_token(user_id: int):
-    conn = sqlite3.connect(CACHE_DB)
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM token_cache WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
 
 init_db()
-init_cache_db()
 
 # ====================== EXTRACTORS ======================
 def extract_project_id(link):
@@ -212,9 +212,10 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الـ Cloud Run**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== CHROME DRIVER ======================
+# ====================== CHROME DRIVER (التخفي المتطور) ======================
 def get_ultimate_driver():
     options = Options()
+    # طبقات التخفي المتقدمة
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
@@ -235,8 +236,11 @@ def get_ultimate_driver():
     except:
         driver = webdriver.Chrome(options=options)
     
+    # تجاوز كشف السيلينيوم
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});")
+    driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});")
+    
     return driver
 
 # ====================== TOKEN EXTRACTION ======================
@@ -326,7 +330,7 @@ def deploy_direct_with_token(project_id, token, region):
     else:
         raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
 
-# ====================== BYPASS DEPLOY مع محاولة إعادة واحدة ======================
+# ====================== BYPASS DEPLOY (مع التخفي) ======================
 def deploy_bypass(lab_url, email, password, region, send_message, user_id):
     project_id = extract_project_id(lab_url)
     if not project_id:
@@ -347,7 +351,7 @@ def deploy_bypass(lab_url, email, password, region, send_message, user_id):
                 raise e
     
     # محاولة استخراج توكن جديد (مع محاولة إعادة واحدة)
-    max_retries = 2  # محاولتان كحد أقصى
+    max_retries = 2
     for attempt in range(max_retries):
         driver = None
         try:
@@ -357,23 +361,17 @@ def deploy_bypass(lab_url, email, password, region, send_message, user_id):
             driver = get_ultimate_driver()
             
             send_message("📧 جاري تسجيل الدخول...")
-            driver.get("https://accounts.google.com/signin")
+            driver.get("https://accounts.google.com/")
             time.sleep(random.uniform(2, 4))
             
-            # انتظار ظهور حقل البريد الإلكتروني
-            email_input = WebDriverWait(driver, 20).until(
+            WebDriverWait(driver, 30).until(
                 EC.presence_of_element_located((By.ID, "identifierId"))
-            )
-            email_input.clear()
-            email_input.send_keys(email + Keys.RETURN)
+            ).send_keys(email + Keys.RETURN)
             time.sleep(random.uniform(2, 4))
             
-            # انتظار ظهور حقل كلمة المرور
-            pass_input = WebDriverWait(driver, 20).until(
+            WebDriverWait(driver, 30).until(
                 EC.presence_of_element_located((By.NAME, "Passwd"))
-            )
-            pass_input.clear()
-            pass_input.send_keys(password + Keys.RETURN)
+            ).send_keys(password + Keys.RETURN)
             time.sleep(random.uniform(6, 10))
             
             send_message("🌐 جاري الانتقال إلى Cloud Run Console...")
@@ -400,14 +398,12 @@ def deploy_bypass(lab_url, email, password, region, send_message, user_id):
                     pass
             error_msg = str(e)
             
-            # إذا كانت المشكلة في استخراج التوكن، حاول مرة واحدة إضافية
             if ("لم نتمكن من استخراج التوكن" in error_msg or "UNAUTHORIZED_TOKEN" in error_msg) and attempt < max_retries - 1:
                 send_message("⚠️ فشل استخراج التوكن، جاري إعادة المحاولة...")
                 clear_cached_token(user_id)
                 time.sleep(3)
                 continue
             else:
-                # رفع الخطأ مباشرة
                 raise Exception(f"فشل النشر: {error_msg}")
     
     raise Exception("فشل النشر بعد المحاولات المتكررة")
@@ -466,7 +462,6 @@ def process_queue():
                 if not saved_email or not saved_password:
                     raise Exception("⚠️ لا يوجد بريد وكلمة مرور محفوظان.\nاستخدم الأمر /set_creds لحفظ بيانات الدخول.")
 
-                # استخدام طريقة التجاوز الجديدة
                 result_msg, service_url, vless = deploy_bypass(
                     link, saved_email, saved_password, region, send_message, user_id
                 )
@@ -510,8 +505,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v121**\n"
-        "📡 نسخة محسنة مع محاولة إعادة\n"
+        "🔥 **SHADOW LEGION v125**\n"
+        "📡 النسخة النهائية مع أدوات التخفي المتطورة\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -662,7 +657,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v121 RUNNING (نسخة محسنة مع إعادة المحاولة)")
+    logger.info("✅ SHADOW LEGION v125 RUNNING (مع التخفي المتطور)")
     app.run_polling()
 
 if __name__ == "__main__":
