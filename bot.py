@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v105.0 – النسخة النهائية مع أمر اختبار
-يمكنك تجربة البوت فوراً بأمر /test حتى لو لم يكن لديك رابط صالح
+🔥 SHADOW LEGION v120 – نسخة المحاولة الواحدة
+تم ضبط max_retries = 1 (محاولة واحدة فقط)
 """
 
 import os
@@ -27,12 +27,22 @@ import glob
 import shutil
 import asyncio
 from datetime import datetime, timedelta
+from typing import Optional, Tuple
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
-# ====================== IMPORTS ======================
 import requests
+import rsa
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 import psutil
+from cryptography.fernet import Fernet
 
 # ====================== CONFIG ======================
 TOKEN = os.environ.get("TOKEN")
@@ -58,6 +68,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DB_PATH = "shadow_legion.db"
+CACHE_DB = "token_cache.db"
 
 # ====================== DATABASE ======================
 def init_db():
@@ -84,17 +95,24 @@ def init_db():
             deployed_at TIMESTAMP,
             success INTEGER DEFAULT 1
         );
-        CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            action TEXT,
-            details TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
     """)
     conn.commit()
     conn.close()
     logger.info("✅ قاعدة البيانات جاهزة")
+
+def init_cache_db():
+    conn = sqlite3.connect(CACHE_DB)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS token_cache (
+            user_id INTEGER PRIMARY KEY,
+            access_token TEXT,
+            expiry TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+    logger.info("✅ قاعدة التخزين المؤقت جاهزة")
 
 def get_user(user_id):
     conn = sqlite3.connect(DB_PATH)
@@ -132,25 +150,40 @@ def update_user(user_id, **kwargs):
     conn.commit()
     conn.close()
 
-def log_action(user_id, action, details=""):
-    conn = sqlite3.connect(DB_PATH)
+def get_cached_token(user_id: int) -> Optional[Tuple[str, datetime]]:
+    conn = sqlite3.connect(CACHE_DB)
     c = conn.cursor()
-    c.execute("INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)", (user_id, action, details))
+    c.execute("SELECT access_token, expiry FROM token_cache WHERE user_id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        token, expiry_str = row
+        expiry = datetime.fromisoformat(expiry_str)
+        if expiry > datetime.now():
+            return token, expiry
+    return None, None
+
+def save_token(user_id: int, access_token: str, expiry_seconds: int = 3600):
+    expiry = datetime.now() + timedelta(seconds=expiry_seconds)
+    conn = sqlite3.connect(CACHE_DB)
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR REPLACE INTO token_cache (user_id, access_token, expiry) VALUES (?, ?, ?)",
+        (user_id, access_token, expiry.isoformat())
+    )
+    conn.commit()
+    conn.close()
+    logger.info(f"✅ تم تخزين التوكن للمستخدم {user_id}")
+
+def clear_cached_token(user_id: int):
+    conn = sqlite3.connect(CACHE_DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM token_cache WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
 
-def get_history(user_id, limit=10):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT lab_url, service_url, vless_link, deployed_at, success FROM history WHERE user_id = ? ORDER BY deployed_at DESC LIMIT ?",
-        (user_id, limit)
-    )
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
 init_db()
+init_cache_db()
 
 # ====================== EXTRACTORS ======================
 def extract_project_id(link):
@@ -163,60 +196,111 @@ def extract_project_id(link):
         return match.group(1)
     return None
 
-def extract_token(link):
-    decoded = urllib.parse.unquote(link)
-    match = re.search(r'token=([^&]+)', decoded)
-    if match:
-        return match.group(1)
-    match = re.search(r'token%3D([^&]+)', link)
-    if match:
-        return match.group(1)
-    return None
-
-def extract_email(link):
-    decoded = urllib.parse.unquote(link)
-    match = re.search(r'[Ee]mail=([^&]+)', decoded)
-    if match:
-        return urllib.parse.unquote(match.group(1))
-    match = re.search(r'Email%3D([^&]+)', link)
-    if match:
-        return urllib.parse.unquote(match.group(1))
-    return None
-
 def extract_from_link(link):
     data = {}
     data['project_id'] = extract_project_id(link) or ''
-    data['token'] = extract_token(link) or ''
-    data['email'] = extract_email(link) or ''
+    decoded = urllib.parse.unquote(link)
+    match = re.search(r'[Ee]mail=([^&]+)', decoded)
+    if match:
+        data['email'] = urllib.parse.unquote(match.group(1))
     return data
 
-def is_valid_url(url):
-    return url.startswith('http://') or url.startswith('https://')
-
-# ====================== VLESS BUILDER ======================
 def build_vless_response(service_url, region):
     host = service_url.replace('https://', '').replace('http://', '')
     uid = hashlib.md5(b"shadow_v105").hexdigest()
     uid = f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:32]}"
-    vless = (
-        f"vless://{uid}@{host}:443"
-        f"?encryption=none&security=tls&sni=youtube.com&fp=chrome"
-        f"&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
-    )
-    result_msg = (
-        f"✅ **تم النشر!**\n"
-        f"🌍 المنطقة: {REGIONS.get(region, region)}\n"
-        f"🌐 **رابط الـ Cloud Run**\n{service_url}\n\n"
-        f"🔗 **VLESS URL**\n{vless}"
-    )
-    return result_msg, service_url, vless
+    vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
+    return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الـ Cloud Run**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== DEPLOY (النشر المباشر أو الوهمي) ======================
-def deploy_direct(project_id, token, region):
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
+# ====================== CHROME DRIVER ======================
+def get_ultimate_driver():
+    options = Options()
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-features=Translate,OptimizationHints")
+    options.add_argument("--disable-web-security")
+    options.add_argument("--headless=new")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--incognito")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+    options.add_experimental_option('useAutomationExtension', False)
+    options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+    
+    try:
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+    except:
+        driver = webdriver.Chrome(options=options)
+    
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});")
+    return driver
+
+# ====================== TOKEN EXTRACTION ======================
+def extract_token_from_network_logs(driver):
+    logs = driver.get_log('performance')
+    for entry in logs:
+        try:
+            data = json.loads(entry['message'])
+            message = data.get('message', {})
+            if message.get('method') == 'Network.requestWillBeSent':
+                request = message.get('params', {}).get('request', {})
+                headers = request.get('headers', {})
+                auth_header = headers.get('Authorization')
+                if auth_header and auth_header.startswith('Bearer '):
+                    token = auth_header.replace('Bearer ', '')
+                    if len(token) > 50:
+                        return token
+        except:
+            continue
+    return None
+
+def extract_token_from_local_storage(driver):
+    try:
+        token = driver.execute_script("""
+            var keys = ['access_token', 'id_token', 'oauth_token', 'token', 'gapi_token'];
+            for (var i=0; i<keys.length; i++) {
+                var val = localStorage.getItem(keys[i]);
+                if (val && val.length > 50) return val;
+            }
+            return null;
+        """)
+        if token:
+            return token
+    except:
+        pass
+    return None
+
+def extract_token_from_cookies(driver):
+    try:
+        for cookie in driver.get_cookies():
+            name = cookie.get('name', '').lower()
+            if 'token' in name or 'oauth' in name or 'auth' in name:
+                value = cookie.get('value')
+                if value and len(value) > 50:
+                    return value
+    except:
+        pass
+    return None
+
+def extract_token_driver(driver):
+    token = extract_token_from_network_logs(driver)
+    if token:
+        return token
+    token = extract_token_from_local_storage(driver)
+    if token:
+        return token
+    token = extract_token_from_cookies(driver)
+    if token:
+        return token
+    raise Exception("❌ لم نتمكن من استخراج التوكن بأي طريقة.")
+
+# ====================== DEPLOY ======================
+def deploy_direct_with_token(project_id, token, region):
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     service_name = f"shadow-{int(time.time())}"
     body = {
         "apiVersion": "serving.knative.dev/v1",
@@ -225,43 +309,91 @@ def deploy_direct(project_id, token, region):
         "spec": {
             "template": {
                 "spec": {
-                    "containers": [
-                        {
-                            "image": "ajndjd2/ahmed-vip1",
-                            "ports": [{"containerPort": 8080}]
-                        }
-                    ]
+                    "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
                 }
             }
         }
     }
     url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-    
-    logger.info(f"🚀 جاري النشر إلى المنطقة: {region}")
-    r = requests.post(url, headers=headers, json=body, timeout=60)
-    
+    r = requests.post(url, headers=headers, json=body, timeout=120)
     if r.status_code in (200, 201):
         service_url = r.json().get('status', {}).get('url')
-        if service_url:
-            return build_vless_response(service_url, region)
-        else:
-            raise Exception("تم النشر ولكن لم يتم العثور على رابط الخدمة")
+        if not service_url:
+            service_url = f"https://{service_name}-{region}.run.app"
+        return build_vless_response(service_url, region)
     elif r.status_code == 401:
-        raise Exception("⚠️ الرابط منتهي الصلاحية (401). يرجى الحصول على رابط جديد.")
-    elif r.status_code == 403:
-        raise Exception("⚠️ ليس لديك صلاحية النشر في هذا المشروع (403).")
-    elif r.status_code == 404:
-        raise Exception("⚠️ المشروع غير موجود (404).")
+        raise Exception("UNAUTHORIZED_TOKEN")
     else:
         raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
 
-# ====================== أمر اختبار وهمي ======================
-def test_deploy():
-    """محاكاة عملية النشر الناجحة (للاستخدام مع /test)"""
-    time.sleep(3)  # محاكاة وقت المعالجة
-    fake_service_url = "https://test-shadow-12345-uc.a.run.app"
-    fake_region = "us-central1"
-    return build_vless_response(fake_service_url, fake_region)
+# ====================== BYPASS DEPLOY (محاولة واحدة فقط) ======================
+def deploy_bypass(lab_url, email, password, region, send_message, user_id):
+    project_id = extract_project_id(lab_url)
+    if not project_id:
+        raise Exception("❌ project_id مفقود")
+    
+    # التحقق من التوكن المخزن
+    cached_token, expiry = get_cached_token(user_id)
+    if cached_token:
+        send_message("♻️ استخدام التوكن المخزن (صالح حتى " + expiry.strftime("%H:%M") + ")")
+        try:
+            result_msg, service_url, vless = deploy_direct_with_token(project_id, cached_token, region)
+            return result_msg, service_url, vless
+        except Exception as e:
+            if "UNAUTHORIZED_TOKEN" in str(e):
+                send_message("⚠️ التوكن المخزن منتهي، جاري استخراج توكن جديد...")
+                clear_cached_token(user_id)
+            else:
+                raise e
+    
+    # 🔥 محاولة واحدة فقط (max_retries = 1)
+    max_retries = 1
+    for attempt in range(max_retries):
+        driver = None
+        try:
+            send_message(f"🌐 المحاولة الوحيدة...")
+            driver = get_ultimate_driver()
+            
+            send_message("📧 جاري تسجيل الدخول...")
+            driver.get("https://accounts.google.com/signin")
+            time.sleep(random.uniform(2, 4))
+            
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.ID, "identifierId"))
+            ).send_keys(email + Keys.RETURN)
+            time.sleep(random.uniform(2, 4))
+            
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.NAME, "Passwd"))
+            ).send_keys(password + Keys.RETURN)
+            time.sleep(random.uniform(6, 10))
+            
+            send_message("🌐 جاري الانتقال إلى Cloud Run Console...")
+            driver.get(f"https://console.cloud.google.com/run?project={project_id}")
+            time.sleep(random.uniform(8, 12))
+            
+            send_message("🔑 جاري استخراج التوكن...")
+            token = extract_token_driver(driver)
+            
+            save_token(user_id, token)
+            send_message("💾 تم تخزين التوكن للاستخدام المستقبلي")
+            
+            send_message(f"🚀 جاري النشر على {REGIONS.get(region, region)}...")
+            result_msg, service_url, vless = deploy_direct_with_token(project_id, token, region)
+            
+            driver.quit()
+            return result_msg, service_url, vless
+            
+        except Exception as e:
+            if driver:
+                try:
+                    driver.quit()
+                except:
+                    pass
+            # رفع الخطأ مباشرة دون إعادة محاولة
+            raise e
+    
+    raise Exception("فشل النشر بعد المحاولة الوحيدة")
 
 # ====================== QUEUE ======================
 task_queue = queue.Queue()
@@ -280,7 +412,6 @@ def process_queue():
                 context = item['context']
                 loop = item['loop']
                 bot = context.bot
-                is_test = item.get('is_test', False)
 
                 def send_message(text):
                     time.sleep(1)
@@ -289,33 +420,40 @@ def process_queue():
                         loop
                     )
 
-                if is_test:
-                    send_message("🧪 **جاري تشغيل اختبار النشر الوهمي...**")
-                    send_message("📡 سيتم محاكاة النشر بالكامل لإظهار النتيجة النهائية.")
-                    time.sleep(2)
-                    result_msg, service_url, vless = test_deploy()
-                    send_message("✅ **تم الاختبار بنجاح!**")
-                    send_message(result_msg)
-                    continue
-
-                send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**")
+                send_message("✅ **تمت إضافة طلبك إلى طابور الانظار بنجاح!**")
+                time.sleep(1)
+                send_message("📌 **أولوية النشر: عادية (ثانية)**\nسيقوم البوت بتشغيل طلبك تلقائياً.")
                 time.sleep(1)
 
                 link_data = extract_from_link(link)
                 project_id = link_data.get('project_id', '')
-                token = link_data.get('token', '')
+                email = link_data.get('email', '')
 
                 if not project_id:
-                    raise Exception("❌ project_id مفقود في الرابط.")
-                if not token:
-                    raise Exception("❌ لا يوجد token في الرابط.")
+                    raise Exception("❌ project_id مفقود.")
+
+                send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**")
+                time.sleep(1)
 
                 send_message("🔍 **جاري تحليل سياسات المشروع...**")
                 time.sleep(1)
                 send_message(f"✅ **تم اكتشاف 1 منطقة مسموح بها:**\n\n- {REGIONS.get(region, region)}")
+                time.sleep(1)
+
                 send_message(f"🚀 **جاري نشر الخدمة على {REGIONS.get(region, region)}...**")
 
-                result_msg, service_url, vless = deploy_direct(project_id, token, region)
+                user = get_user(user_id)
+                saved_email = user.get('email') if user else None
+                saved_password = user.get('password') if user else None
+
+                if not saved_email or not saved_password:
+                    raise Exception("⚠️ لا يوجد بريد وكلمة مرور محفوظان.\nاستخدم الأمر /set_creds لحفظ بيانات الدخول.")
+
+                # استخدام طريقة التجاوز الجديدة (محاولة واحدة)
+                result_msg, service_url, vless = deploy_bypass(
+                    link, saved_email, saved_password, region, send_message, user_id
+                )
+                
                 send_message("✅ **تم النشر بنجاح!**")
                 send_message(result_msg)
 
@@ -328,19 +466,16 @@ def process_queue():
                 )
                 conn.commit()
                 conn.close()
-                log_action(user_id, "deploy_success", f"region={region}")
 
             except Exception as e:
                 error_msg = str(e)
                 send_message(f"❌ **فشل النشر:** {error_msg}")
-                if not is_test:
-                    conn = sqlite3.connect(DB_PATH)
-                    c = conn.cursor()
-                    c.execute("UPDATE users SET status='error', last_result=? WHERE user_id=?", (error_msg, user_id))
-                    c.execute("INSERT INTO history (user_id, lab_url, success) VALUES (?,?,0)", (user_id, link))
-                    conn.commit()
-                    conn.close()
-                log_action(user_id, "deploy_failed", error_msg)
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute("UPDATE users SET status='error', last_result=? WHERE user_id=?", (error_msg, user_id))
+                c.execute("INSERT INTO history (user_id, lab_url, success) VALUES (?,?,0)", (user_id, link))
+                conn.commit()
+                conn.close()
             finally:
                 processing = False
         time.sleep(2)
@@ -351,40 +486,28 @@ threading.Thread(target=process_queue, daemon=True).start()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     update_user(user_id)
-    log_action(user_id, "start_command", "user started bot")
     keyboard = [
         [InlineKeyboardButton("🚀 Deploy Cloud Run", callback_data='deploy')],
-        [InlineKeyboardButton("🧪 Test Deploy", callback_data='test_deploy')],
         [InlineKeyboardButton("📋 Status", callback_data='status')],
         [InlineKeyboardButton("🌍 Change Region", callback_data='change_region')],
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v105.0**\n"
-        "📡 النسخة النهائية مع أمر اختبار\n"
-        "يمكنك تجربة الزر Test Deploy فوراً!",
+        "🔥 **SHADOW LEGION v120**\n"
+        "📡 نسخة المحاولة الواحدة\n"
+        "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def test_deploy_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    main_loop = asyncio.get_running_loop()
-    
-    task_queue.put({
-        'user_id': user_id,
-        'link': 'test',
-        'region': DEFAULT_REGION,
-        'context': context,
-        'loop': main_loop,
-        'is_test': True
-    })
-    
-    await query.edit_message_text(
-        "🧪 **جاري بدء الاختبار الوهمي...**\n"
-        "سيتم محاكاة النشر بالكامل وستصل النتيجة خلال 5 ثوانٍ."
-    )
+async def set_creds(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        email = context.args[0]
+        password = context.args[1]
+        update_user(user_id, email=email, password=password)
+        await update.message.reply_text("✅ تم حفظ البريد الإلكتروني وكلمة المرور بنجاح!")
+    except IndexError:
+        await update.message.reply_text("❌ الاستخدام: /set_creds <البريد> <كلمة_المرور>")
 
 async def deploy_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -403,9 +526,7 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     region = data.replace("region_", "")
     context.user_data['region'] = region
-    await query.edit_message_text(
-        f"✅ **المنطقة:** {REGIONS.get(region, region)}\n\n🔗 أرسل رابط SSO الآن."
-    )
+    await query.edit_message_text(f"✅ **المنطقة:** {REGIONS.get(region, region)}\n\n🔗 أرسل رابط SSO الآن.")
     return 1
 
 async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -413,18 +534,13 @@ async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text
     region = context.user_data.get('region', DEFAULT_REGION)
 
-    if not is_valid_url(link):
+    if not link.startswith('http'):
         await update.message.reply_text("❌ رابط غير صحيح.")
         return 1
 
     project_id = extract_project_id(link)
     if not project_id:
         await update.message.reply_text("❌ الرابط لا يحتوي على project_id.")
-        return 1
-
-    token = extract_token(link)
-    if not token:
-        await update.message.reply_text("❌ الرابط لا يحتوي على token.")
         return 1
 
     main_loop = asyncio.get_running_loop()
@@ -434,14 +550,13 @@ async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'link': link,
         'region': region,
         'context': context,
-        'loop': main_loop,
-        'is_test': False
+        'loop': main_loop
     })
 
     await update.message.reply_text(
         "✅ **تمت إضافة طلبك إلى طابور الانظار بنجاح!**\n\n"
         "📌 **أولوية النشر: عادية (ثانية)**\n"
-        "سيقوم البوت بتشغيل طلبك تلقائياً."
+        "سيقوم البوت بتشغيل طلبك تلقائياً فور توفر منفذ تشغيل شاغر، وسنرسل لك إشعاراً فوراً عند اكتمال نشر الخدمة."
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -457,21 +572,15 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         await update.message.reply_text("❌ لا توجد بيانات.")
         return
-
-    history = get_history(user_id, 3)
-    history_text = "\n".join([
-        f"• {h[3]} → {'✅ نجاح' if h[4] else '❌ فشل'}"
-        for h in history
-    ]) if history else "لا يوجد سجل."
-
+    has_token, _ = get_cached_token(user_id)
     await update.message.reply_text(
         f"📋 **حالتك**\n\n"
         f"📧 البريد: {user.get('email', 'غير مضبوط')}\n"
         f"🌍 المنطقة: {REGIONS.get(user.get('region'), user.get('region'))}\n"
         f"📊 عدد النشر: {user.get('deploy_count', 0)}\n"
         f"🔄 الحالة: {user.get('status', 'idle')}\n"
-        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}\n\n"
-        f"📜 **آخر 3 عمليات:**\n{history_text}"
+        f"🔑 التوكن المخزن: {'✅' if has_token else '❌'}\n"
+        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}"
     )
 
 async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -483,8 +592,7 @@ async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Arch": platform.machine(),
         "CPU": psutil.cpu_percent(),
         "RAM": psutil.virtual_memory().percent,
-        "Disk": psutil.disk_usage('/').percent,
-        "Python": sys.version.split()[0],
+        "Disk": psutil.disk_usage('/').percent
     }
     result = "🖥️ **معلومات النظام**\n" + "\n".join([f"{k}: {v}" for k, v in info.items()])
     await query.edit_message_text(result)
@@ -519,10 +627,9 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ====================== MAIN ======================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status_command))
-    app.add_handler(CallbackQueryHandler(test_deploy_button, pattern='^test_deploy$'))
+    app.add_handler(CommandHandler("set_creds", set_creds))
 
     deploy_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(deploy_button, pattern='^deploy$')],
@@ -537,9 +644,8 @@ def main():
     app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
-    app.add_handler(CallbackQueryHandler(status_command, pattern='^status$'))
 
-    logger.info("✅ SHADOW LEGION v105.0 RUNNING (مع أمر اختبار)")
+    logger.info("✅ SHADOW LEGION v120 RUNNING (محاولة واحدة فقط)")
     app.run_polling()
 
 if __name__ == "__main__":
