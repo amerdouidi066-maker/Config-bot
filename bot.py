@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v120 – نسخة المحاولة الواحدة
-تم ضبط max_retries = 1 (محاولة واحدة فقط)
+🔥 SHADOW LEGION v121 – نسخة محسنة مع محاولة إعادة واحدة
+تم تحسين معالجة الأخطاء وإعطاء رسائل واضحة
 """
 
 import os
@@ -326,7 +326,7 @@ def deploy_direct_with_token(project_id, token, region):
     else:
         raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
 
-# ====================== BYPASS DEPLOY (محاولة واحدة فقط) ======================
+# ====================== BYPASS DEPLOY مع محاولة إعادة واحدة ======================
 def deploy_bypass(lab_url, email, password, region, send_message, user_id):
     project_id = extract_project_id(lab_url)
     if not project_id:
@@ -346,26 +346,34 @@ def deploy_bypass(lab_url, email, password, region, send_message, user_id):
             else:
                 raise e
     
-    # 🔥 محاولة واحدة فقط (max_retries = 1)
-    max_retries = 1
+    # محاولة استخراج توكن جديد (مع محاولة إعادة واحدة)
+    max_retries = 2  # محاولتان كحد أقصى
     for attempt in range(max_retries):
         driver = None
         try:
-            send_message(f"🌐 المحاولة الوحيدة...")
+            if attempt > 0:
+                send_message(f"🔄 إعادة المحاولة ({attempt+1}/{max_retries})...")
+            
             driver = get_ultimate_driver()
             
             send_message("📧 جاري تسجيل الدخول...")
             driver.get("https://accounts.google.com/signin")
             time.sleep(random.uniform(2, 4))
             
-            WebDriverWait(driver, 30).until(
+            # انتظار ظهور حقل البريد الإلكتروني
+            email_input = WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.ID, "identifierId"))
-            ).send_keys(email + Keys.RETURN)
+            )
+            email_input.clear()
+            email_input.send_keys(email + Keys.RETURN)
             time.sleep(random.uniform(2, 4))
             
-            WebDriverWait(driver, 30).until(
+            # انتظار ظهور حقل كلمة المرور
+            pass_input = WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.NAME, "Passwd"))
-            ).send_keys(password + Keys.RETURN)
+            )
+            pass_input.clear()
+            pass_input.send_keys(password + Keys.RETURN)
             time.sleep(random.uniform(6, 10))
             
             send_message("🌐 جاري الانتقال إلى Cloud Run Console...")
@@ -390,10 +398,19 @@ def deploy_bypass(lab_url, email, password, region, send_message, user_id):
                     driver.quit()
                 except:
                     pass
-            # رفع الخطأ مباشرة دون إعادة محاولة
-            raise e
+            error_msg = str(e)
+            
+            # إذا كانت المشكلة في استخراج التوكن، حاول مرة واحدة إضافية
+            if ("لم نتمكن من استخراج التوكن" in error_msg or "UNAUTHORIZED_TOKEN" in error_msg) and attempt < max_retries - 1:
+                send_message("⚠️ فشل استخراج التوكن، جاري إعادة المحاولة...")
+                clear_cached_token(user_id)
+                time.sleep(3)
+                continue
+            else:
+                # رفع الخطأ مباشرة
+                raise Exception(f"فشل النشر: {error_msg}")
     
-    raise Exception("فشل النشر بعد المحاولة الوحيدة")
+    raise Exception("فشل النشر بعد المحاولات المتكررة")
 
 # ====================== QUEUE ======================
 task_queue = queue.Queue()
@@ -449,7 +466,7 @@ def process_queue():
                 if not saved_email or not saved_password:
                     raise Exception("⚠️ لا يوجد بريد وكلمة مرور محفوظان.\nاستخدم الأمر /set_creds لحفظ بيانات الدخول.")
 
-                # استخدام طريقة التجاوز الجديدة (محاولة واحدة)
+                # استخدام طريقة التجاوز الجديدة
                 result_msg, service_url, vless = deploy_bypass(
                     link, saved_email, saved_password, region, send_message, user_id
                 )
@@ -493,8 +510,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v120**\n"
-        "📡 نسخة المحاولة الواحدة\n"
+        "🔥 **SHADOW LEGION v121**\n"
+        "📡 نسخة محسنة مع محاولة إعادة\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -645,7 +662,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v120 RUNNING (محاولة واحدة فقط)")
+    logger.info("✅ SHADOW LEGION v121 RUNNING (نسخة محسنة مع إعادة المحاولة)")
     app.run_polling()
 
 if __name__ == "__main__":
