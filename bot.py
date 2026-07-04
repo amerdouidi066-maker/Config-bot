@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v134 – نسخة بدون رسائل طابور
-تم إزالة رسائل "تمت إضافة طلبك" و "أولوية النشر"
+🔥 SHADOW LEGION v139 – النسخة النهائية
+تعتمد على مفتاح الخدمة المحفوظ (JSON) للنشر المباشر على Cloud Run.
 """
 
 import os
@@ -27,17 +27,11 @@ import glob
 import shutil
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 import requests
 import rsa
-import undetected_chromedriver as uc
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import psutil
 from cryptography.fernet import Fernet
 
@@ -80,7 +74,8 @@ def init_db():
             deploy_count INTEGER DEFAULT 0,
             status TEXT DEFAULT 'idle',
             last_result TEXT,
-            region TEXT DEFAULT 'us-central1'
+            region TEXT DEFAULT 'us-central1',
+            service_key TEXT
         );
         CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,7 +107,8 @@ def get_user(user_id):
             "deploy_count": row[5],
             "status": row[6],
             "last_result": row[7],
-            "region": row[8]
+            "region": row[8],
+            "service_key": row[9]
         }
     return None
 
@@ -156,9 +152,20 @@ def extract_project_id(link):
         return match.group(1)
     return None
 
+def extract_token(link):
+    decoded = urllib.parse.unquote(link)
+    match = re.search(r'token=([^&]+)', decoded)
+    if match:
+        return match.group(1)
+    match = re.search(r'token%3D([^&]+)', link)
+    if match:
+        return match.group(1)
+    return None
+
 def extract_from_link(link):
     data = {}
     data['project_id'] = extract_project_id(link) or ''
+    data['token'] = extract_token(link) or ''
     decoded = urllib.parse.unquote(link)
     match = re.search(r'[Ee]mail=([^&]+)', decoded)
     if match:
@@ -172,286 +179,125 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الخدمة**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== UNDETECTED CHROMEDRIVER ======================
-def get_ultimate_driver():
-    options = uc.ChromeOptions()
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--incognito")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
-    
-    driver = uc.Chrome(options=options, headless=True)
-    
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-        "source": """
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            window.chrome = {runtime: {}};
-        """
-    })
-    
-    return driver
+# ====================== DEPLOY (باستخدام المفتاح المحفوظ) ======================
+def deploy_with_service_key(project_id, service_key, region):
+    """النشر مباشرة باستخدام مفتاح الخدمة (JSON)"""
+    try:
+        creds = json.loads(service_key) if isinstance(service_key, str) else service_key
+        
+        def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
+        now = int(time.time())
+        claims = {
+            "iss": creds["client_email"],
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "aud": "https://oauth2.googleapis.com/token",
+            "exp": now + 3600,
+            "iat": now
+        }
+        header = {"alg": "RS256", "typ": "JWT"}
+        segments = [b64url(json.dumps(header).encode()), b64url(json.dumps(claims).encode())]
+        signing_input = ".".join(segments).encode()
+        key = rsa.PrivateKey.load_pkcs1(creds["private_key"].encode())
+        signature = rsa.sign(signing_input, key, "SHA-256")
+        segments.append(b64url(signature))
+        jwt = ".".join(segments)
 
-# ====================== DEPLOY ======================
-def deploy_with_selenium(lab_url, email, password, region, send_message):
-    max_retries = 2
-    for attempt in range(max_retries):
-        driver = None
-        try:
-            if attempt > 0:
-                send_message(f"🔄 إعادة المحاولة ({attempt+1}/{max_retries})...")
-                time.sleep(5)
-            
-            send_message("👤 **جاري إنشاء حساب الخدمة...**")
-            driver = get_ultimate_driver()
-            wait = WebDriverWait(driver, 60)
+        resp = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
+            timeout=30
+        )
+        if resp.status_code != 200:
+            raise Exception(f"فشل الحصول على التوكن: {resp.status_code}")
+        token = resp.json().get("access_token")
+        if not token:
+            raise Exception("لا يوجد access_token")
 
-            send_message("🔑 **جاري تسجيل الدخول إلى Google...**")
-            driver.get("https://accounts.google.com/")
-            time.sleep(2)
-            
-            email_input = wait.until(EC.presence_of_element_located((By.ID, "identifierId")))
-            email_input.clear()
-            email_input.send_keys(email)
-            time.sleep(1)
-            email_input.send_keys(Keys.RETURN)
-            
-            time.sleep(5)
-            
-            password_input = wait.until(EC.presence_of_element_located((By.NAME, "Passwd")))
-            password_input.clear()
-            password_input.send_keys(password)
-            time.sleep(1)
-            password_input.send_keys(Keys.RETURN)
-            
-            time.sleep(8)
-            
-            try:
-                wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Google Cloud')]")))
-                send_message("✅ **تم تسجيل الدخول بنجاح**")
-            except:
-                pass
-
-            project_id = extract_project_id(lab_url)
-            if not project_id:
-                raise Exception("project_id مفقود")
-
-            send_message("☁️ **جاري تمكين Cloud Run API...**")
-            driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
-            time.sleep(5)
-            try:
-                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Enable')]"))).click()
-                time.sleep(5)
-            except:
-                pass
-
-            send_message("👤 **جاري إنشاء حساب الخدمة...**")
-            driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-            time.sleep(10)
-            
-            popup_selectors = [
-                "//*[@aria-label='Close']",
-                "//*[contains(text(), 'Dismiss')]",
-                "//*[contains(text(), 'Skip')]",
-                "//*[contains(text(), 'No thanks')]",
-                "//*[contains(text(), 'Got it')]",
-                "//*[contains(text(), 'Take a tour')]",
-                "//button[@aria-label='Close']"
-            ]
-            for sel in popup_selectors:
-                try:
-                    popup = driver.find_element(By.XPATH, sel)
-                    if popup and popup.is_displayed():
-                        popup.click()
-                        time.sleep(2)
-                        break
-                except:
-                    continue
-
-            create_button = None
-            selectors = [
-                "//*[contains(text(), 'Create Service Account')]",
-                "//*[contains(text(), 'CREATE SERVICE ACCOUNT')]",
-                "button[aria-label='Create Service Account']",
-                "//*[@role='button' and contains(., 'Create')]",
-                "//*[contains(@class, 'create-service-account')]",
-                "//button[contains(., 'Create')]",
-                "//*[@data-testid='create-service-account-button']"
-            ]
-            for sel in selectors:
-                try:
-                    if sel.startswith("//"):
-                        create_button = wait.until(EC.element_to_be_clickable((By.XPATH, sel)))
-                    else:
-                        create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, sel)))
-                    break
-                except:
-                    continue
-            
-            if not create_button:
-                js_script = """
-                    var buttons = document.querySelectorAll('button, [role="button"]');
-                    for (var i=0; i<buttons.length; i++) {
-                        if (buttons[i].innerText.includes('Create') && buttons[i].offsetParent !== null) {
-                            return buttons[i];
-                        }
-                    }
-                    return null;
-                """
-                create_button = driver.execute_script(js_script)
-                if create_button:
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", create_button)
-                    time.sleep(1)
-                    driver.execute_script("arguments[0].click();", create_button)
-                    create_button = None
-            
-            if not create_button:
-                driver.refresh()
-                time.sleep(8)
-                for sel in selectors:
-                    try:
-                        if sel.startswith("//"):
-                            create_button = wait.until(EC.element_to_be_clickable((By.XPATH, sel)))
-                        else:
-                            create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, sel)))
-                        break
-                    except:
-                        continue
-                if not create_button:
-                    raise Exception("لم نتمكن من العثور على زر 'Create Service Account'.")
-            
-            try:
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", create_button)
-                time.sleep(1)
-                create_button.click()
-            except:
-                driver.execute_script("arguments[0].click();", create_button)
-            time.sleep(4)
-            
-            wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
-            time.sleep(1)
-            
-            try:
-                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create') and @type='submit']"))).click()
-            except:
-                driver.find_element(By.XPATH, "//*[contains(text(), 'Create')]").click()
-            time.sleep(3)
-            
-            role_field = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@placeholder, 'Select a role')]")))
-            role_field.send_keys("Cloud Run Admin" + Keys.RETURN)
-            time.sleep(2)
-            
-            try:
-                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
-            except:
-                driver.find_element(By.XPATH, "//*[contains(text(), 'Done')]").click()
-            time.sleep(4)
-
-            send_message("📄 **جاري تجهيز المفتاح...**")
-            driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
-            time.sleep(3)
-            account = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'shadow-bot')]")))
-            account.click()
-            time.sleep(3)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Keys')]"))).click()
-            time.sleep(3)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Add Key')]"))).click()
-            time.sleep(2)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create New Key')]"))).click()
-            time.sleep(2)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'JSON')]"))).click()
-            time.sleep(2)
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
-            time.sleep(15)
-
-            download_dir = tempfile.gettempdir()
-            list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
-            if not list_of_files:
-                raise Exception("ملف JSON غير موجود بعد التنزيل")
-            latest_file = max(list_of_files, key=os.path.getctime)
-            with open(latest_file, 'r') as f:
-                creds = json.load(f)
-            os.remove(latest_file)
-            driver.quit()
-
-            send_message("🔐 **جاري إنشاء Token...**")
-            def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
-            now = int(time.time())
-            claims = {
-                "iss": creds["client_email"],
-                "scope": "https://www.googleapis.com/auth/cloud-platform",
-                "aud": "https://oauth2.googleapis.com/token",
-                "exp": now + 3600,
-                "iat": now
-            }
-            header = {"alg": "RS256", "typ": "JWT"}
-            segments = [b64url(json.dumps(header).encode()), b64url(json.dumps(claims).encode())]
-            signing_input = ".".join(segments).encode()
-            key = rsa.PrivateKey.load_pkcs1(creds["private_key"].encode())
-            signature = rsa.sign(signing_input, key, "SHA-256")
-            segments.append(b64url(signature))
-            jwt = ".".join(segments)
-
-            resp = requests.post(
-                "https://oauth2.googleapis.com/token",
-                data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
-                timeout=30
-            )
-            if resp.status_code != 200:
-                raise Exception(f"فشل الحصول على التوكن: {resp.status_code}")
-            token = resp.json().get("access_token")
-            if not token:
-                raise Exception("لا يوجد access_token")
-
-            send_message("🚀 **جاري نشر الخدمة...**")
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            service_name = f"shadow-{int(time.time())}"
-            body = {
-                "apiVersion": "serving.knative.dev/v1",
-                "kind": "Service",
-                "metadata": {"name": service_name},
-                "spec": {
-                    "template": {
-                        "spec": {
-                            "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
-                        }
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        service_name = f"shadow-{int(time.time())}"
+        body = {
+            "apiVersion": "serving.knative.dev/v1",
+            "kind": "Service",
+            "metadata": {"name": service_name},
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
                     }
                 }
             }
-            url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-            r = requests.post(url, headers=headers, json=body, timeout=60)
-            if r.status_code not in (200, 201):
-                raise Exception(f"فشل النشر: {r.status_code}")
-            service_url = r.json().get('status', {}).get('url')
-            if not service_url:
-                raise Exception("لا يوجد رابط للخدمة")
+        }
+        url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
+        r = requests.post(url, headers=headers, json=body, timeout=60)
+        if r.status_code not in (200, 201):
+            raise Exception(f"فشل النشر: {r.status_code}")
+        service_url = r.json().get('status', {}).get('url')
+        if not service_url:
+            raise Exception("لا يوجد رابط للخدمة")
+        return build_vless_response(service_url, region)
+    except Exception as e:
+        raise Exception(f"فشل النشر بالمفتاح: {e}")
 
-            return build_vless_response(service_url, region)
+def deploy_with_token(project_id, token, region):
+    """النشر المباشر باستخدام token من الرابط (احتياطي)"""
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    service_name = f"shadow-{int(time.time())}"
+    body = {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {"name": service_name},
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
+                }
+            }
+        }
+    }
+    url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
+    r = requests.post(url, headers=headers, json=body, timeout=60)
+    if r.status_code in (200, 201):
+        service_url = r.json().get('status', {}).get('url')
+        if not service_url:
+            service_url = f"https://{service_name}-{region}.run.app"
+        return build_vless_response(service_url, region)
+    elif r.status_code == 401:
+        raise Exception("UNAUTHORIZED_TOKEN")
+    else:
+        raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
 
+# ====================== MAIN DEPLOY ======================
+def deploy_main(lab_url, region, send_message, user_id):
+    project_id = extract_project_id(lab_url)
+    if not project_id:
+        raise Exception("❌ project_id مفقود")
+    
+    user = get_user(user_id)
+    
+    # 1. محاولة استخدام المفتاح المحفوظ
+    if user and user.get('service_key'):
+        try:
+            send_message("🔑 **جاري النشر باستخدام مفتاح الخدمة...**")
+            result_msg, service_url, vless = deploy_with_service_key(project_id, user['service_key'], region)
+            return result_msg, service_url, vless
         except Exception as e:
-            if driver:
-                try: driver.quit()
-                except: pass
-            if attempt < max_retries - 1:
-                send_message(f"⚠️ فشلت المحاولة {attempt+1}، جاري إعادة المحاولة...")
-                time.sleep(5)
-                continue
-            else:
-                raise Exception(
-                    "فشلت العملية بعد عدة محاولات.\n"
-                    "الأسباب المحتملة:\n"
-                    "- انتهت صلاحية جلسة Qwiklabs (يجب فتح مختبر جديد).\n"
-                    "- الحساب لا يملك صلاحية إنشاء حساب خدمة.\n"
-                    "- تغيرت واجهة Google Cloud مؤخراً.\n\n"
-                    "الحلول:\n"
-                    "1. افتح مختبر Qwiklabs جديد وأرسل الرابط فوراً.\n"
-                    "2. تأكد من صحة البريد وكلمة المرور.\n"
-                    "3. جرب حساب Qwiklabs آخر."
-                )
+            send_message(f"⚠️ فشل المفتاح: {str(e)[:100]}")
+    
+    # 2. محاولة النشر بالتوكن المباشر (احتياطي)
+    token = extract_token(lab_url)
+    if token:
+        try:
+            send_message("⚡ **جاري النشر بالتوكن المباشر...**")
+            result_msg, service_url, vless = deploy_with_token(project_id, token, region)
+            return result_msg, service_url, vless
+        except Exception as e:
+            send_message(f"⚠️ فشل التوكن المباشر: {str(e)[:100]}")
+    
+    raise Exception(
+        "❌ **لا توجد طريقة للنشر.**\n\n"
+        "🔑 **استخدم الأمر /setkey لحفظ مفتاح الخدمة (JSON).**\n"
+        "⚡ **أو استخدم رابط SSO جديداً يحتوي على token صالح.**"
+    )
 
 # ====================== QUEUE ======================
 task_queue = queue.Queue()
@@ -478,17 +324,13 @@ def process_queue():
                         loop
                     )
 
-                # ========== تم حذف رسائل الطابور ==========
-                # لم تعد هناك رسائل "تمت إضافة طلبك" أو "أولوية النشر"
-                # ==========================================
+                send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**")
+                time.sleep(1)
 
                 link_data = extract_from_link(link)
                 project_id = link_data.get('project_id', '')
                 if not project_id:
                     raise Exception("❌ project_id مفقود.")
-
-                send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**")
-                time.sleep(1)
 
                 send_message("🔍 **جاري تحليل سياسات المشروع...**")
                 time.sleep(1)
@@ -497,16 +339,7 @@ def process_queue():
 
                 send_message(f"🚀 **جاري نشر الخدمة على {REGIONS.get(region, region)}...**")
 
-                user = get_user(user_id)
-                saved_email = user.get('email') if user else None
-                saved_password = user.get('password') if user else None
-
-                if not saved_email or not saved_password:
-                    raise Exception("⚠️ لا يوجد بريد وكلمة مرور محفوظان.\nاستخدم الأمر /set_creds لحفظ بيانات الدخول.")
-
-                result_msg, service_url, vless = deploy_with_selenium(
-                    link, saved_email, saved_password, region, send_message
-                )
+                result_msg, service_url, vless = deploy_main(link, region, send_message, user_id)
                 
                 send_message("✅ **تم النشر بنجاح!**")
                 send_message(result_msg)
@@ -546,11 +379,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v134**\n"
-        "📡 نسخة بدون رسائل طابور\n"
+        "🔥 **SHADOW LEGION v139**\n"
+        "📡 النشر باستخدام مفتاح الخدمة (JSON)\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+async def set_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حفظ مفتاح الخدمة (JSON)"""
+    user_id = update.effective_user.id
+    if not context.args:
+        await update.message.reply_text(
+            "❌ أرسل مفتاح JSON كاملاً.\n"
+            "مثال: /setkey {\"type\":\"service_account\",...}"
+        )
+        return
+    try:
+        key_text = " ".join(context.args)
+        json.loads(key_text)
+        update_user(user_id, service_key=key_text)
+        await update.message.reply_text("✅ تم حفظ مفتاح الخدمة بنجاح!")
+    except json.JSONDecodeError:
+        await update.message.reply_text("❌ مفتاح غير صحيح (JSON غير صالح).")
+    except Exception as e:
+        await update.message.reply_text(f"❌ حدث خطأ: {e}")
 
 async def set_creds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -606,10 +458,7 @@ async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'loop': main_loop
     })
 
-    # ========== تم حذف رسائل تأكيد الإضافة ==========
-    # await update.message.reply_text(...)
-    # ================================================
-
+    # تم إزالة رسائل تأكيد الإضافة بناءً على طلبك
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -631,12 +480,15 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for h in history
     ]) if history else "لا يوجد سجل."
 
+    has_key = "✅" if user.get('service_key') else "❌"
+
     await update.message.reply_text(
         f"📋 **حالتك**\n\n"
         f"📧 البريد: {user.get('email', 'غير مضبوط')}\n"
         f"🌍 المنطقة: {REGIONS.get(user.get('region'), user.get('region'))}\n"
         f"📊 عدد النشر: {user.get('deploy_count', 0)}\n"
         f"🔄 الحالة: {user.get('status', 'idle')}\n"
+        f"🔑 مفتاح الخدمة: {has_key}\n"
         f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}\n\n"
         f"📜 **آخر 3 عمليات:**\n{history_text}"
     )
@@ -688,6 +540,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("set_creds", set_creds))
+    app.add_handler(CommandHandler("setkey", set_key))
 
     deploy_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(deploy_button, pattern='^deploy$')],
@@ -704,7 +557,7 @@ def main():
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
     app.add_handler(CallbackQueryHandler(status_command, pattern='^status$'))
 
-    logger.info("✅ SHADOW LEGION v134 RUNNING (بدون رسائل طابور)")
+    logger.info("✅ SHADOW LEGION v139 RUNNING")
     app.run_polling()
 
 if __name__ == "__main__":
