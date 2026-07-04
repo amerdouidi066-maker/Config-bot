@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v140 – دعم PKCS#8 (مفاتيح JSON من Google)
+🔥 SHADOW LEGION v200 - THE ABYSS FINAL
+✅ تحليل الرابط + قائمة مناطق بالأعلام + طابور + 14 محاولة ABYSS
 """
 
 import os
@@ -10,29 +11,19 @@ import sys
 import time
 import re
 import json
-import base64
 import hashlib
-import subprocess
 import logging
 import sqlite3
 import urllib.parse
-import socket
-import platform
 import random
 import threading
 import queue
-import tempfile
-import glob
-import shutil
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 import requests
-import jwt  # <-- PyJWT
-import psutil
-from cryptography.fernet import Fernet
 
 # ====================== CONFIG ======================
 TOKEN = os.environ.get("TOKEN")
@@ -43,15 +34,15 @@ DEFAULT_REGION = "us-central1"
 
 REGIONS = {
     "us-central1": "🇺🇸 أيوا",
+    "us-east1": "🇺🇸 ساوث كارولينا",
     "europe-west1": "🇧🇪 بلجيكا",
     "europe-west3": "🇩🇪 فرانكفورت",
     "europe-west4": "🇳🇱 هولندا",
-    "us-east1": "🇺🇸 ساوث كارولينا",
     "asia-southeast1": "🇸🇬 سنغافورة"
 }
 
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     handlers=[logging.StreamHandler(sys.stdout)]
 )
@@ -62,19 +53,14 @@ DB_PATH = "shadow_legion.db"
 # ====================== DATABASE ======================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.executescript("""
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             email TEXT,
-            password TEXT,
-            lab_url TEXT,
-            last_deploy TIMESTAMP,
+            region TEXT DEFAULT 'us-central1',
             deploy_count INTEGER DEFAULT 0,
             status TEXT DEFAULT 'idle',
-            last_result TEXT,
-            region TEXT DEFAULT 'us-central1',
-            service_key TEXT
+            last_result TEXT
         );
         CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,8 +68,8 @@ def init_db():
             lab_url TEXT,
             service_url TEXT,
             vless_link TEXT,
-            deployed_at TIMESTAMP,
-            success INTEGER DEFAULT 1
+            deployed_at TEXT,
+            success INTEGER
         );
     """)
     conn.commit()
@@ -96,205 +82,144 @@ def get_user(user_id):
     c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     conn.close()
-    if row:
-        return {
-            "user_id": row[0],
-            "email": row[1],
-            "password": row[2],
-            "lab_url": row[3],
-            "last_deploy": row[4],
-            "deploy_count": row[5],
-            "status": row[6],
-            "last_result": row[7],
-            "region": row[8],
-            "service_key": row[9]
-        }
-    return None
+    return row
 
 def update_user(user_id, **kwargs):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    existing = get_user(user_id)
-    if existing:
+    if get_user(user_id):
         for key, val in kwargs.items():
-            if val is not None:
-                c.execute(f"UPDATE users SET {key} = ? WHERE user_id = ?", (val, user_id))
+            c.execute(f"UPDATE users SET {key} = ? WHERE user_id = ?", (val, user_id))
     else:
         c.execute(
-            "INSERT INTO users (user_id, email, password, region, last_deploy) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
-            (user_id, kwargs.get('email', ''), kwargs.get('password', ''), kwargs.get('region', DEFAULT_REGION))
+            "INSERT INTO users (user_id, region) VALUES (?, ?)",
+            (user_id, kwargs.get('region', DEFAULT_REGION))
         )
     conn.commit()
     conn.close()
-
-def get_history(user_id, limit=5):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT lab_url, service_url, vless_link, deployed_at, success FROM history WHERE user_id = ? ORDER BY deployed_at DESC LIMIT ?",
-        (user_id, limit)
-    )
-    rows = c.fetchall()
-    conn.close()
-    return rows
 
 init_db()
 
 # ====================== EXTRACTORS ======================
 def extract_project_id(link):
     decoded = urllib.parse.unquote(link)
-    match = re.search(r'[?&]project=([^&]+)', decoded)
-    if match:
-        return match.group(1)
-    match = re.search(r'project%3D([^&]+)', link)
-    if match:
-        return match.group(1)
-    return None
+    match = re.search(r'project=([^&]+)', decoded)
+    return match.group(1) if match else None
 
 def extract_token(link):
     decoded = urllib.parse.unquote(link)
     match = re.search(r'token=([^&]+)', decoded)
-    if match:
-        return match.group(1)
-    match = re.search(r'token%3D([^&]+)', link)
-    if match:
-        return match.group(1)
-    return None
+    return match.group(1) if match else None
 
-def extract_from_link(link):
-    data = {}
-    data['project_id'] = extract_project_id(link) or ''
-    data['token'] = extract_token(link) or ''
-    decoded = urllib.parse.unquote(link)
-    match = re.search(r'[Ee]mail=([^&]+)', decoded)
-    if match:
-        data['email'] = urllib.parse.unquote(match.group(1))
-    return data
-
-def build_vless_response(service_url, region):
-    host = service_url.replace('https://', '').replace('http://', '')
-    uid = hashlib.md5(b"shadow_v105").hexdigest()
-    uid = f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:32]}"
-    vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
-    return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الخدمة**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
-
-# ====================== DEPLOY (باستخدام PyJWT) ======================
-def deploy_with_service_key(project_id, service_key, region):
-    """النشر باستخدام مفتاح الخدمة (PKCS#8) عبر PyJWT"""
-    try:
-        creds = json.loads(service_key) if isinstance(service_key, str) else service_key
-        
-        now = int(time.time())
-        claims = {
-            "iss": creds["client_email"],
-            "scope": "https://www.googleapis.com/auth/cloud-platform",
-            "aud": "https://oauth2.googleapis.com/token",
-            "exp": now + 3600,
-            "iat": now
-        }
-        
-        # استخدام PyJWT مع المفتاح مباشرة (يدعم PKCS#8)
-        jwt_token = jwt.encode(claims, creds["private_key"], algorithm="RS256")
-        
-        resp = requests.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-                "assertion": jwt_token
-            },
-            timeout=30
-        )
-        if resp.status_code != 200:
-            raise Exception(f"فشل الحصول على التوكن: {resp.status_code}")
-        token = resp.json().get("access_token")
-        if not token:
-            raise Exception("لا يوجد access_token")
-
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        service_name = f"shadow-{int(time.time())}"
-        body = {
-            "apiVersion": "serving.knative.dev/v1",
-            "kind": "Service",
-            "metadata": {"name": service_name},
-            "spec": {
-                "template": {
-                    "spec": {
-                        "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
-                    }
-                }
-            }
-        }
-        url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-        r = requests.post(url, headers=headers, json=body, timeout=60)
-        if r.status_code not in (200, 201):
-            raise Exception(f"فشل النشر: {r.status_code}")
-        service_url = r.json().get('status', {}).get('url')
-        if not service_url:
-            raise Exception("لا يوجد رابط للخدمة")
-        return build_vless_response(service_url, region)
-    except Exception as e:
-        raise Exception(f"فشل النشر بالمفتاح: {e}")
-
-def deploy_with_token(project_id, token, region):
-    """النشر المباشر باستخدام token من الرابط (احتياطي)"""
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    service_name = f"shadow-{int(time.time())}"
-    body = {
-        "apiVersion": "serving.knative.dev/v1",
-        "kind": "Service",
-        "metadata": {"name": service_name},
-        "spec": {
-            "template": {
-                "spec": {
-                    "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
-                }
-            }
-        }
+def analyze_link(link):
+    return {
+        "project_id": extract_project_id(link),
+        "token": extract_token(link),
+        "valid": bool(extract_project_id(link) and extract_token(link))
     }
-    url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-    r = requests.post(url, headers=headers, json=body, timeout=60)
-    if r.status_code in (200, 201):
-        service_url = r.json().get('status', {}).get('url')
-        if not service_url:
-            service_url = f"https://{service_name}-{region}.run.app"
-        return build_vless_response(service_url, region)
-    elif r.status_code == 401:
-        raise Exception("UNAUTHORIZED_TOKEN")
-    else:
-        raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
 
-# ====================== MAIN DEPLOY ======================
-def deploy_main(lab_url, region, send_message, user_id):
-    project_id = extract_project_id(lab_url)
-    if not project_id:
-        raise Exception("❌ project_id مفقود")
+# ====================== ABYSS DEPLOY ======================
+def abyss_bodies(base):
+    return [
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-a"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-b"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1"}]}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-c", "annotations": {"run.googleapis.com/launch-stage": "GA"}}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-d"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1"}]}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-e"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]}}, "traffic": [{"percent": 100}]}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-f"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}], "serviceAccountName": "default"}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-g", "labels": {"cloud.googleapis.com/location": "us-central1"}}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-h"}, "spec": {"template": {"metadata": {"annotations": {"autoscaling.knative.dev/maxScale": "1"}}}, "spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-i"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}], "env": [{"name": "PORT", "value": "8080"}]}]}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-j"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}], "timeoutSeconds": 300}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-k"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}], "containerConcurrency": 10}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-l"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}], "serviceAccountName": "shadow-bot"}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-m"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}], "nodeSelector": {"cloud.google.com/gke-nodepool": "default-pool"}}}}},
+        {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "metadata": {"name": f"{base}-n"}, "spec": {"template": {"spec": {"containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]}, "enableServiceLinks": False}}}
+    ]
+
+def abyss_agents():
+    return [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Googlebot/2.1",
+        "curl/7.81.0",
+        "ShadowAbyss/9.9.9",
+        "Python-Requests/2.32.0",
+        "ApocalypseBot/1.0"
+    ]
+
+def the_abyss_deploy(project_id, token, region, send_message):
+    """THE ABYSS - 14 محاولة بأشكال مختلفة"""
     
-    user = get_user(user_id)
+    send_message("⛧ **تفعيل THE ABYSS...**")
+    send_message("🌑 **الهاوية تبتلع كل شيء...**")
     
-    # 1. محاولة استخدام المفتاح المحفوظ
-    if user and user.get('service_key'):
+    base = f"shadow-abyss-{int(time.time())}"
+    bodies = abyss_bodies(base)
+    agents = abyss_agents()
+    
+    last_error = None
+    
+    for attempt in range(1, len(bodies) + 1):
         try:
-            send_message("🔑 **جاري النشر باستخدام مفتاح الخدمة...**")
-            result_msg, service_url, vless = deploy_with_service_key(project_id, user['service_key'], region)
-            return result_msg, service_url, vless
+            body = random.choice(bodies)
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "User-Agent": random.choice(agents),
+                "X-Goog-User-Project": project_id,
+                "X-Goog-Request-ID": hashlib.md5(str(time.time() + random.random()).encode()).hexdigest()
+            }
+            
+            send_message(f"⛧ **محاولة ABYSS {attempt}/{len(bodies)}**")
+            
+            url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
+            
+            r = requests.post(url, headers=headers, json=body, timeout=300)
+            
+            if r.status_code in (200, 201):
+                service_url = r.json().get('status', {}).get('url') or f"https://{base}-{region}.run.app"
+                host = service_url.replace('https://', '')
+                uid = hashlib.md5(str(time.time() + random.random()).encode()).hexdigest()[:32]
+                vless = f"vless://{uid}@{host}:443?type=ws&security=tls&path=/&sni=youtube.com&fp=chrome#{base}"
+                
+                send_message(f"""⛧ **نجح النشر في الهاوية!**
+
+🌍 **المنطقة:** {region}
+🌐 **رابط الخدمة:** `{service_url}`
+🔗 **VLESS:** `{vless}`
+
+🔥 **SHADOW LEGION v200 - THE ABYSS VICTORY**""")
+                return service_url, vless, True
+                
+            elif r.status_code == 401:
+                send_message(f"⛧ **401 - التوكن منتهي. {len(bodies)-attempt} محاولة متبقية**")
+                last_error = "UNAUTHORIZED_TOKEN"
+                continue
+            elif r.status_code == 403:
+                send_message(f"⛧ **403 - صلاحية مرفوضة. جاري تجربة هيكل آخر**")
+                last_error = "FORBIDDEN"
+                continue
+            elif r.status_code == 404:
+                send_message(f"⛧ **404 - مشروع غير موجود. تحقق من project_id**")
+                raise Exception("PROJECT_NOT_FOUND")
+            else:
+                send_message(f"⛧ **{r.status_code} - فشل، جاري التبديل...**")
+                last_error = f"HTTP_{r.status_code}"
+                
+            time.sleep(random.uniform(2, 5))
+            
         except Exception as e:
-            send_message(f"⚠️ فشل المفتاح: {str(e)[:100]}")
+            last_error = str(e)
+            send_message(f"⛧ **خطأ: {last_error[:100]}**")
+            time.sleep(random.uniform(2, 5))
     
-    # 2. محاولة النشر بالتوكن المباشر (احتياطي)
-    token = extract_token(lab_url)
-    if token:
-        try:
-            send_message("⚡ **جاري النشر بالتوكن المباشر...**")
-            result_msg, service_url, vless = deploy_with_token(project_id, token, region)
-            return result_msg, service_url, vless
-        except Exception as e:
-            send_message(f"⚠️ فشل التوكن المباشر: {str(e)[:100]}")
-    
-    raise Exception(
-        "❌ **لا توجد طريقة للنشر.**\n\n"
-        "🔑 **استخدم الأمر /setkey لحفظ مفتاح الخدمة (JSON).**\n"
-        "⚡ **أو استخدم رابط SSO جديداً يحتوي على token صالح.**"
-    )
+    # الفشل النهائي
+    if "UNAUTHORIZED_TOKEN" in str(last_error):
+        raise Exception("❗ **التوكن منتهي الصلاحية**\nيرجى الحصول على رابط جديد من Qwiklabs")
+    elif "FORBIDDEN" in str(last_error):
+        raise Exception("❗ **صلاحية مرفوضة**\nقد تحتاج إلى تفعيل الفوترة في المشروع")
+    else:
+        raise Exception(f"❗ **فشلت جميع المحاولات ({len(bodies)})**\nآخر خطأ: {last_error[:150]}")
 
 # ====================== QUEUE ======================
 task_queue = queue.Queue()
@@ -314,245 +239,225 @@ def process_queue():
                 loop = item['loop']
                 bot = context.bot
 
-                def send_message(text):
-                    time.sleep(1)
-                    asyncio.run_coroutine_threadsafe(
-                        bot.send_message(chat_id=user_id, text=text),
-                        loop
-                    )
+                async def send_message(text):
+                    try:
+                        await bot.send_message(chat_id=user_id, text=text, parse_mode='Markdown')
+                    except Exception as e:
+                        logger.error(f"فشل الإرسال: {e}")
 
-                send_message("🔄 **جاري الدخول إلى Lab وبدء التجهيز...**")
-                time.sleep(1)
+                # ========== تنفيذ النشر ==========
+                async def execute():
+                    try:
+                        await send_message("🌑 **تم قبول طلبك...**")
+                        await asyncio.sleep(1)
+                        
+                        analysis = analyze_link(link)
+                        if not analysis["valid"]:
+                            await send_message("❌ **الرابط غير صالح**")
+                            return
+                        
+                        await send_message(f"🔍 **تحليل الرابط:**\nProject ID: `{analysis['project_id']}`\nToken: {'✅ موجود' if analysis['token'] else '❌ مفقود'}")
+                        await asyncio.sleep(1)
+                        
+                        await send_message(f"🚀 **جاري نشر على {REGIONS.get(region, region)}**")
+                        await asyncio.sleep(1)
+                        
+                        # THE ABYSS
+                        service_url, vless, success = await asyncio.to_thread(
+                            the_abyss_deploy,
+                            analysis['project_id'],
+                            analysis['token'],
+                            region,
+                            lambda msg: asyncio.run_coroutine_threadsafe(send_message(msg), loop)
+                        )
+                        
+                        await send_message("✅ **تم النشر بنجاح!**")
+                        await send_message(f"🌐 **رابط الخدمة:** `{service_url}`\n🔗 **VLESS:** `{vless}`")
+                        
+                        # حفظ السجل
+                        conn = sqlite3.connect(DB_PATH)
+                        c = conn.cursor()
+                        c.execute("UPDATE users SET deploy_count = deploy_count + 1, status = 'completed', last_result = ? WHERE user_id = ?", (service_url, user_id))
+                        c.execute("INSERT INTO history (user_id, lab_url, service_url, vless_link, deployed_at, success) VALUES (?, ?, ?, ?, ?, 1)",
+                                 (user_id, link, service_url, vless, datetime.now().isoformat()))
+                        conn.commit()
+                        conn.close()
+                        
+                    except Exception as e:
+                        error_msg = str(e)
+                        await send_message(f"❌ **فشل النشر:**\n{error_msg}")
+                        conn = sqlite3.connect(DB_PATH)
+                        c = conn.cursor()
+                        c.execute("UPDATE users SET status = 'error', last_result = ? WHERE user_id = ?", (error_msg, user_id))
+                        c.execute("INSERT INTO history (user_id, lab_url, success, deployed_at) VALUES (?, ?, 0, ?)",
+                                 (user_id, link, datetime.now().isoformat()))
+                        conn.commit()
+                        conn.close()
+                    finally:
+                        global processing
+                        processing = False
 
-                link_data = extract_from_link(link)
-                project_id = link_data.get('project_id', '')
-                if not project_id:
-                    raise Exception("❌ project_id مفقود.")
-
-                send_message("🔍 **جاري تحليل سياسات المشروع...**")
-                time.sleep(1)
-                send_message(f"✅ **تم اكتشاف 1 منطقة مسموح بها:**\n\n- {REGIONS.get(region, region)}")
-                time.sleep(1)
-
-                send_message(f"🚀 **جاري نشر الخدمة على {REGIONS.get(region, region)}...**")
-
-                result_msg, service_url, vless = deploy_main(link, region, send_message, user_id)
+                # تشغيل الدالة غير المتزامنة
+                asyncio.run_coroutine_threadsafe(execute(), loop)
                 
-                send_message("✅ **تم النشر بنجاح!**")
-                send_message(result_msg)
-
-                conn = sqlite3.connect(DB_PATH)
-                c = conn.cursor()
-                c.execute("UPDATE users SET status='completed', last_result=? WHERE user_id=?", (result_msg, user_id))
-                c.execute(
-                    "INSERT INTO history (user_id, lab_url, service_url, vless_link, success) VALUES (?,?,?,?,1)",
-                    (user_id, link, service_url, vless)
-                )
-                conn.commit()
-                conn.close()
-
             except Exception as e:
-                send_message(f"❌ **فشل النشر:** {str(e)}")
-                conn = sqlite3.connect(DB_PATH)
-                c = conn.cursor()
-                c.execute("UPDATE users SET status='error', last_result=? WHERE user_id=?", (str(e), user_id))
-                c.execute("INSERT INTO history (user_id, lab_url, success) VALUES (?,?,0)", (user_id, link))
-                conn.commit()
-                conn.close()
-            finally:
+                logger.error(f"خطأ في الطابور: {e}")
                 processing = False
         time.sleep(2)
 
 threading.Thread(target=process_queue, daemon=True).start()
 
-# ====================== BOT HANDLERS ======================
+# ====================== BOT ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     update_user(user_id)
     keyboard = [
         [InlineKeyboardButton("🚀 Deploy Cloud Run", callback_data='deploy')],
         [InlineKeyboardButton("📋 Status", callback_data='status')],
-        [InlineKeyboardButton("🌍 Change Region", callback_data='change_region')],
-        [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
+        [InlineKeyboardButton("🌍 Change Region", callback_data='change_region')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v140**\n"
-        "📡 دعم PKCS#8 – مفتاح الخدمة يعمل الآن\n"
+        "🔥 **SHADOW LEGION v200 - THE ABYSS**\n"
+        "📡 أقوى بوت نشر Cloud Run مع 14 محاولة خبيثة\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def set_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not context.args:
-        await update.message.reply_text(
-            "❌ أرسل مفتاح JSON كاملاً.\n"
-            "مثال: /setkey {\"type\":\"service_account\",...}"
-        )
-        return
-    try:
-        key_text = " ".join(context.args)
-        json.loads(key_text)
-        update_user(user_id, service_key=key_text)
-        await update.message.reply_text("✅ تم حفظ مفتاح الخدمة بنجاح!")
-    except json.JSONDecodeError:
-        await update.message.reply_text("❌ مفتاح غير صحيح (JSON غير صالح).")
-    except Exception as e:
-        await update.message.reply_text(f"❌ حدث خطأ: {e}")
-
-async def set_creds(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    try:
-        email = context.args[0]
-        password = context.args[1]
-        update_user(user_id, email=email, password=password)
-        await update.message.reply_text("✅ تم حفظ البريد الإلكتروني وكلمة المرور بنجاح!")
-    except IndexError:
-        await update.message.reply_text("❌ الاستخدام: /set_creds <البريد> <كلمة_المرور>")
-
 async def deploy_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    keyboard = [[InlineKeyboardButton(name, callback_data=f"region_{code}")] for code, name in REGIONS.items()]
-    keyboard.append([InlineKeyboardButton("🔙 إلغاء", callback_data="cancel_region")])
-    await query.edit_message_text("🌍 **اختر المنطقة:**", reply_markup=InlineKeyboardMarkup(keyboard))
-    return 0
-
-async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    if data == "cancel_region":
-        await query.edit_message_text("❌ تم الإلغاء.")
-        return ConversationHandler.END
-    region = data.replace("region_", "")
-    context.user_data['region'] = region
-    await query.edit_message_text(f"✅ **المنطقة:** {REGIONS.get(region, region)}\n\n🔗 أرسل رابط SSO الآن.")
+    await query.edit_message_text("🔗 **أرسل رابط SSO الآن**")
     return 1
 
 async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    link = update.message.text
+    link = update.message.text.strip()
+
+    analysis = analyze_link(link)
+    if not analysis["valid"]:
+        await update.message.reply_text("❌ **الرابط غير صالح**\nيجب أن يحتوي على project_id و token")
+        return 1
+
     region = context.user_data.get('region', DEFAULT_REGION)
+    
+    # عرض قائمة المناطق
+    keyboard = []
+    for code, name in REGIONS.items():
+        keyboard.append([InlineKeyboardButton(name, callback_data=f"region_{code}")])
+    keyboard.append([InlineKeyboardButton("🔙 إلغاء", callback_data="cancel")])
 
-    if not link.startswith('http'):
-        await update.message.reply_text("❌ رابط غير صحيح.")
-        return 1
+    await update.message.reply_text(
+        f"""✅ **تم تحليل الرابط بنجاح**
 
-    project_id = extract_project_id(link)
-    if not project_id:
-        await update.message.reply_text("❌ الرابط لا يحتوي على project_id.")
-        return 1
+**Project ID:** `{analysis['project_id']}`
+**Token:** {'✅ موجود' if analysis['token'] else '❌ مفقود'}
 
-    main_loop = asyncio.get_running_loop()
+🌍 **اختر المنطقة للنشر:**""",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    
+    context.user_data['link'] = link
+    return 2
 
+async def region_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    if data == "cancel":
+        await query.edit_message_text("❌ تم الإلغاء")
+        return ConversationHandler.END
+
+    region = data.replace("region_", "")
+    link = context.user_data.get('link')
+    
+    if not link:
+        await query.edit_message_text("❌ الرابط مفقود، حاول مرة أخرى")
+        return ConversationHandler.END
+
+    # إضافة المهمة إلى الطابور
+    loop = asyncio.get_running_loop()
     task_queue.put({
-        'user_id': user_id,
+        'user_id': update.effective_user.id,
         'link': link,
         'region': region,
         'context': context,
-        'loop': main_loop
+        'loop': loop
     })
 
+    await query.edit_message_text(
+        f"✅ **تم إضافة طلبك إلى طابور التنفيذ**\n"
+        f"🌍 المنطقة: {REGIONS.get(region, region)}\n"
+        f"⏳ سيتم النشر خلال لحظات..."
+    )
+    
     context.user_data.clear()
-    return ConversationHandler.END
-
-async def cancel_operation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("❌ تم الإلغاء.")
     return ConversationHandler.END
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = get_user(user_id)
     if not user:
-        await update.message.reply_text("❌ لا توجد بيانات.")
+        await update.message.reply_text("❌ لا توجد بيانات")
         return
     
-    history = get_history(user_id, 3)
-    history_text = "\n".join([
-        f"• {h[3]} → {'✅ نجاح' if h[4] else '❌ فشل'}"
-        for h in history
-    ]) if history else "لا يوجد سجل."
-
-    has_key = "✅" if user.get('service_key') else "❌"
-
     await update.message.reply_text(
         f"📋 **حالتك**\n\n"
-        f"📧 البريد: {user.get('email', 'غير مضبوط')}\n"
-        f"🌍 المنطقة: {REGIONS.get(user.get('region'), user.get('region'))}\n"
-        f"📊 عدد النشر: {user.get('deploy_count', 0)}\n"
-        f"🔄 الحالة: {user.get('status', 'idle')}\n"
-        f"🔑 مفتاح الخدمة: {has_key}\n"
-        f"📝 آخر نتيجة: {user.get('last_result', 'لا يوجد')}\n\n"
-        f"📜 **آخر 3 عمليات:**\n{history_text}"
+        f"📊 عدد النشر: {user[4] or 0}\n"
+        f"🔄 الحالة: {user[5] or 'idle'}\n"
+        f"📝 آخر نتيجة: {user[6] or 'لا يوجد'}"
     )
 
-async def sysinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    info = {
-        "OS": platform.system(),
-        "Release": platform.release(),
-        "Arch": platform.machine(),
-        "CPU": psutil.cpu_percent(),
-        "RAM": psutil.virtual_memory().percent,
-        "Disk": psutil.disk_usage('/').percent
-    }
-    result = "🖥️ **معلومات النظام**\n" + "\n".join([f"{k}: {v}" for k, v in info.items()])
-    await query.edit_message_text(result)
-
-async def change_region_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_region(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query:
         await query.answer()
-    keyboard = [[InlineKeyboardButton(name, callback_data=f"setregion_{code}")] for code, name in REGIONS.items()]
-    keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="back_menu")])
-    msg = "🌍 **اختر منطقتك الافتراضية الجديدة:**"
+    
+    keyboard = []
+    for code, name in REGIONS.items():
+        keyboard.append([InlineKeyboardButton(name, callback_data=f"setregion_{code}")])
+    keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="back")])
+    
+    msg = "🌍 **اختر منطقتك الافتراضية:**"
     if query:
         await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def set_region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def set_region(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
     region = query.data.replace("setregion_", "")
-    if region == "back_menu":
+    if region == "back":
         await start(update, context)
         return
+    
     user_id = query.from_user.id
     update_user(user_id, region=region)
-    await query.edit_message_text(f"✅ تم تغيير المنطقة إلى {REGIONS.get(region, region)}.")
-    await start(update, context)
-
-async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await query.edit_message_text(f"✅ تم تغيير المنطقة إلى {REGIONS.get(region, region)}")
     await start(update, context)
 
 # ====================== MAIN ======================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("status", status_command))
-    app.add_handler(CommandHandler("set_creds", set_creds))
-    app.add_handler(CommandHandler("setkey", set_key))
 
     deploy_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(deploy_button, pattern='^deploy$')],
         states={
-            0: [CallbackQueryHandler(region_callback, pattern='^(region_|cancel_region)')],
-            1: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_lab)]
+            1: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_lab)],
+            2: [CallbackQueryHandler(region_selected, pattern='^(region_|cancel)')]
         },
-        fallbacks=[CommandHandler("cancel", cancel_operation)]
+        fallbacks=[]
     )
-    app.add_handler(deploy_conv)
-    app.add_handler(CallbackQueryHandler(change_region_command, pattern='^change_region$'))
-    app.add_handler(CallbackQueryHandler(set_region_callback, pattern='^setregion_'))
-    app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
-    app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
-    app.add_handler(CallbackQueryHandler(status_command, pattern='^status$'))
 
-    logger.info("✅ SHADOW LEGION v140 RUNNING (PKCS#8 متوافق)")
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(deploy_conv)
+    app.add_handler(CallbackQueryHandler(change_region, pattern='^change_region$'))
+    app.add_handler(CallbackQueryHandler(set_region, pattern='^setregion_'))
+
+    logger.info("🚀 SHADOW LEGION v200 - THE ABYSS STARTED")
     app.run_polling()
 
 if __name__ == "__main__":
