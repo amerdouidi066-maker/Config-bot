@@ -1,4 +1,4 @@
-google-chrome-stable=126.0.6478.126-1
+google-chrome-stable
 xvfb
 libgl1-mesa-glx
 libglib2.0-0
