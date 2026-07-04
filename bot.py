@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v139 – النسخة النهائية
-تعتمد على مفتاح الخدمة المحفوظ (JSON) للنشر المباشر على Cloud Run.
+🔥 SHADOW LEGION v140 – دعم PKCS#8 (مفاتيح JSON من Google)
 """
 
 import os
@@ -31,7 +30,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 import requests
-import rsa
+import jwt  # <-- PyJWT
 import psutil
 from cryptography.fernet import Fernet
 
@@ -179,13 +178,12 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الخدمة**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== DEPLOY (باستخدام المفتاح المحفوظ) ======================
+# ====================== DEPLOY (باستخدام PyJWT) ======================
 def deploy_with_service_key(project_id, service_key, region):
-    """النشر مباشرة باستخدام مفتاح الخدمة (JSON)"""
+    """النشر باستخدام مفتاح الخدمة (PKCS#8) عبر PyJWT"""
     try:
         creds = json.loads(service_key) if isinstance(service_key, str) else service_key
         
-        def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
         now = int(time.time())
         claims = {
             "iss": creds["client_email"],
@@ -194,17 +192,16 @@ def deploy_with_service_key(project_id, service_key, region):
             "exp": now + 3600,
             "iat": now
         }
-        header = {"alg": "RS256", "typ": "JWT"}
-        segments = [b64url(json.dumps(header).encode()), b64url(json.dumps(claims).encode())]
-        signing_input = ".".join(segments).encode()
-        key = rsa.PrivateKey.load_pkcs1(creds["private_key"].encode())
-        signature = rsa.sign(signing_input, key, "SHA-256")
-        segments.append(b64url(signature))
-        jwt = ".".join(segments)
-
+        
+        # استخدام PyJWT مع المفتاح مباشرة (يدعم PKCS#8)
+        jwt_token = jwt.encode(claims, creds["private_key"], algorithm="RS256")
+        
         resp = requests.post(
             "https://oauth2.googleapis.com/token",
-            data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": jwt_token
+            },
             timeout=30
         )
         if resp.status_code != 200:
@@ -379,14 +376,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v139**\n"
-        "📡 النشر باستخدام مفتاح الخدمة (JSON)\n"
+        "🔥 **SHADOW LEGION v140**\n"
+        "📡 دعم PKCS#8 – مفتاح الخدمة يعمل الآن\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def set_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """حفظ مفتاح الخدمة (JSON)"""
     user_id = update.effective_user.id
     if not context.args:
         await update.message.reply_text(
@@ -458,7 +454,6 @@ async def receive_lab(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'loop': main_loop
     })
 
-    # تم إزالة رسائل تأكيد الإضافة بناءً على طلبك
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -557,7 +552,7 @@ def main():
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
     app.add_handler(CallbackQueryHandler(status_command, pattern='^status$'))
 
-    logger.info("✅ SHADOW LEGION v139 RUNNING")
+    logger.info("✅ SHADOW LEGION v140 RUNNING (PKCS#8 متوافق)")
     app.run_polling()
 
 if __name__ == "__main__":
