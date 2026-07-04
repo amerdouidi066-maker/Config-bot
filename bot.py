@@ -2,13 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v125 – النسخة النهائية المتكاملة
-✅ أدوات تخفي متطورة (Evasion)
+🔥 SHADOW LEGION v127 – النسخة النهائية المتكاملة
 ✅ استخراج التوكن من الجلسة (Bypass)
-✅ تخزين مؤقت للتوكن (Cache)
-✅ إعادة محاولة واحدة
-✅ قاعدة بيانات SQLite
-✅ أوامر تلغرام كاملة
+✅ خطة احتياطية محسّنة (إنشاء حساب الخدمة مع إعادة محاولة ومحددات متعددة)
+✅ تخزين مؤقت للتوكن
+✅ أدوات تخفي متطورة
 ✅ متوافقة مع Railway
 """
 
@@ -111,10 +109,6 @@ def init_db():
     conn.close()
     logger.info("✅ قاعدة البيانات جاهزة")
 
-def init_cache_db():
-    # تم دمجها في init_db، لكن نتركها للتوافق
-    pass
-
 def get_user(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -215,7 +209,6 @@ def build_vless_response(service_url, region):
 # ====================== CHROME DRIVER (التخفي المتطور) ======================
 def get_ultimate_driver():
     options = Options()
-    # طبقات التخفي المتقدمة
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
@@ -236,14 +229,13 @@ def get_ultimate_driver():
     except:
         driver = webdriver.Chrome(options=options)
     
-    # تجاوز كشف السيلينيوم
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});")
     driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});")
     
     return driver
 
-# ====================== TOKEN EXTRACTION ======================
+# ====================== TOKEN EXTRACTION (محسّن) ======================
 def extract_token_from_network_logs(driver):
     logs = driver.get_log('performance')
     for entry in logs:
@@ -290,8 +282,26 @@ def extract_token_from_cookies(driver):
         pass
     return None
 
+def extract_token_from_gapi(driver):
+    try:
+        token = driver.execute_script("""
+            if (window.gapi && window.gapi.auth) {
+                var tokenObj = window.gapi.auth.getToken();
+                if (tokenObj && tokenObj.access_token) return tokenObj.access_token;
+            }
+            return null;
+        """)
+        if token and len(token) > 50:
+            return token
+    except:
+        pass
+    return None
+
 def extract_token_driver(driver):
     token = extract_token_from_network_logs(driver)
+    if token:
+        return token
+    token = extract_token_from_gapi(driver)
     if token:
         return token
     token = extract_token_from_local_storage(driver)
@@ -302,7 +312,7 @@ def extract_token_driver(driver):
         return token
     raise Exception("❌ لم نتمكن من استخراج التوكن بأي طريقة.")
 
-# ====================== DEPLOY ======================
+# ====================== DEPLOY DIRECT ======================
 def deploy_direct_with_token(project_id, token, region):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     service_name = f"shadow-{int(time.time())}"
@@ -330,19 +340,233 @@ def deploy_direct_with_token(project_id, token, region):
     else:
         raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
 
-# ====================== BYPASS DEPLOY (مع التخفي) ======================
+# ====================== FALLBACK: إنشاء حساب الخدمة (محسّن) ======================
+def deploy_with_legacy_selenium(lab_url, email, password, region, send_message):
+    """
+    الطريقة الاحتياطية المحسّنة: تسجيل الدخول وإنشاء حساب خدمة مع إعادة محاولة ومحددات متعددة.
+    """
+    max_retries = 2
+    for attempt in range(max_retries):
+        driver = None
+        try:
+            if attempt > 0:
+                send_message(f"🔄 إعادة المحاولة الاحتياطية ({attempt+1}/{max_retries})...")
+                time.sleep(5)
+            
+            send_message("🔄 **جاري استخدام الطريقة الاحتياطية (إنشاء حساب الخدمة)...**")
+            driver = get_ultimate_driver()
+            wait = WebDriverWait(driver, 60)
+
+            send_message("📧 جاري إدخال البريد الإلكتروني...")
+            driver.get("https://accounts.google.com/")
+            wait.until(EC.presence_of_element_located((By.ID, "identifierId"))).send_keys(email + Keys.RETURN)
+            time.sleep(3)
+            
+            send_message("🔑 جاري إدخال كلمة المرور...")
+            wait.until(EC.presence_of_element_located((By.NAME, "Passwd"))).send_keys(password + Keys.RETURN)
+            time.sleep(6)
+
+            project_id = extract_project_id(lab_url)
+            if not project_id:
+                raise Exception("project_id مفقود")
+
+            send_message("☁️ جاري تمكين Cloud Run API...")
+            driver.get(f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}")
+            time.sleep(5)
+            try:
+                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Enable')]"))).click()
+                time.sleep(5)
+            except:
+                pass
+
+            send_message("👤 جاري إنشاء حساب الخدمة...")
+            driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
+            time.sleep(8)
+            
+            try:
+                close_btn = driver.find_element(By.XPATH, "//*[@aria-label='Close' or contains(text(), 'Dismiss')]")
+                close_btn.click()
+                time.sleep(2)
+            except:
+                pass
+
+            create_button = None
+            selectors = [
+                "//*[contains(text(), 'Create Service Account')]",
+                "//*[contains(text(), 'CREATE SERVICE ACCOUNT')]",
+                "button[aria-label='Create Service Account']",
+                "//*[@role='button' and contains(., 'Create')]",
+                "//*[contains(@class, 'create-service-account')]",
+                "//button[contains(., 'Create')]"
+            ]
+            for sel in selectors:
+                try:
+                    if sel.startswith("//"):
+                        create_button = wait.until(EC.element_to_be_clickable((By.XPATH, sel)))
+                    else:
+                        create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, sel)))
+                    break
+                except:
+                    continue
+            
+            if not create_button:
+                js_script = """
+                    var buttons = document.querySelectorAll('button, [role="button"]');
+                    for (var i=0; i<buttons.length; i++) {
+                        if (buttons[i].innerText.includes('Create') && buttons[i].offsetParent !== null) {
+                            return buttons[i];
+                        }
+                    }
+                    return null;
+                """
+                create_button = driver.execute_script(js_script)
+                if create_button:
+                    driver.execute_script("arguments[0].click();", create_button)
+                    create_button = None
+            
+            if not create_button:
+                raise Exception("لم نتمكن من العثور على زر 'Create Service Account'.")
+            
+            try:
+                create_button.click()
+            except:
+                driver.execute_script("arguments[0].click();", create_button)
+            time.sleep(3)
+            
+            wait.until(EC.presence_of_element_located((By.NAME, "serviceAccountName"))).send_keys("shadow-bot")
+            time.sleep(1)
+            
+            try:
+                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create') and @type='submit']"))).click()
+            except:
+                driver.find_element(By.XPATH, "//*[contains(text(), 'Create')]").click()
+            time.sleep(3)
+            
+            role_field = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@placeholder, 'Select a role')]")))
+            role_field.send_keys("Cloud Run Admin" + Keys.RETURN)
+            time.sleep(2)
+            
+            try:
+                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Done')]"))).click()
+            except:
+                driver.find_element(By.XPATH, "//*[contains(text(), 'Done')]").click()
+            time.sleep(4)
+
+            send_message("📄 جاري تنزيل مفتاح JSON...")
+            driver.get(f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}")
+            time.sleep(3)
+            account = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'shadow-bot')]")))
+            account.click()
+            time.sleep(3)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Keys')]"))).click()
+            time.sleep(3)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Add Key')]"))).click()
+            time.sleep(2)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create New Key')]"))).click()
+            time.sleep(2)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'JSON')]"))).click()
+            time.sleep(2)
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Create')]"))).click()
+            time.sleep(15)
+
+            download_dir = tempfile.gettempdir()
+            list_of_files = glob.glob(os.path.join(download_dir, "*.json"))
+            if not list_of_files:
+                raise Exception("ملف JSON غير موجود بعد التنزيل")
+            latest_file = max(list_of_files, key=os.path.getctime)
+            with open(latest_file, 'r') as f:
+                creds = json.load(f)
+            os.remove(latest_file)
+            driver.quit()
+
+            send_message("🔐 جاري إنشاء JWT Token...")
+            def b64url(d): return base64.urlsafe_b64encode(d).decode().rstrip("=")
+            now = int(time.time())
+            claims = {
+                "iss": creds["client_email"],
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "aud": "https://oauth2.googleapis.com/token",
+                "exp": now + 3600,
+                "iat": now
+            }
+            header = {"alg": "RS256", "typ": "JWT"}
+            segments = [b64url(json.dumps(header).encode()), b64url(json.dumps(claims).encode())]
+            signing_input = ".".join(segments).encode()
+            key = rsa.PrivateKey.load_pkcs1(creds["private_key"].encode())
+            signature = rsa.sign(signing_input, key, "SHA-256")
+            segments.append(b64url(signature))
+            jwt = ".".join(segments)
+
+            send_message("🔄 جاري الحصول على Access Token...")
+            resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt},
+                timeout=30
+            )
+            if resp.status_code != 200:
+                raise Exception(f"فشل Token: {resp.status_code}")
+            token = resp.json().get("access_token")
+            if not token:
+                raise Exception("لا يوجد access_token")
+
+            send_message("🚀 جاري نشر الخدمة على Cloud Run...")
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            service_name = f"shadow-{int(time.time())}"
+            body = {
+                "apiVersion": "serving.knative.dev/v1",
+                "kind": "Service",
+                "metadata": {"name": service_name},
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [{"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}]
+                        }
+                    }
+                }
+            }
+            url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
+            r = requests.post(url, headers=headers, json=body, timeout=60)
+            if r.status_code not in (200, 201):
+                raise Exception(f"فشل النشر: {r.status_code}")
+            service_url = r.json().get('status', {}).get('url')
+            if not service_url:
+                raise Exception("لا يوجد رابط للخدمة")
+
+            return build_vless_response(service_url, region)
+
+        except Exception as e:
+            if driver:
+                try: driver.quit()
+                except: pass
+            if attempt < max_retries - 1:
+                send_message(f"⚠️ فشلت المحاولة الاحتياطية {attempt+1}: {str(e)[:100]}. جاري إعادة المحاولة...")
+                time.sleep(5)
+                continue
+            else:
+                raise Exception(
+                    "فشلت الطريقة الاحتياطية بعد عدة محاولات.\n"
+                    "الأسباب المحتملة:\n"
+                    "- انتهت صلاحية جلسة Qwiklabs (يجب فتح مختبر جديد).\n"
+                    "- الحساب لا يملك صلاحية إنشاء حساب خدمة.\n"
+                    "- تغيرت واجهة Google Cloud مؤخراً.\n\n"
+                    "الحلول المقترحة:\n"
+                    "1. افتح مختبر Qwiklabs جديد وانسخ الرابط فوراً.\n"
+                    "2. تأكد من أن بريد Qwiklabs وكلمة المرور صحيحة.\n"
+                    "3. جرب استخدام حساب Qwiklabs آخر."
+                )
+
+# ====================== BYPASS DEPLOY ======================
 def deploy_bypass(lab_url, email, password, region, send_message, user_id):
     project_id = extract_project_id(lab_url)
     if not project_id:
         raise Exception("❌ project_id مفقود")
     
-    # التحقق من التوكن المخزن
+    # 1. محاولة استخدام التوكن المخزن
     cached_token, expiry = get_cached_token(user_id)
     if cached_token:
         send_message("♻️ استخدام التوكن المخزن (صالح حتى " + expiry.strftime("%H:%M") + ")")
         try:
-            result_msg, service_url, vless = deploy_direct_with_token(project_id, cached_token, region)
-            return result_msg, service_url, vless
+            return deploy_direct_with_token(project_id, cached_token, region)
         except Exception as e:
             if "UNAUTHORIZED_TOKEN" in str(e):
                 send_message("⚠️ التوكن المخزن منتهي، جاري استخراج توكن جديد...")
@@ -350,63 +574,44 @@ def deploy_bypass(lab_url, email, password, region, send_message, user_id):
             else:
                 raise e
     
-    # محاولة استخراج توكن جديد (مع محاولة إعادة واحدة)
-    max_retries = 2
-    for attempt in range(max_retries):
-        driver = None
-        try:
-            if attempt > 0:
-                send_message(f"🔄 إعادة المحاولة ({attempt+1}/{max_retries})...")
-            
-            driver = get_ultimate_driver()
-            
-            send_message("📧 جاري تسجيل الدخول...")
-            driver.get("https://accounts.google.com/")
-            time.sleep(random.uniform(2, 4))
-            
-            WebDriverWait(driver, 30).until(
-                EC.presence_of_element_located((By.ID, "identifierId"))
-            ).send_keys(email + Keys.RETURN)
-            time.sleep(random.uniform(2, 4))
-            
-            WebDriverWait(driver, 30).until(
-                EC.presence_of_element_located((By.NAME, "Passwd"))
-            ).send_keys(password + Keys.RETURN)
-            time.sleep(random.uniform(6, 10))
-            
-            send_message("🌐 جاري الانتقال إلى Cloud Run Console...")
-            driver.get(f"https://console.cloud.google.com/run?project={project_id}")
-            time.sleep(random.uniform(8, 12))
-            
-            send_message("🔑 جاري استخراج التوكن...")
-            token = extract_token_driver(driver)
-            
-            save_token(user_id, token)
-            send_message("💾 تم تخزين التوكن للاستخدام المستقبلي")
-            
-            send_message(f"🚀 جاري النشر على {REGIONS.get(region, region)}...")
-            result_msg, service_url, vless = deploy_direct_with_token(project_id, token, region)
-            
-            driver.quit()
-            return result_msg, service_url, vless
-            
-        except Exception as e:
-            if driver:
-                try:
-                    driver.quit()
-                except:
-                    pass
-            error_msg = str(e)
-            
-            if ("لم نتمكن من استخراج التوكن" in error_msg or "UNAUTHORIZED_TOKEN" in error_msg) and attempt < max_retries - 1:
-                send_message("⚠️ فشل استخراج التوكن، جاري إعادة المحاولة...")
-                clear_cached_token(user_id)
-                time.sleep(3)
-                continue
-            else:
-                raise Exception(f"فشل النشر: {error_msg}")
-    
-    raise Exception("فشل النشر بعد المحاولات المتكررة")
+    # 2. محاولة استخراج توكن جديد من الجلسة
+    driver = None
+    try:
+        send_message("🔑 محاولة استخراج التوكن من الجلسة...")
+        driver = get_ultimate_driver()
+        
+        send_message("📧 جاري تسجيل الدخول...")
+        driver.get("https://accounts.google.com/")
+        time.sleep(random.uniform(2, 4))
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.ID, "identifierId"))
+        ).send_keys(email + Keys.RETURN)
+        time.sleep(random.uniform(2, 4))
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.NAME, "Passwd"))
+        ).send_keys(password + Keys.RETURN)
+        time.sleep(random.uniform(6, 10))
+        
+        send_message("🌐 جاري الانتقال إلى Cloud Run Console...")
+        driver.get(f"https://console.cloud.google.com/run?project={project_id}")
+        time.sleep(random.uniform(8, 12))
+        
+        send_message("🔑 جاري استخراج التوكن...")
+        token = extract_token_driver(driver)
+        save_token(user_id, token)
+        send_message("💾 تم تخزين التوكن")
+        driver.quit()
+        
+        return deploy_direct_with_token(project_id, token, region)
+        
+    except Exception as e:
+        if driver:
+            try: driver.quit()
+            except: pass
+        send_message(f"⚠️ فشل استخراج التوكن: {str(e)[:100]}. جاري التبديل إلى الطريقة الاحتياطية...")
+        
+        # 3. الطريقة الاحتياطية: إنشاء حساب الخدمة
+        return deploy_with_legacy_selenium(lab_url, email, password, region, send_message)
 
 # ====================== QUEUE ======================
 task_queue = queue.Queue()
@@ -505,8 +710,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v125**\n"
-        "📡 النسخة النهائية مع أدوات التخفي المتطورة\n"
+        "🔥 **SHADOW LEGION v127**\n"
+        "📡 النسخة النهائية المتكاملة\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -657,7 +862,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v125 RUNNING (مع التخفي المتطور)")
+    logger.info("✅ SHADOW LEGION v127 RUNNING (متكاملة)")
     app.run_polling()
 
 if __name__ == "__main__":
