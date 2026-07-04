@@ -2,11 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v143 – النسخة التي نجحت في إنشاء الخدمة
-✅ تسجيل الدخول عبر Selenium (Qwiklabs)
-✅ إنشاء حساب الخدمة تلقائياً
-✅ تنزيل المفتاح JSON
-✅ النشر على Cloud Run
+🔥 SHADOW LEGION v145 – الأولوية للإيميل وكلمة المرور، الملف احتياطي
+✅ يعتمد على Selenium مع الإيميل وكلمة المرور أولاً
+✅ المفتاح (JSON) يستخدم فقط كحل احتياطي
 """
 
 import os
@@ -197,7 +195,7 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الخدمة**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== DEPLOY VIA SERVICE KEY ======================
+# ====================== DEPLOY VIA SERVICE KEY (احتياطي) ======================
 def deploy_with_service_key(project_id, service_key, region):
     try:
         creds = json.loads(service_key) if isinstance(service_key, str) else service_key
@@ -279,7 +277,7 @@ def deploy_with_token(project_id, token, region):
     else:
         raise Exception(f"فشل النشر: {r.status_code} - {r.text[:200]}")
 
-# ====================== SELENIUM DEPLOY (الطريقة التي نجحت) ======================
+# ====================== SELENIUM DEPLOY (الطريقة الأساسية) ======================
 def get_stealth_driver():
     if not SELENIUM_AVAILABLE:
         raise Exception("Selenium غير مثبت.")
@@ -528,7 +526,7 @@ def deploy_with_selenium(lab_url, email, password, region, send_message):
             else:
                 raise Exception(f"فشل Selenium: {str(e)}")
 
-# ====================== MAIN DEPLOY ======================
+# ====================== MAIN DEPLOY (الأولوية للإيميل وكلمة المرور) ======================
 def deploy_main(lab_url, region, send_message, user_id):
     project_id = extract_project_id(lab_url)
     if not project_id:
@@ -536,19 +534,28 @@ def deploy_main(lab_url, region, send_message, user_id):
     
     user = get_user(user_id)
     
-    # 1. محاولة استخدام المفتاح المحفوظ
+    # ========== 1. الطريقة الأساسية: Selenium (الإيميل + كلمة المرور) ==========
+    if user and user.get('email') and user.get('password') and SELENIUM_AVAILABLE:
+        try:
+            send_message("🔐 **جاري النشر عبر Selenium (الإيميل وكلمة المرور)...**")
+            return deploy_with_selenium(lab_url, user['email'], user['password'], region, send_message)
+        except Exception as e:
+            send_message(f"⚠️ فشل Selenium: {str(e)[:100]}")
+            # نستمر إلى الطرق الاحتياطية
+    
+    # ========== 2. الطريقة الاحتياطية الأولى: المفتاح المحفوظ ==========
     if user and user.get('service_key'):
         try:
-            send_message("🔑 **جاري النشر باستخدام مفتاح الخدمة المحفوظ...**")
+            send_message("🔑 **جاري النشر باستخدام مفتاح الخدمة المحفوظ (احتياطي)...**")
             return deploy_with_service_key(project_id, user['service_key'], region)
         except Exception as e:
             send_message(f"⚠️ فشل المفتاح المحفوظ: {str(e)[:100]}")
     
-    # 2. محاولة النشر المباشر بالتوكن
+    # ========== 3. الطريقة الاحتياطية الثانية: التوكن المباشر ==========
     token = extract_token(lab_url)
     if token:
         try:
-            send_message("⚡ **جاري النشر المباشر باستخدام التوكن...**")
+            send_message("⚡ **جاري النشر المباشر باستخدام التوكن (احتياطي)...**")
             return deploy_with_token(project_id, token, region)
         except Exception as e:
             if "UNAUTHORIZED_TOKEN" in str(e):
@@ -556,17 +563,13 @@ def deploy_main(lab_url, region, send_message, user_id):
             else:
                 send_message(f"⚠️ فشل النشر المباشر: {str(e)[:100]}")
     
-    # 3. الطريقة الأخيرة: Selenium
-    if user and user.get('email') and user.get('password') and SELENIUM_AVAILABLE:
-        send_message("🔄 **جاري التبديل إلى طريقة Selenium (إنشاء حساب الخدمة)...**")
-        return deploy_with_selenium(lab_url, user['email'], user['password'], region, send_message)
-    else:
-        raise Exception(
-            "❌ **لا توجد طريقة للنشر.**\n\n"
-            "🔑 **استخدم /setkey لحفظ مفتاح الخدمة (JSON).**\n"
-            "📧 **أو استخدم /set_creds لحفظ البريد وكلمة المرور (لطريقة Selenium).**\n"
-            "⚡ **أو استخدم رابط SSO جديداً يحتوي على token صالح.**"
-        )
+    # ========== الفشل النهائي ==========
+    raise Exception(
+        "❌ **فشلت جميع طرق النشر.**\n\n"
+        "📧 **الطريقة الأساسية:** استخدم /set_creds لحفظ الإيميل وكلمة المرور (لطريقة Selenium).\n"
+        "🔑 **الطريقة الاحتياطية:** استخدم /setkey لحفظ مفتاح الخدمة (JSON).\n"
+        "⚡ **أو استخدم رابط SSO جديداً يحتوي على token صالح.**"
+    )
 
 # ====================== QUEUE ======================
 task_queue = queue.Queue()
@@ -648,8 +651,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v143**\n"
-        "📡 النسخة التي نجحت في إنشاء الخدمة\n"
+        "🔥 **SHADOW LEGION v145**\n"
+        "📡 الأولوية للإيميل وكلمة المرور، الملف احتياطي\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -666,7 +669,7 @@ async def set_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
         key_text = " ".join(context.args)
         json.loads(key_text)
         update_user(user_id, service_key=key_text)
-        await update.message.reply_text("✅ تم حفظ مفتاح الخدمة بنجاح!")
+        await update.message.reply_text("✅ تم حفظ مفتاح الخدمة بنجاح! (احتياطي)")
     except json.JSONDecodeError:
         await update.message.reply_text("❌ مفتاح غير صحيح (JSON غير صالح).")
     except Exception as e:
@@ -678,7 +681,7 @@ async def set_creds(update: Update, context: ContextTypes.DEFAULT_TYPE):
         email = context.args[0]
         password = context.args[1]
         update_user(user_id, email=email, password=password)
-        await update.message.reply_text("✅ تم حفظ البريد الإلكتروني وكلمة المرور بنجاح!")
+        await update.message.reply_text("✅ تم حفظ البريد الإلكتروني وكلمة المرور بنجاح! (الطريقة الأساسية)")
     except IndexError:
         await update.message.reply_text("❌ الاستخدام: /set_creds <البريد> <كلمة_المرور>")
 
@@ -753,8 +756,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📋 **حالتك**\n\n"
         f"📧 البريد: {user.get('email', 'غير مضبوط')}\n"
-        f"🔑 مفتاح الخدمة: {has_key}\n"
-        f"🔐 بيانات الدخول: {has_creds}\n"
+        f"🔑 مفتاح الخدمة: {has_key} (احتياطي)\n"
+        f"🔐 بيانات الدخول: {has_creds} (أساسي)\n"
         f"🌍 المنطقة: {REGIONS.get(user.get('region'), user.get('region'))}\n"
         f"📊 عدد النشر: {user.get('deploy_count', 0)}\n"
         f"🔄 الحالة: {user.get('status', 'idle')}\n"
@@ -808,8 +811,8 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status_command))
-    app.add_handler(CommandHandler("set_creds", set_creds))
-    app.add_handler(CommandHandler("setkey", set_key))
+    app.add_handler(CommandHandler("set_creds", set_creds))  # الأساسي
+    app.add_handler(CommandHandler("setkey", set_key))      # الاحتياطي
 
     deploy_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(deploy_button, pattern='^deploy$')],
@@ -826,7 +829,7 @@ def main():
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
     app.add_handler(CallbackQueryHandler(status_command, pattern='^status$'))
 
-    logger.info("✅ SHADOW LEGION v143 RUNNING (نسخة إنشاء الخدمة الناجحة)")
+    logger.info("✅ SHADOW LEGION v145 RUNNING (الأولوية للإيميل وكلمة المرور)")
     app.run_polling()
 
 if __name__ == "__main__":
