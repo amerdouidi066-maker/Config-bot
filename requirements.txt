@@ -1,7 +1,2 @@
 python-telegram-bot==20.8
 requests==2.31.0
-PyJWT==2.8.0
-psutil==6.0.0
-pillow==10.4.0
-numpy==1.26.4
-cryptography==41.0.7
