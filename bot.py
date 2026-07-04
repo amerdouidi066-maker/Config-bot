@@ -2,10 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-🔥 SHADOW LEGION v131 – أقصى تخفي (Undetected ChromeDriver)
-✅ يستخدم undetected_chromedriver لتجاوز جميع أنماط الكشف
-✅ متوافق مع Railway
-✅ نسخة احترافية مع رسائل نظيفة
+🔥 SHADOW LEGION v132 – Undetected ChromeDriver (بدون تحديد إصدار)
 """
 
 import os
@@ -162,9 +159,8 @@ def build_vless_response(service_url, region):
     vless = f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DarkTunnel"
     return f"✅ **تم النشر!**\n🌍 المنطقة: {REGIONS.get(region, region)}\n🌐 **رابط الخدمة**\n{service_url}\n\n🔗 **VLESS URL**\n{vless}", service_url, vless
 
-# ====================== UNDETECTED CHROMEDRIVER (أقصى تخفي) ======================
+# ====================== UNDETECTED CHROMEDRIVER (بدون تحديد إصدار) ======================
 def get_ultimate_driver():
-    """متصفح متخفي بالكامل باستخدام undetected_chromedriver"""
     options = uc.ChromeOptions()
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -174,9 +170,8 @@ def get_ultimate_driver():
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
     
-    driver = uc.Chrome(options=options, headless=True, version_main=126)
+    driver = uc.Chrome(options=options, headless=True)
     
-    # تغيير خصائص المتصفح لتجنب الكشف
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
         "source": """
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -190,7 +185,6 @@ def get_ultimate_driver():
 
 # ====================== DEPLOY ======================
 def deploy_with_selenium(lab_url, email, password, region, send_message):
-    """إنشاء حساب الخدمة عبر Selenium ثم النشر"""
     max_retries = 2
     for attempt in range(max_retries):
         driver = None
@@ -518,8 +512,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖥️ System Info", callback_data='sysinfo')]
     ]
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v131**\n"
-        "📡 أقصى تخفي (Undetected ChromeDriver)\n"
+        "🔥 **SHADOW LEGION v132**\n"
+        "📡 Undetected ChromeDriver – إصدار متوافق\n"
         "أمرك سيدي 👁",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -668,7 +662,7 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_menu$'))
     app.add_handler(CallbackQueryHandler(sysinfo_command, pattern='^sysinfo$'))
 
-    logger.info("✅ SHADOW LEGION v131 RUNNING (Undetected ChromeDriver)")
+    logger.info("✅ SHADOW LEGION v132 RUNNING (متوافق مع Python 3.12)")
     app.run_polling()
 
 if __name__ == "__main__":
