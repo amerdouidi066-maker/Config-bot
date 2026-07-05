@@ -763,4 +763,41 @@ async def set_creds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         email = context.args[0]
         password = " ".join(context.args[1:])
         update_user(user_id, email=email, password=password)
-        await update.message.reply
+        await update.message.reply_text("✅ تم حفظ البريد وكلمة المرور!")
+    except IndexError:
+        await update.message.reply_text("❌ /set_creds <البريد> <كلمة_السر>")
+
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("❌ تم الإلغاء")
+    return ConversationHandler.END
+
+# ===================================================================
+# 13. التشغيل
+# ===================================================================
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(button_main_handler, pattern="^(deploy_btn|stats_btn|pref_info_btn|set_creds_btn|help_btn)$")
+        ],
+        states={
+            WAITING_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_email)],
+            WAITING_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_password)],
+            WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
+            WAITING_REGION: [CallbackQueryHandler(button_handler, pattern="^(select_|page_|rescan|pref_btn|cancel|noop)$")],
+            CONFIRM_DEPLOY: [CallbackQueryHandler(button_handler, pattern="^(confirm_|back)$")],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_command)],
+    )
+
+    app.add_handler(CommandHandler("start", start_cmd))
+    app.add_handler(CommandHandler("set_creds", set_creds_command))
+    app.add_handler(conv)
+
+    logger.info("🚀 SHADOW LEGION v999 (Full Creds + Region) جاهز، بدء Polling...")
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
