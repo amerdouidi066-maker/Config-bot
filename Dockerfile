@@ -2,21 +2,20 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# نسخ ملف تبعيات النظام وتثبيتها
+# تثبيت تبعيات النظام من apt.txt
 COPY apt.txt /tmp/apt.txt
 RUN apt-get update && apt-get install -y $(cat /tmp/apt.txt) \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# نسخ ملفات بايثون وتثبيت الحزم
+# تثبيت حزم بايثون
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# تثبيت متصفح Chromium لـ Playwright مع تبعياته
-RUN playwright install chromium && playwright install-deps
+# تثبيت متصفح Chromium فقط (بدون تشغيل install-deps)
+RUN playwright install chromium
 
-# نسخ كود البوت
+# نسخ الكود
 COPY bot.py .
 
-# تشغيل البوت (بدون منفذ، يعتمد على الـ Polling)
 CMD ["python", "bot.py"]
