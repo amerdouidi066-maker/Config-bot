@@ -27,3 +27,5 @@ libpango-1.0-0
 libcairo2
 libgdk-pixbuf2.0-0
 libxss1
+fonts-liberation
+libappindicator3-1
