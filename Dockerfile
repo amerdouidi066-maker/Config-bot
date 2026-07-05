@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # تثبيت متصفح Chromium فقط (بدون تشغيل install-deps)
 RUN playwright install chromium
 
-# نسخ الكود
-COPY bot.py .
+# نسخ الكود (الآن اسمه main.py)
+COPY main.py .
 
-CMD ["python", "bot.py"]
+# تشغيل الملف الصحيح
+CMD ["python", "main.py"]
