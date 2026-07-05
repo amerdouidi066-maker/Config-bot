@@ -1,4 +1,3 @@
-# استخدم الصورة الرسمية من Microsoft - الاسم الصحيح هو mcr.microsoft.com وليس src أو incr
 FROM mcr.microsoft.com/playwright:python-1.40.0
 
 WORKDIR /app
