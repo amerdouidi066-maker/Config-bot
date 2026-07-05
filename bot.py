@@ -2,9 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║     SHADOW LEGION v900 – ULTRA LONG EDITION (780+ lines)      ║
-║              مخصص للاستخدام الفردي مع Railway                  ║
-║   جميع الطبقات الاحتياطية، السجل التاريخي، التحليلات          ║
+║     SHADOW LEGION v950 – ADVANCED BUTTONS EDITION             ║
+║   أزرار متطورة: تصفح، تأكيد، إعادة فحص، حالة                ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -16,16 +15,12 @@ import sys
 import re
 import time
 import json
-import base64
 import hashlib
 import logging
 import sqlite3
 import urllib.parse
-import threading
-import queue
-import asyncio
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Tuple
 
 import requests
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -45,10 +40,10 @@ from telegram.ext import (
 # ===================================================================
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
-    raise ValueError("❌ TOKEN غير موجود في البيئة")
+    raise ValueError("❌ TOKEN غير موجود")
 
 USER_TOKEN_OVERRIDE = os.environ.get("USER_TOKEN", None)
-DB_PATH = "shadow_legion_900.db"
+DB_PATH = "shadow_advanced.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -56,9 +51,10 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v900 (النسخة الطويلة) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v950 (أزرار متطورة) بدأ التشغيل...")
 
-WAITING_LINK, WAITING_REGION = range(2)
+# حالات المحادثة
+WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY = range(3)
 
 KNOWN_REGIONS = {
     "us-central1": "🇺🇸 أيوا (الوسطى)",
@@ -73,261 +69,144 @@ KNOWN_REGIONS = {
 }
 
 # ===================================================================
-# 3. قاعدة البيانات (متقدمة)
+# 3. قاعدة البيانات (نفسها لكن مختصرة للمساحة)
 # ===================================================================
-def init_database():
+def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
-            email TEXT,
-            password TEXT,
-            region TEXT DEFAULT 'us-central1',
+            email TEXT, password TEXT,
             deploy_count INTEGER DEFAULT 0,
-            status TEXT DEFAULT 'idle',
-            manual_token TEXT,
-            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            status TEXT DEFAULT 'idle'
         );
         CREATE TABLE IF NOT EXISTS token_cache (
             user_id INTEGER PRIMARY KEY,
-            access_token TEXT,
-            expiry TIMESTAMP,
-            project_id TEXT
+            access_token TEXT, expiry TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS scan_cache (
-            user_id INTEGER,
-            project_id TEXT,
-            allowed_regions TEXT,
-            scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER, project_id TEXT, regions TEXT,
             PRIMARY KEY (user_id, project_id)
         );
-        CREATE TABLE IF NOT EXISTS deploy_history (
+        CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            lab_url TEXT,
-            service_url TEXT,
-            vless_link TEXT,
-            region_used TEXT,
+            user_id INTEGER, lab_url TEXT, service_url TEXT,
+            vless_link TEXT, region_used TEXT,
             deployed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             success INTEGER DEFAULT 1,
             error_msg TEXT
         );
-        CREATE TABLE IF NOT EXISTS failure_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            error_type TEXT,
-            error_detail TEXT,
-            logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
     """)
     conn.commit()
     conn.close()
-    logger.info("✅ قاعدة البيانات المتقدمة جاهزة")
+init_db()
 
-init_database()
-
-# ===================================================================
-# 4. دوال قاعدة البيانات (مفصلة)
-# ===================================================================
-def get_user(user_id: int) -> Optional[Dict]:
+def get_user(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""
-        SELECT user_id, email, password, region, deploy_count, status, manual_token, last_activity
-        FROM users WHERE user_id = ?
-    """, (user_id,))
+    c.execute("SELECT email, password, deploy_count, status FROM users WHERE user_id=?", (user_id,))
     row = c.fetchone()
     conn.close()
-    if row:
-        return {
-            "user_id": row[0],
-            "email": row[1],
-            "password": row[2],
-            "region": row[3],
-            "deploy_count": row[4],
-            "status": row[5],
-            "manual_token": row[6],
-            "last_activity": row[7],
-        }
-    return None
+    return {"email": row[0], "password": row[1], "deploy_count": row[2], "status": row[3]} if row else None
 
-def update_user(user_id: int, **kwargs) -> None:
+def update_user(user_id, **kwargs):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     existing = get_user(user_id)
     if existing:
-        set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
-        values = list(kwargs.values()) + [user_id]
-        c.execute(f"UPDATE users SET {set_clause} WHERE user_id = ?", values)
+        set_clause = ", ".join([f"{k}=?" for k in kwargs])
+        c.execute(f"UPDATE users SET {set_clause} WHERE user_id=?", list(kwargs.values()) + [user_id])
     else:
-        if "last_activity" not in kwargs:
-            kwargs["last_activity"] = datetime.now().isoformat()
-        cols = ", ".join(kwargs.keys())
-        placeholders = ", ".join(["?"] * len(kwargs))
-        c.execute(f"INSERT INTO users (user_id, {cols}) VALUES (?, {placeholders})", [user_id] + list(kwargs.values()))
+        cols = ",".join(kwargs.keys())
+        vals = list(kwargs.values())
+        c.execute(f"INSERT INTO users (user_id, {cols}) VALUES (?, {','.join(['?']*len(vals))})", [user_id] + vals)
     conn.commit()
     conn.close()
 
-def get_cached_token(user_id: int) -> Optional[str]:
+def get_cached_token(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT access_token, expiry FROM token_cache WHERE user_id = ?", (user_id,))
+    c.execute("SELECT access_token, expiry FROM token_cache WHERE user_id=?", (user_id,))
     row = c.fetchone()
     conn.close()
-    if row:
-        token, expiry_str = row
-        try:
-            expiry = datetime.fromisoformat(expiry_str)
-            if expiry > datetime.now():
-                return token
-        except:
-            pass
+    if row and datetime.fromisoformat(row[1]) > datetime.now():
+        return row[0]
     return None
 
-def save_cached_token(user_id: int, token: str, project_id: str = "", expiry_seconds: int = 3600) -> None:
+def save_cached_token(user_id, token, expiry_seconds=3600):
     expiry = datetime.now() + timedelta(seconds=expiry_seconds)
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO token_cache (user_id, access_token, expiry, project_id) VALUES (?, ?, ?, ?)",
-        (user_id, token, expiry.isoformat(), project_id)
-    )
-    conn.commit()
-    conn.close()
-    logger.info(f"✅ تم تخزين التوكن للمستخدم {user_id} حتى {expiry.isoformat()}")
-
-def clear_cached_token(user_id: int) -> None:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM token_cache WHERE user_id = ?", (user_id,))
+    c.execute("INSERT OR REPLACE INTO token_cache (user_id, access_token, expiry) VALUES (?,?,?)",
+              (user_id, token, expiry.isoformat()))
     conn.commit()
     conn.close()
 
-def save_scan_cache(user_id: int, project_id: str, regions: List[str]) -> None:
+def save_scan_cache(user_id, project_id, regions):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO scan_cache (user_id, project_id, allowed_regions) VALUES (?, ?, ?)",
-        (user_id, project_id, json.dumps(regions))
-    )
+    c.execute("INSERT OR REPLACE INTO scan_cache (user_id, project_id, regions) VALUES (?,?,?)",
+              (user_id, project_id, json.dumps(regions)))
     conn.commit()
     conn.close()
 
-def get_scan_cache(user_id: int, project_id: str) -> Optional[List[str]]:
+def get_scan_cache(user_id, project_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT allowed_regions FROM scan_cache WHERE user_id = ? AND project_id = ?", (user_id, project_id))
+    c.execute("SELECT regions FROM scan_cache WHERE user_id=? AND project_id=?", (user_id, project_id))
     row = c.fetchone()
     conn.close()
-    if row:
-        return json.loads(row[0])
-    return None
+    return json.loads(row[0]) if row else None
 
-def add_deploy_history(user_id: int, lab_url: str, service_url: str, vless: str, region: str, success: int = 1, error_msg: str = "") -> None:
+def add_history(user_id, lab_url, service_url, vless, region, success=1, error_msg=""):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute(
-        "INSERT INTO deploy_history (user_id, lab_url, service_url, vless_link, region_used, success, error_msg) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, lab_url, service_url, vless, region, success, error_msg)
-    )
-    conn.commit()
-    conn.close()
-
-def log_failure(user_id: int, error_type: str, error_detail: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO failure_logs (user_id, error_type, error_detail) VALUES (?, ?, ?)",
-        (user_id, error_type, error_detail[:500])
-    )
+    c.execute("INSERT INTO history (user_id, lab_url, service_url, vless_link, region_used, success, error_msg) VALUES (?,?,?,?,?,?,?)",
+              (user_id, lab_url, service_url, vless, region, success, error_msg))
     conn.commit()
     conn.close()
 
 # ===================================================================
-# 5. دوال مساعدة (استخراج، بناء روابط، اختبار)
+# 4. دوال مساعدة
 # ===================================================================
-def extract_project_id(link: str) -> Optional[str]:
+def extract_project_id(link):
     decoded = urllib.parse.unquote(link)
-    match = re.search(r'[?&]project=([^&]+)', decoded)
-    if match:
-        return match.group(1)
-    match = re.search(r'/projects/([^/?]+)', decoded)
-    if match:
-        return match.group(1)
-    return None
+    m = re.search(r'[?&]project=([^&]+)', decoded)
+    return m.group(1) if m else None
 
-def extract_email_from_link(link: str) -> Optional[str]:
-    decoded = urllib.parse.unquote(link)
-    match = re.search(r'[Ee]mail=([^&]+)', decoded)
-    return urllib.parse.unquote(match.group(1)) if match else None
-
-def build_vless_link(service_url: str, seed: str = "shadow_v900") -> str:
+def build_vless(service_url):
     host = service_url.replace('https://', '').replace('http://', '')
-    raw = hashlib.md5((seed + str(time.time()) + os.urandom(4).hex()).encode()).hexdigest()
+    raw = hashlib.md5(("v950" + str(time.time())).encode()).hexdigest()
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
-    return (
-        f"vless://{uid}@{host}:443?"
-        f"encryption=none&security=tls&sni=youtube.com&fp=chrome&"
-        f"type=ws&host={host}&path=%2F%40nkka404#ShadowLegion_900"
-    )
+    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#ShadowAdvanced"
 
-def test_token_validity(token: str, project_id: str) -> bool:
-    if not token or len(token) < 40:
-        return False
+def test_token(token, project_id):
     try:
-        url = f"https://run.googleapis.com/v1/projects/{project_id}/locations"
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        response = requests.get(url, headers=headers, timeout=15)
-        if response.status_code == 200:
-            return True
-        elif response.status_code == 401:
-            logger.warning("⚠️ التوكن غير صالح (Unauthorized)")
-            return False
-        else:
-            logger.warning(f"⚠️ اختبار التوكن أعاد {response.status_code}")
-            return False
-    except requests.exceptions.Timeout:
-        logger.warning("⏰ انتهت مهلة اختبار التوكن")
-        return False
-    except Exception as e:
-        logger.warning(f"⚠️ خطأ في اختبار التوكن: {e}")
+        r = requests.get(f"https://run.googleapis.com/v1/projects/{project_id}/locations",
+                         headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        return r.status_code == 200
+    except:
         return False
 
 # ===================================================================
-# 6. استخراج التوكن بـ Playwright (3 استراتيجيات)
+# 5. استخراج التوكن (مبسط لكن يعمل)
 # ===================================================================
-def extract_token_playwright_advanced(email: str, password: str, project_id: str, max_retries: int = 3) -> str:
-    last_exception = None
+def extract_token_playwright(email, password, project_id, max_retries=3):
     for attempt in range(1, max_retries + 1):
-        logger.info(f"🔄 محاولة استخراج التوكن رقم {attempt}/{max_retries}")
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(
                     headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-blink-features=AutomationControlled",
-                        "--disable-gpu",
-                        "--disable-setuid-sandbox"
-                    ]
+                    args=["--no-sandbox", "--disable-dev-shm-usage"]
                 )
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                    viewport={"width": 1280, "height": 720},
-                    locale="en-US",
+                ctx = browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0"
                 )
-                page = context.new_page()
-                page.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                """)
+                page = ctx.new_page()
+                page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-                # تسجيل الدخول
-                logger.info("📧 جاري تسجيل الدخول إلى Google...")
-                page.goto("https://accounts.google.com/", timeout=30000)
-                page.wait_for_selector("#identifierId", timeout=15000)
+                page.goto("https://accounts.google.com/")
                 page.fill("#identifierId", email)
                 page.click("#identifierNext")
                 page.wait_for_selector("input[name='Passwd']", timeout=20000)
@@ -335,251 +214,182 @@ def extract_token_playwright_advanced(email: str, password: str, project_id: str
                 page.click("#passwordNext")
                 page.wait_for_timeout(5000)
 
-                # استراتيجيات متعددة للدخول إلى Cloud Run
-                token = None
-                urls_to_try = [
-                    f"https://console.cloud.google.com/run?project={project_id}&hl=en",
-                    f"https://console.cloud.google.com/apis/library/run.googleapis.com?project={project_id}&hl=en",
-                    f"https://console.cloud.google.com/iam-admin/serviceaccounts?project={project_id}&hl=en"
-                ]
+                page.goto(f"https://console.cloud.google.com/run?project={project_id}&hl=en")
+                page.wait_for_timeout(8000)
 
-                for target_url in urls_to_try:
-                    logger.info(f"🌐 محاولة الدخول إلى: {target_url}")
-                    page.goto(target_url, timeout=45000)
-                    try:
-                        page.wait_for_selector("body", timeout=30000)
-                        page.wait_for_timeout(7000)
-                    except PlaywrightTimeoutError:
-                        logger.warning("⏰ انتهت مهلة انتظار تحميل الصفحة")
-
-                    token = page.evaluate("""
-                        () => {
-                            const ls_keys = ['access_token', 'id_token', 'gapi_token', 'oauth_token', 'gc_token', 'token'];
-                            for (let k of ls_keys) {
-                                let v = localStorage.getItem(k);
-                                if (v && v.length > 40) return v;
-                            }
-                            for (let i = 0; i < sessionStorage.length; i++) {
-                                let k = sessionStorage.key(i);
-                                if (k && (k.includes('token') || k.includes('oauth') || k.includes('access'))) {
-                                    let v = sessionStorage.getItem(k);
-                                    if (v && v.length > 40) return v;
-                                }
-                            }
-                            let cookies = document.cookie.split(';');
-                            for (let c of cookies) {
-                                let parts = c.trim().split('=');
-                                if (parts[0] && (parts[0].includes('token') || parts[0].includes('oauth'))) {
-                                    if (parts[1] && parts[1].length > 40) return parts[1];
-                                }
-                            }
-                            return null;
-                        }
-                    """)
-                    if token and len(token) > 40:
-                        logger.info("✅ تم استخراج التوكن بنجاح!")
-                        browser.close()
-                        return token
-
+                token = page.evaluate("""() => {
+                    for (let k of ['access_token','id_token','gapi_token','oauth_token']) {
+                        let v = localStorage.getItem(k);
+                        if (v && v.length > 40) return v;
+                    }
+                    return null;
+                }""")
                 browser.close()
-                logger.warning(f"⚠️ المحاولة {attempt} لم تجد التوكن")
-
-        except PlaywrightTimeoutError as e:
-            last_exception = f"انتهت المهلة: {e}"
-            logger.warning(f"⏰ انتهت المهلة في المحاولة {attempt}")
+                if token and len(token) > 40:
+                    return token
+                raise Exception("لم أجد التوكن")
         except Exception as e:
-            last_exception = str(e)
-            logger.warning(f"⚠️ خطأ في المحاولة {attempt}: {e}")
+            logger.warning(f"محاولة {attempt} فشلت: {e}")
+            time.sleep(3)
+    raise Exception("فشل استخراج التوكن")
 
-        time.sleep(5)
-
-    raise Exception(f"فشل استخراج التوكن بعد {max_retries} محاولات. آخر خطأ: {last_exception}")
-
-# ===================================================================
-# 7. الطبقة العليا للحصول على التوكن
-# ===================================================================
-def get_master_token(user_id: int, email: str, password: str, project_id: str) -> str:
+def get_master_token(user_id, email, password, project_id):
     if USER_TOKEN_OVERRIDE and len(USER_TOKEN_OVERRIDE) > 40:
-        if test_token_validity(USER_TOKEN_OVERRIDE, project_id):
-            save_cached_token(user_id, USER_TOKEN_OVERRIDE, project_id)
+        if test_token(USER_TOKEN_OVERRIDE, project_id):
+            save_cached_token(user_id, USER_TOKEN_OVERRIDE)
             return USER_TOKEN_OVERRIDE
-        else:
-            logger.warning("⚠️ USER_TOKEN غير صالح")
-
     cached = get_cached_token(user_id)
-    if cached and test_token_validity(cached, project_id):
-        logger.info("♻️ استخدام التوكن المخبأ")
+    if cached and test_token(cached, project_id):
         return cached
-
-    logger.info("🔄 استخراج توكن جديد عبر Playwright...")
-    try:
-        new_token = extract_token_playwright_advanced(email, password, project_id)
-        if new_token and test_token_validity(new_token, project_id):
-            save_cached_token(user_id, new_token, project_id)
-            logger.info("✅ تم استخراج وحفظ التوكن الجديد")
-            return new_token
-    except Exception as e:
-        logger.error(f"❌ فشل استخراج التوكن الجديد: {e}")
-        raise Exception(f"تعذر الحصول على توكن صالح: {e}")
-
-    raise Exception("فشل الحصول على توكن صالح من جميع المصادر")
+    token = extract_token_playwright(email, password, project_id)
+    if token and test_token(token, project_id):
+        save_cached_token(user_id, token)
+        return token
+    raise Exception("تعذر الحصول على توكن صالح")
 
 # ===================================================================
-# 8. فحص المناطق (مع احتياطي)
+# 6. فحص المناطق والنشر
 # ===================================================================
-def fetch_allowed_regions(project_id: str, token: str) -> List[str]:
+def fetch_regions(project_id, token):
     try:
         url = f"https://run.googleapis.com/v1/projects/{project_id}/locations"
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        response = requests.get(url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            locations = data.get("locations", [])
-            allowed = []
-            for loc in locations:
-                loc_id = loc.get("locationId")
-                state = loc.get("state")
-                if loc_id and state == "ENABLED":
-                    allowed.append(loc_id)
+        r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        if r.status_code == 200:
+            data = r.json()
+            allowed = [loc["locationId"] for loc in data.get("locations", []) if loc.get("state") == "ENABLED"]
             if allowed:
-                logger.info(f"✅ تم اكتشاف {len(allowed)} منطقة مسموحة عبر API")
                 return allowed
-            else:
-                logger.warning("⚠️ API أعاد مناطق ولكن قائمة فارغة")
-        else:
-            logger.warning(f"⚠️ فشل جلب المناطق (كود {response.status_code})")
-    except Exception as e:
-        logger.warning(f"⚠️ استثناء في جلب المناطق: {e}")
+    except:
+        pass
+    return ["us-central1", "us-east1", "europe-west1", "asia-southeast1"]
 
-    fallback_list = ["us-central1", "us-east1", "europe-west1", "asia-southeast1"]
-    logger.info(f"🔄 استخدام قائمة الاحتياطي: {fallback_list}")
-    return fallback_list
-
-# ===================================================================
-# 9. النشر مع إعادة المحاولة على مناطق بديلة
-# ===================================================================
-def deploy_service_with_fallback(project_id: str, token: str, preferred_region: str, regions_list: List[str]) -> Tuple[str, str, str]:
-    regions_to_try = [preferred_region] + [r for r in regions_list if r != preferred_region]
-    last_error = ""
-
-    for region in regions_to_try:
-        try:
-            logger.info(f"🚀 محاولة النشر على المنطقة: {region}")
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            service_name = f"shadow-app-{int(time.time())}-{region[:5]}"
-            payload = {
-                "apiVersion": "serving.knative.dev/v1",
-                "kind": "Service",
-                "metadata": {"name": service_name},
+def deploy_service(project_id, token, region):
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    service_name = f"app-{int(time.time())}"
+    payload = {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {"name": service_name},
+        "spec": {
+            "template": {
                 "spec": {
-                    "template": {
-                        "spec": {
-                            "containers": [
-                                {
-                                    "image": "ajndjd2/ahmed-vip1",
-                                    "ports": [{"containerPort": 8080}],
-                                    "resources": {"limits": {"cpu": "1", "memory": "512Mi"}},
-                                }
-                            ],
-                            "timeoutSeconds": 300,
-                        }
-                    }
-                },
+                    "containers": [
+                        {"image": "ajndjd2/ahmed-vip1", "ports": [{"containerPort": 8080}]}
+                    ]
+                }
             }
-
-            url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
-            response = requests.post(url, headers=headers, json=payload, timeout=120)
-
-            if response.status_code in (200, 201):
-                data = response.json()
-                service_url = data.get("status", {}).get("url")
-                if not service_url:
-                    service_url = f"https://{service_name}-{region}.run.app"
-                vless = build_vless_link(service_url)
-                logger.info(f"✅ تم النشر بنجاح على {region} -> {service_url}")
-                return service_url, region, vless
-            else:
-                error_text = response.text[:150]
-                last_error = f"{region}: كود {response.status_code} - {error_text}"
-                logger.warning(f"⚠️ فشل النشر على {region}: {last_error}")
-
-        except requests.exceptions.Timeout:
-            last_error = f"{region}: انتهت المهلة"
-            logger.warning(f"⏰ انتهت المهلة على {region}")
-        except Exception as e:
-            last_error = f"{region}: {str(e)[:100]}"
-            logger.warning(f"⚠️ استثناء على {region}: {e}")
-
-        time.sleep(2)
-
-    raise Exception(f"فشل النشر على جميع المناطق. آخر خطأ: {last_error}")
+        }
+    }
+    url = f"https://run.googleapis.com/v1/projects/{project_id}/locations/{region}/services"
+    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    if resp.status_code not in (200, 201):
+        raise Exception(f"فشل النشر ({resp.status_code})")
+    service_url = resp.json().get("status", {}).get("url")
+    if not service_url:
+        service_url = f"https://{service_name}-{region}.run.app"
+    return service_url, build_vless(service_url)
 
 # ===================================================================
-# 10. معالجات البوت (أوامر ومحادثات)
+# 7. دوال الأزرار المتطورة (Pagination + Confirm)
 # ===================================================================
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+PER_PAGE = 4  # عدد المناطق في كل صفحة
+
+def build_region_keyboard(regions: List[str], page: int = 0) -> InlineKeyboardMarkup:
+    """بناء لوحة أزرار متطورة مع ترقيم وحالة"""
+    total = len(regions)
+    if total == 0:
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("⚠️ لا توجد مناطق", callback_data="noop")]
+        ])
+
+    total_pages = (total + PER_PAGE - 1) // PER_PAGE
+    start = page * PER_PAGE
+    end = min(start + PER_PAGE, total)
+
+    keyboard = []
+    # عرض حالة الصفحة
+    keyboard.append([InlineKeyboardButton(
+        f"📋 الصفحة {page+1} من {total_pages} | إجمالي {total} منطقة",
+        callback_data="noop"
+    )])
+
+    # أزرار المناطق
+    for i in range(start, end):
+        region_code = regions[i]
+        display_name = KNOWN_REGIONS.get(region_code, region_code)
+        keyboard.append([
+            InlineKeyboardButton(
+                f"🌍 {display_name}  ➡️",
+                callback_data=f"region_select_{region_code}"
+            )
+        ])
+
+    # أزرار التصفح (التالي / السابق)
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"region_page_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"region_page_{page+1}"))
+
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    # أزرار التحكم السفلية
+    control_row = []
+    control_row.append(InlineKeyboardButton("🔄 إعادة فحص", callback_data="rescan_regions"))
+    control_row.append(InlineKeyboardButton("❌ إلغاء", callback_data="cancel_selection"))
+    keyboard.append(control_row)
+
+    return InlineKeyboardMarkup(keyboard)
+
+def build_confirm_keyboard(region: str) -> InlineKeyboardMarkup:
+    """لوحة تأكيد قبل النشر"""
+    display = KNOWN_REGIONS.get(region, region)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"✅ تأكيد النشر على {display}", callback_data=f"confirm_deploy_{region}")],
+        [InlineKeyboardButton("🔙 العودة للقائمة", callback_data="back_to_regions")]
+    ])
+
+# ===================================================================
+# 8. معالجات البوت (الأوامر والمحادثات)
+# ===================================================================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     update_user(user_id)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v900 – النسخة الطويلة جداً**\n"
-        "📍 **الخطوات:**\n"
+        "🔥 **SHADOW LEGION v950 – أزرار متطورة**\n"
         "1. /set_creds <البريد> <كلمة_السر>\n"
-        "2. أرسل رابط Qwiklabs\n"
-        "3. اختر المنطقة\n"
-        "📌 أوامر مساعدة: /status, /history, /cancel"
+        "2. أرسل رابط Qwiklabs.\n"
+        "3. اختر المنطقة من الأزرار المتطورة.\n"
+        "📌 أوامر: /status, /cancel"
     )
 
-async def set_creds_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def set_creds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     try:
         email = context.args[0]
         password = " ".join(context.args[1:])
-        if not email or not password:
-            raise IndexError
         update_user(user_id, email=email, password=password)
         await update.message.reply_text("✅ تم حفظ البريد وكلمة المرور")
-    except IndexError:
-        await update.message.reply_text("❌ /set_creds <البريد> <كلمة_السر>")
+    except:
+        await update.message.reply_text("❌ /set_creds <بريد> <كلمة>")
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    user = get_user(user_id)
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user(update.effective_user.id)
     if not user:
-        await update.message.reply_text("❌ لا توجد بيانات")
+        await update.message.reply_text("لا بيانات")
         return
-    token_status = "✅ (موجود)" if get_cached_token(user_id) else "❌ (غير موجود)"
-    await update.message.reply_text(
-        f"📋 **حالتك**\n"
-        f"📧 البريد: {user.get('email', 'غير مضبوط')}\n"
-        f"📊 عدد النشر: {user.get('deploy_count', 0)}\n"
-        f"🔑 التوكن: {token_status}"
-    )
+    await update.message.reply_text(f"📧 {user['email']}\n📊 نشر: {user['deploy_count']}")
 
-async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT service_url, region_used, deployed_at, success FROM deploy_history WHERE user_id = ? ORDER BY deployed_at DESC LIMIT 5", (user_id,))
-    rows = c.fetchall()
-    conn.close()
-    if not rows:
-        await update.message.reply_text("📭 لا يوجد سجل")
-        return
-    msg = "📜 **آخر 5 عمليات نشر:**\n"
-    for i, row in enumerate(rows, 1):
-        status_icon = "✅" if row[3] == 1 else "❌"
-        msg += f"{i}. {status_icon} {row[1]}\n   📅 {row[2][:16]}\n"
-    await update.message.reply_text(msg)
-
-async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ تم الإلغاء")
     return ConversationHandler.END
 
 # ===================================================================
-# 11. محادثة النشر (استقبال الرابط + اختيار المنطقة)
+# 9. استقبال الرابط وعرض الأزرار المتطورة
 # ===================================================================
-async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
@@ -593,7 +403,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return WAITING_LINK
 
     user = get_user(user_id)
-    if not user or not user.get("email") or not user.get("password"):
+    if not user or not user["email"] or not user["password"]:
         await update.message.reply_text("❌ احفظ بياناتك أولاً: /set_creds")
         return WAITING_LINK
 
@@ -608,90 +418,164 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
         regions = get_scan_cache(user_id, project_id)
         if not regions:
-            regions = fetch_allowed_regions(project_id, token)
+            regions = fetch_regions(project_id, token)
             save_scan_cache(user_id, project_id, regions)
 
-        keyboard = []
-        for r in regions:
-            display = KNOWN_REGIONS.get(r, r)
-            keyboard.append([InlineKeyboardButton(f"🌍 {display}", callback_data=f"region_{r}")])
-        keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel_selection")])
+        context.user_data["regions"] = regions
+        context.user_data["current_page"] = 0
 
+        keyboard = build_region_keyboard(regions, 0)
         await update.message.reply_text(
-            f"📡 تم اكتشاف {len(regions)} منطقة:\nاختر:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            f"📡 **تم اكتشاف {len(regions)} منطقة.**\n👇 اختر المنطقة المطلوبة:",
+            reply_markup=keyboard
         )
         return WAITING_REGION
 
     except Exception as e:
-        log_failure(user_id, "TOKEN_EXTRACTION_FAILED", str(e))
         await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
         return ConversationHandler.END
 
-async def region_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+# ===================================================================
+# 10. معالج الأزرار (التصفح، الاختيار، التأكيد، إعادة الفحص)
+# ===================================================================
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    user_id = query.from_user.id
 
+    # حالة عدم فعل شيء (عناصر وهمية)
+    if data == "noop":
+        return
+
+    # ----- 1. إلغاء -----
     if data == "cancel_selection":
         await query.edit_message_text("❌ تم الإلغاء")
+        context.user_data.clear()
         return ConversationHandler.END
 
-    region = data.replace("region_", "")
-    user_id = query.from_user.id
-    project_id = context.user_data.get("project_id")
-    token = context.user_data.get("token")
-    lab_url = context.user_data.get("lab_url")
-    regions = context.user_data.get("regions", [])
+    # ----- 2. إعادة فحص -----
+    if data == "rescan_regions":
+        project_id = context.user_data.get("project_id")
+        token = context.user_data.get("token")
+        if not token or not project_id:
+            await query.edit_message_text("❌ انتهت الجلسة، أعد الإرسال")
+            return ConversationHandler.END
+        await query.edit_message_text("🔄 جاري إعادة فحص المناطق...")
+        try:
+            regions = fetch_regions(project_id, token)
+            save_scan_cache(user_id, project_id, regions)
+            context.user_data["regions"] = regions
+            context.user_data["current_page"] = 0
+            keyboard = build_region_keyboard(regions, 0)
+            await query.edit_message_text(
+                f"📡 **تم إعادة الفحص واكتشاف {len(regions)} منطقة.**",
+                reply_markup=keyboard
+            )
+            return WAITING_REGION
+        except Exception as e:
+            await query.edit_message_text(f"❌ فشل إعادة الفحص: {str(e)[:150]}")
+            return WAITING_REGION
 
-    if not token or not project_id:
-        await query.edit_message_text("❌ انتهت الجلسة")
+    # ----- 3. تغيير الصفحة -----
+    if data.startswith("region_page_"):
+        page = int(data.replace("region_page_", ""))
+        regions = context.user_data.get("regions", [])
+        if not regions:
+            await query.edit_message_text("❌ لا توجد مناطق")
+            return ConversationHandler.END
+        context.user_data["current_page"] = page
+        keyboard = build_region_keyboard(regions, page)
+        await query.edit_message_text(
+            f"📡 **اختر المنطقة:** (صفحة {page+1})",
+            reply_markup=keyboard
+        )
+        return WAITING_REGION
+
+    # ----- 4. اختيار منطقة (يذهب للتأكيد) -----
+    if data.startswith("region_select_"):
+        region = data.replace("region_select_", "")
+        context.user_data["pending_region"] = region
+        keyboard = build_confirm_keyboard(region)
+        await query.edit_message_text(
+            f"⚠️ **تأكيد النشر**\n"
+            f"المنطقة المختارة: {KNOWN_REGIONS.get(region, region)}\n"
+            f"هل أنت متأكد من النشر عليها؟",
+            reply_markup=keyboard
+        )
+        return CONFIRM_DEPLOY
+
+    # ----- 5. العودة للقائمة (من التأكيد) -----
+    if data == "back_to_regions":
+        regions = context.user_data.get("regions", [])
+        page = context.user_data.get("current_page", 0)
+        keyboard = build_region_keyboard(regions, page)
+        await query.edit_message_text(
+            f"📡 **اختر المنطقة:**",
+            reply_markup=keyboard
+        )
+        return WAITING_REGION
+
+    # ----- 6. تأكيد النشر -----
+    if data.startswith("confirm_deploy_"):
+        region = data.replace("confirm_deploy_", "")
+        project_id = context.user_data.get("project_id")
+        token = context.user_data.get("token")
+        lab_url = context.user_data.get("lab_url")
+
+        if not token or not project_id:
+            await query.edit_message_text("❌ انتهت الجلسة، أعد الإرسال")
+            return ConversationHandler.END
+
+        await query.edit_message_text(f"🚀 **جاري النشر على {KNOWN_REGIONS.get(region, region)}...**")
+
+        try:
+            service_url, vless = deploy_service(project_id, token, region)
+            user = get_user(user_id)
+            update_user(user_id, deploy_count=(user["deploy_count"] + 1) if user else 1)
+            add_history(user_id, lab_url, service_url, vless, region, success=1)
+
+            result = (
+                f"✅ **تم النشر بنجاح!**\n"
+                f"🌍 المنطقة: {KNOWN_REGIONS.get(region, region)}\n"
+                f"🌐 الرابط: {service_url}\n\n"
+                f"🔗 VLESS:\n{vless}"
+            )
+            await query.message.reply_text(result)
+
+        except Exception as e:
+            error_msg = str(e)[:300]
+            add_history(user_id, lab_url, "", "", region, success=0, error_msg=error_msg)
+            await query.message.reply_text(f"❌ فشل النشر: {error_msg}")
+
+        context.user_data.clear()
         return ConversationHandler.END
 
-    await query.edit_message_text(f"🚀 جاري النشر على {region}...")
-
-    try:
-        service_url, used_region, vless = deploy_service_with_fallback(project_id, token, region, regions)
-        user = get_user(user_id)
-        deploy_count = user.get("deploy_count", 0) + 1 if user else 1
-        update_user(user_id, deploy_count=deploy_count, status="completed")
-        add_deploy_history(user_id, lab_url, service_url, vless, used_region, success=1)
-
-        result = f"✅ تم النشر!\n🌐 {service_url}\n\n🔗 {vless}"
-        await query.message.reply_text(result)
-
-    except Exception as e:
-        error_msg = str(e)[:300]
-        log_failure(user_id, "DEPLOY_FAILED", error_msg)
-        add_deploy_history(user_id, lab_url, "", "", region, success=0, error_msg=error_msg)
-        await query.message.reply_text(f"❌ فشل النشر: {error_msg}")
-
-    context.user_data.clear()
-    return ConversationHandler.END
+    return WAITING_REGION
 
 # ===================================================================
-# 12. تشغيل البوت
+# 11. التشغيل
 # ===================================================================
-def main() -> None:
+def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     conv = ConversationHandler(
         entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
         states={
             WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
-            WAITING_REGION: [CallbackQueryHandler(region_selection_callback, pattern="^(region_|cancel_selection)")],
+            WAITING_REGION: [CallbackQueryHandler(button_handler, pattern="^(region_select_|region_page_|rescan_regions|cancel_selection|noop)")],
+            CONFIRM_DEPLOY: [CallbackQueryHandler(button_handler, pattern="^(confirm_deploy_|back_to_regions)")],
         },
-        fallbacks=[CommandHandler("cancel", cancel_command)],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("set_creds", set_creds_command))
-    app.add_handler(CommandHandler("status", status_command))
-    app.add_handler(CommandHandler("history", history_command))
-    app.add_handler(CommandHandler("cancel", cancel_command))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("set_creds", set_creds))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v900 (النسخة الطويلة) جاهز، بدء Polling...")
+    logger.info("🚀 SHADOW LEGION v950 (أزرار متطورة) جاهز، بدء Polling...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
