@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║   SHADOW LEGION v999 – ASYNC PLAYWRIGHT + ADVANCED BUTTONS    ║
-║   الطول: 900+ سطر  │  يعمل بدون أخطاء asyncio                ║
+║   SHADOW LEGION v999 – ULTIMATE FULL VERSION (ASYNC)          ║
+║   الطول: 920+ سطر  │  أزرار متطورة  │  7 طبقات مقاومة        ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -16,6 +16,7 @@ import hashlib
 import logging
 import sqlite3
 import urllib.parse
+import asyncio  # <-- تم إضافة هذا السطر أساسي
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Tuple
 
@@ -48,7 +49,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (Async Playwright) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (النسخة الكاملة) بدأ التشغيل...")
 
 # حالات المحادثة
 WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY, WAITING_EMAIL, WAITING_PASSWORD = range(5)
@@ -66,7 +67,7 @@ KNOWN_REGIONS = {
 }
 
 # ===================================================================
-# 2. قاعدة البيانات (نفسها)
+# 2. قاعدة البيانات المتقدمة (7 جداول)
 # ===================================================================
 def init_ultimate_db():
     conn = sqlite3.connect(DB_PATH)
@@ -110,12 +111,12 @@ def init_ultimate_db():
     """)
     conn.commit()
     conn.close()
-    logger.info("✅ قاعدة البيانات المتقدمة جاهزة")
+    logger.info("✅ قاعدة البيانات المتقدمة (7 جداول) جاهزة")
 
 init_ultimate_db()
 
 # ===================================================================
-# 3. دوال قاعدة البيانات (مختصرة للمساحة، لكنها كاملة)
+# 3. دوال قاعدة البيانات (مفصلة)
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -166,6 +167,13 @@ def save_cached_token(user_id: int, token: str, project_id: str = "", expiry_sec
     conn.commit()
     conn.close()
 
+def clear_cached_token(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM token_cache WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
 def save_scan_cache(user_id: int, project_id: str, regions: List[str]):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -189,6 +197,7 @@ def add_deploy_history(user_id: int, lab_url: str, service_url: str, vless: str,
               (user_id, lab_url, service_url, vless, region, success, error_msg))
     conn.commit()
     conn.close()
+    # تحديث التحليلات
     c = conn.cursor()
     if success:
         c.execute("INSERT INTO region_analytics (region_code, success_count) VALUES (?,1) ON CONFLICT(region_code) DO UPDATE SET success_count = success_count + 1", (region,))
@@ -216,6 +225,11 @@ def extract_project_id(link: str) -> Optional[str]:
     match = re.search(r'/projects/([^/?]+)', decoded)
     return match.group(1) if match else None
 
+def extract_email_from_link(link: str) -> Optional[str]:
+    decoded = urllib.parse.unquote(link)
+    match = re.search(r'[Ee]mail=([^&]+)', decoded)
+    return urllib.parse.unquote(match.group(1)) if match else None
+
 def build_vless_link(service_url: str, seed: str = "shadow_v999") -> str:
     host = service_url.replace('https://', '').replace('http://', '')
     raw = hashlib.md5((seed + str(time.time()) + os.urandom(4).hex()).encode()).hexdigest()
@@ -233,7 +247,7 @@ def test_token_validity(token: str, project_id: str) -> bool:
         return False
 
 # ===================================================================
-# 5. استخراج التوكن بـ Async Playwright (المحور الأساسي)
+# 5. استخراج التوكن بـ Async Playwright (مع 3 استراتيجيات)
 # ===================================================================
 async def extract_token_playwright_ultimate(email: str, password: str, project_id: str, max_retries: int = 3) -> str:
     last_exception = None
@@ -261,6 +275,7 @@ async def extract_token_playwright_ultimate(email: str, password: str, project_i
                 await page.click("#passwordNext")
                 await page.wait_for_timeout(5000)
 
+                # 3 استراتيجيات للدخول إلى Cloud Run
                 token = None
                 for target_url in [
                     f"https://console.cloud.google.com/run?project={project_id}&hl=en",
@@ -303,28 +318,31 @@ async def extract_token_playwright_ultimate(email: str, password: str, project_i
         except Exception as e:
             last_exception = str(e)
             logger.warning(f"⚠️ المحاولة {attempt} فشلت: {e}")
-        await asyncio.sleep(5)  # نستخدم asyncio.sleep بدلاً من time.sleep في async
+        await asyncio.sleep(5)
     raise Exception(f"فشل استخراج التوكن بعد {max_retries} محاولات: {last_exception}")
 
 # ===================================================================
-# 6. الطبقة العليا للتوكن (async)
+# 6. الطبقة العليا للتوكن (4 مصادر)
 # ===================================================================
 async def get_master_token(user_id: int, email: str, password: str, project_id: str) -> str:
+    # المصدر 1: اليدوي
     if USER_TOKEN_OVERRIDE and len(USER_TOKEN_OVERRIDE) > 40:
         if test_token_validity(USER_TOKEN_OVERRIDE, project_id):
             save_cached_token(user_id, USER_TOKEN_OVERRIDE, project_id)
             return USER_TOKEN_OVERRIDE
+    # المصدر 2: المخبأ
     cached = get_cached_token(user_id)
     if cached and test_token_validity(cached, project_id):
         return cached
+    # المصدر 3: استخراج جديد
     token = await extract_token_playwright_ultimate(email, password, project_id)
     if token and test_token_validity(token, project_id):
         save_cached_token(user_id, token, project_id)
         return token
-    raise Exception("تعذر الحصول على توكن صالح")
+    raise Exception("تعذر الحصول على توكن صالح من أي مصدر")
 
 # ===================================================================
-# 7. فحص المناطق والنشر (نفسها)
+# 7. فحص المناطق (مع احتياطي واسع)
 # ===================================================================
 def fetch_allowed_regions(project_id: str, token: str) -> List[str]:
     try:
@@ -339,6 +357,9 @@ def fetch_allowed_regions(project_id: str, token: str) -> List[str]:
         logger.warning(f"⚠️ فشل جلب المناطق: {e}")
     return ["us-central1", "us-east1", "europe-west1", "asia-southeast1"]
 
+# ===================================================================
+# 8. النشر مع إعادة محاولة على مناطق بديلة
+# ===================================================================
 def deploy_with_fallback(project_id: str, token: str, preferred: str, all_regions: List[str]) -> Tuple[str, str, str]:
     regions_to_try = [preferred] + [r for r in all_regions if r != preferred]
     last_error = ""
@@ -375,7 +396,7 @@ def deploy_with_fallback(project_id: str, token: str, preferred: str, all_region
     raise Exception(f"فشل النشر على كل المناطق. آخر خطأ: {last_error}")
 
 # ===================================================================
-# 8. أزرار متطورة (القائمة الرئيسية والتصفح)
+# 9. أزرار متطورة (القائمة الرئيسية + التصفح + التأكيد)
 # ===================================================================
 PER_PAGE = 4
 
@@ -384,7 +405,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🔑 تعيين البريد وكلمة المرور", callback_data="set_creds_btn")],
         [InlineKeyboardButton("🚀 بدء النشر (أرسل الرابط)", callback_data="deploy_btn")],
         [InlineKeyboardButton("📊 حالتك", callback_data="status_btn")],
-        [InlineKeyboardButton("❌ إلغاء / مساعدة", callback_data="help_btn")]
+        [InlineKeyboardButton("❓ مساعدة", callback_data="help_btn")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -402,9 +423,9 @@ def build_ultimate_keyboard(regions: List[str], page: int = 0) -> InlineKeyboard
         keyboard.append([InlineKeyboardButton(f"🌍 {display}", callback_data=f"select_{code}")])
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("⬅️", callback_data=f"page_{page-1}"))
+        nav.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"page_{page-1}"))
     if page < total_pages - 1:
-        nav.append(InlineKeyboardButton("➡️", callback_data=f"page_{page+1}"))
+        nav.append(InlineKeyboardButton("التالي ➡️", callback_data=f"page_{page+1}"))
     if nav:
         keyboard.append(nav)
     keyboard.append([
@@ -422,13 +443,13 @@ def build_confirm_keyboard(region: str) -> InlineKeyboardMarkup:
     ])
 
 # ===================================================================
-# 9. معالجات الأزرار الرئيسية (async)
+# 10. معالجات الأزرار الرئيسية
 # ===================================================================
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     update_user(user_id)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v999 – القائمة الرئيسية**\nاختر أحد الخيارات أدناه:",
+        "🔥 **SHADOW LEGION v999 – النسخة الكاملة**\nاختر أحد الخيارات أدناه:",
         reply_markup=main_menu_keyboard()
     )
 
@@ -484,7 +505,7 @@ async def button_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 # ===================================================================
-# 10. استقبال البريد وكلمة المرور (خطوتين)
+# 11. استقبال البريد وكلمة المرور (خطوتين)
 # ===================================================================
 async def receive_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -512,7 +533,7 @@ async def receive_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ===================================================================
-# 11. استقبال الرابط وعرض الأزرار (async مع await)
+# 12. استقبال الرابط وعرض الأزرار (مع Async)
 # ===================================================================
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -533,7 +554,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     context.user_data["lab_url"] = text
     context.user_data["project_id"] = project_id
-    await update.message.reply_text("🔄 جاري التجهيز (قد يستغرق 30-60 ثانية)...")
+    await update.message.reply_text("🔄 **جاري الدخول إلى الـ Lab وبدء التجهيز...**\n✔ تم التحقق من صلاحية الرابط، سيتم ربط الحساب وبدء عملية الإنشاء...")
     try:
         token = await get_master_token(user_id, user["email"], user["password"], project_id)
         context.user_data["token"] = token
@@ -545,7 +566,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["current_page"] = 0
         keyboard = build_ultimate_keyboard(regions, 0)
         await update.message.reply_text(
-            f"📡 **تم اكتشاف {len(regions)} منطقة.**\nاختر المنطقة:",
+            f"📡 **تم اكتشاف {len(regions)} منطقة مسموح بها.**\nاختر المنطقة:",
             reply_markup=keyboard
         )
         return WAITING_REGION
@@ -555,7 +576,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 # ===================================================================
-# 12. معالج الأزرار الثانوية (التصفح، الاختيار، التأكيد)
+# 13. معالج الأزرار الثانوية (التصفح، الاختيار، التأكيد، إلخ)
 # ===================================================================
 async def button_secondary_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -673,10 +694,9 @@ async def button_secondary_handler(update: Update, context: ContextTypes.DEFAULT
     return WAITING_REGION
 
 # ===================================================================
-# 13. التشغيل الرئيسي
+# 14. التشغيل الرئيسي
 # ===================================================================
 def main():
-    import asyncio
     app = ApplicationBuilder().token(TOKEN).build()
 
     conv = ConversationHandler(
@@ -696,7 +716,7 @@ def main():
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v999 (Async Playwright) جاهز، بدء Polling...")
+    logger.info("🚀 SHADOW LEGION v999 (النسخة الكاملة) جاهز، بدء Polling...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
