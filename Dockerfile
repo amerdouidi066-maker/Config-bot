@@ -1,17 +1,14 @@
-FROM python:3.10-slim
+# استخدام صورة Playwright الرسمية (جاهزة بكل التبعيات)
+FROM mcr.microsoft.com/playwright:python-1.40.0
 
 WORKDIR /app
 
-COPY apt.txt /tmp/apt.txt
-RUN apt-get update && apt-get install -y $(cat /tmp/apt.txt) \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
+# نسخ ملف المتطلبات وتثبيت حزم بايثون
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN playwright install chromium
-
+# نسخ كود البوت
 COPY bot.py .
 
+# تشغيل البوت
 CMD ["python", "bot.py"]
