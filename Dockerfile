@@ -1,22 +1,22 @@
-FROM python:3.12-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    wget gnupg curl unzip xvfb \
-    libgbm1 libnss3 libxss1 libasound2 libxtst6 \
-    libxrandr2 libxcursor1 libxcomposite1 libxi6 \
-    libx11-6 libxcb1 libxfixes3 libcups2 libpango-1.0-0 \
-    libatk-bridge2.0-0 --no-install-recommends \
-    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-archive-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/google-chrome-archive-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update && apt-get install -y google-chrome-stable --no-install-recommends \
+# نسخ ملف تبعيات النظام وتثبيتها
+COPY apt.txt /tmp/apt.txt
+RUN apt-get update && apt-get install -y $(cat /tmp/apt.txt) \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# نسخ ملفات بايثون وتثبيت الحزم
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# انتبه لهذا السطر: ننسخ bot.py ونعيد تسميته إلى main.py داخل الحاوية
-COPY bot.py main.py
+# تثبيت متصفح Chromium لـ Playwright مع تبعياته
+RUN playwright install chromium && playwright install-deps
 
-CMD ["python", "main.py"]
+# نسخ كود البوت
+COPY bot.py .
+
+# تشغيل البوت (بدون منفذ، يعتمد على الـ Polling)
+CMD ["python", "bot.py"]
