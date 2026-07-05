@@ -1,4 +1,3 @@
-# هذا هو الاسم الصحيح الوحيد الذي يعمل على Railway
 FROM mcr.microsoft.com/playwright:python-1.40.0
 
 WORKDIR /app
