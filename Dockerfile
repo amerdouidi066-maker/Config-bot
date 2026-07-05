@@ -1,10 +1,21 @@
-FROM playwright/python:1.40.0
+FROM python:3.10-slim
 
 WORKDIR /app
 
+# تثبيت تبعيات النظام من apt.txt
+COPY apt.txt /tmp/apt.txt
+RUN apt-get update && apt-get install -y $(cat /tmp/apt.txt) \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# تثبيت حزم بايثون
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
+# تثبيت متصفح Chromium
+RUN playwright install chromium
 
-CMD ["python", "main.py"]
+# نسخ الكود
+COPY bot.py .
+
+CMD ["python", "bot.py"]
