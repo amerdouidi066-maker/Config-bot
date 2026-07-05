@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║   SHADOW LEGION v999 – ULTIMATE ASK REGION EDITION            ║
-║   الطول: 800+ سطر  │  أزرار متطورة  │  Incognito             ║
-║   يسأل عن المنطقة  │  ترقيم  │  تأكيد  │  إحصائيات           ║
+║   SHADOW LEGION v999 – FULL CREDS + REGION SELECTION          ║
+║   الطول: 800+ سطر  │  يسأل عن البريد وكلمة المرور           ║
+║   يسجل الدخول تلقائياً  │  أزرار متطورة  │  احترافي          ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -41,7 +41,7 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN غير موجود في البيئة")
 
-DB_PATH = "shadow_ultimate_ask.db"
+DB_PATH = "shadow_creds.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -49,10 +49,10 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (Ultimate Ask Region) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (Full Creds + Region) بدأ التشغيل...")
 
 # حالات المحادثة
-WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY = range(3)
+WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY, WAITING_EMAIL, WAITING_PASSWORD = range(5)
 
 KNOWN_REGIONS = {
     "us-central1": "🇺🇸 أيوا (الوسطى)",
@@ -68,14 +68,16 @@ KNOWN_REGIONS = {
 }
 
 # ===================================================================
-# 2. قاعدة البيانات المتقدمة (7 جداول)
+# 2. قاعدة البيانات المتقدمة (6 جداول)
 # ===================================================================
-def init_ultimate_db():
+def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
+            email TEXT,
+            password TEXT,
             deploy_count INTEGER DEFAULT 0,
             status TEXT DEFAULT 'idle',
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -114,19 +116,12 @@ def init_ultimate_db():
             user_id INTEGER PRIMARY KEY,
             preferred_region TEXT
         );
-        CREATE TABLE IF NOT EXISTS failure_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            error_type TEXT,
-            error_detail TEXT,
-            logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
     """)
     conn.commit()
     conn.close()
-    logger.info("✅ قاعدة البيانات المتقدمة (7 جداول) جاهزة")
+    logger.info("✅ قاعدة البيانات المتقدمة (6 جداول) جاهزة")
 
-init_ultimate_db()
+init_db()
 
 # ===================================================================
 # 3. دوال قاعدة البيانات
@@ -134,15 +129,17 @@ init_ultimate_db()
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT user_id, deploy_count, status, last_activity FROM users WHERE user_id=?", (user_id,))
+    c.execute("SELECT user_id, email, password, deploy_count, status, last_activity FROM users WHERE user_id=?", (user_id,))
     row = c.fetchone()
     conn.close()
     if row:
         return {
             "user_id": row[0],
-            "deploy_count": row[1],
-            "status": row[2],
-            "last_activity": row[3]
+            "email": row[1],
+            "password": row[2],
+            "deploy_count": row[3],
+            "status": row[4],
+            "last_activity": row[5]
         }
     return None
 
@@ -213,14 +210,6 @@ def add_deploy_history(user_id: int, lab_url: str, service_url: str, vless: str,
     conn.commit()
     conn.close()
 
-def log_failure(user_id: int, error_type: str, error_detail: str):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO failure_logs (user_id, error_type, error_detail) VALUES (?,?,?)",
-              (user_id, error_type, error_detail[:500]))
-    conn.commit()
-    conn.close()
-
 def increment_deploy_count(user_id: int):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -259,7 +248,7 @@ def build_vless_link(service_url: str, seed: str = "shadow_v999") -> str:
     host = service_url.replace('https://', '').replace('http://', '')
     raw = hashlib.md5((seed + str(time.time()) + os.urandom(4).hex()).encode()).hexdigest()
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
-    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#AskTunnel"
+    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#FullTunnel"
 
 def test_token_validity(token: str, project_id: str) -> bool:
     if not token or len(token) < 40:
@@ -272,9 +261,12 @@ def test_token_validity(token: str, project_id: str) -> bool:
         return False
 
 # ===================================================================
-# 5. استخراج التوكن (Incognito)
+# 5. استخراج التوكن مع تسجيل الدخول
 # ===================================================================
-async def extract_token_from_incognito(link: str, project_id: str) -> str:
+async def extract_token_with_login(link: str, project_id: str, email: str, password: str) -> str:
+    if not email or not password:
+        raise Exception("❌ البريد أو كلمة المرور غير مضبوطة. استخدم /set_creds")
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
@@ -293,24 +285,37 @@ async def extract_token_from_incognito(link: str, project_id: str) -> str:
         page = await context.new_page()
         await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        # فتح الرابط
+        # 1. فتح الرابط
+        logger.info(f"🌐 فتح الرابط: {link}")
         await page.goto(link, timeout=60000, wait_until="networkidle")
         await page.wait_for_timeout(3000)
 
-        # متابعة التوجيه
-        for i in range(5):
-            if "console.cloud.google.com" in page.url:
-                break
-            await page.wait_for_timeout(3000)
-
-        # انتظار تحميل الصفحة
+        # 2. تسجيل الدخول
         try:
-            await page.wait_for_selector("body", timeout=30000)
-            await page.wait_for_timeout(5000)
-        except PlaywrightTimeoutError:
-            logger.warning("⚠️ انتهت مهلة تحميل الصفحة")
+            email_field = await page.query_selector("input[type='email'], input#identifierId")
+            if email_field:
+                logger.info("📧 جاري تسجيل الدخول...")
+                await page.fill("input[type='email'], input#identifierId", email)
+                await page.click("button:has-text('Next'), button#identifierNext")
+                await page.wait_for_timeout(3000)
 
-        # استخراج التوكن
+                await page.wait_for_selector("input[type='password'], input[name='Passwd']", timeout=15000)
+                await page.fill("input[type='password'], input[name='Passwd']", password)
+                await page.click("button:has-text('Next'), button#passwordNext")
+                await page.wait_for_timeout(5000)
+                logger.info("✅ تم تسجيل الدخول")
+            else:
+                logger.info("✅ لا توجد صفحة تسجيل دخول، نكمل مباشرة")
+        except Exception as e:
+            logger.warning(f"⚠️ فشل تسجيل الدخول: {e}")
+
+        # 3. التوجه إلى Cloud Run Console
+        console_url = f"https://console.cloud.google.com/run?project={project_id}&hl=en"
+        logger.info(f"🔗 التوجه إلى Console: {console_url}")
+        await page.goto(console_url, timeout=60000, wait_until="networkidle")
+        await page.wait_for_timeout(8000)
+
+        # 4. استخراج التوكن
         token = await page.evaluate("""
             () => {
                 const keys = ['access_token', 'id_token', 'gapi_token', 'oauth_token', 'gc_token'];
@@ -338,15 +343,16 @@ async def extract_token_from_incognito(link: str, project_id: str) -> str:
 
         await browser.close()
         if token and len(token) > 40:
+            logger.info("✅ تم استخراج التوكن")
             return token
-        raise Exception("لم أجد التوكن بعد فتح الرابط في Incognito")
+        raise Exception("لم أجد التوكن بعد تسجيل الدخول")
 
-async def get_master_token(user_id: int, link: str, project_id: str) -> str:
+async def get_master_token(user_id: int, link: str, project_id: str, email: str, password: str) -> str:
     cached = get_cached_token(user_id)
     if cached and test_token_validity(cached, project_id):
         logger.info("♻️ استخدام التوكن المخبأ")
         return cached
-    token = await extract_token_from_incognito(link, project_id)
+    token = await extract_token_with_login(link, project_id, email, password)
     if token and test_token_validity(token, project_id):
         save_cached_token(user_id, token, project_id)
         return token
@@ -439,6 +445,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🚀 بدء النشر (أرسل الرابط)", callback_data="deploy_btn")],
         [InlineKeyboardButton("📊 إحصائياتي", callback_data="stats_btn")],
         [InlineKeyboardButton("⭐ المنطقة المفضلة", callback_data="pref_info_btn")],
+        [InlineKeyboardButton("🔑 تعيين البريد", callback_data="set_creds_btn")],
         [InlineKeyboardButton("❓ مساعدة", callback_data="help_btn")]
     ])
 
@@ -447,12 +454,21 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
 # ===================================================================
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    update_user(user_id)
-    await update.message.reply_text(
-        "🔥 **SHADOW LEGION v999 – Ask Region**\n"
-        "اختر أحد الخيارات أدناه:",
-        reply_markup=main_menu_keyboard()
-    )
+    user = get_user(user_id)
+    if user and user.get("email"):
+        await update.message.reply_text(
+            "🔥 **Shadow Legion – Full Edition**\n"
+            f"📧 بريدك: {user['email']}\n"
+            "اختر أحد الخيارات أدناه:",
+            reply_markup=main_menu_keyboard()
+        )
+    else:
+        await update.message.reply_text(
+            "🔥 **Shadow Legion – Full Edition**\n"
+            "يرجى تعيين بريدك وكلمة المرور أولاً.\n"
+            "استخدم زر 'تعيين البريد' أو الأمر /set_creds",
+            reply_markup=main_menu_keyboard()
+        )
 
 async def button_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -460,7 +476,15 @@ async def button_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = query.data
     user_id = query.from_user.id
 
-    if data == "deploy_btn":
+    if data == "set_creds_btn":
+        await query.edit_message_text("📧 **أرسل بريدك الإلكتروني:**")
+        return WAITING_EMAIL
+
+    elif data == "deploy_btn":
+        user = get_user(user_id)
+        if not user or not user.get("email") or not user.get("password"):
+            await query.edit_message_text("❌ يرجى تعيين البريد وكلمة المرور أولاً.\nاستخدم زر 'تعيين البريد'.")
+            return ConversationHandler.END
         await query.edit_message_text("🔗 **أرسل رابط Qwiklabs الآن:**")
         return WAITING_LINK
 
@@ -496,10 +520,10 @@ async def button_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif data == "help_btn":
         await query.edit_message_text(
             "❓ **المساعدة:**\n"
+            "• /set_creds <البريد> <كلمة_السر> – تعيين بيانات الدخول.\n"
             "• أرسل رابط Qwiklabs لبدء النشر.\n"
             "• اختر المنطقة من الأزرار.\n"
-            "• يمكنك تعيين منطقة مفضلة لتظهر أولاً.\n"
-            "• استخدم /cancel لإلغاء العملية.",
+            "• يمكنك تعيين منطقة مفضلة.",
             reply_markup=main_menu_keyboard()
         )
         return ConversationHandler.END
@@ -507,7 +531,35 @@ async def button_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 # ===================================================================
-# 9. استقبال الرابط
+# 9. استقبال البريد وكلمة المرور
+# ===================================================================
+async def receive_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    email = update.message.text.strip()
+    if not email or "@" not in email:
+        await update.message.reply_text("❌ بريد غير صالح. أرسل بريداً صحيحاً (أو /cancel)")
+        return WAITING_EMAIL
+    context.user_data["temp_email"] = email
+    await update.message.reply_text("🔑 **أرسل كلمة المرور الآن:**")
+    return WAITING_PASSWORD
+
+async def receive_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    password = update.message.text.strip()
+    email = context.user_data.get("temp_email")
+    if not email:
+        await update.message.reply_text("❌ انتهت الجلسة، ابدأ من جديد بـ /start")
+        return ConversationHandler.END
+    update_user(user_id, email=email, password=password)
+    context.user_data.clear()
+    await update.message.reply_text(
+        "✅ **تم حفظ البريد وكلمة المرور بنجاح!**",
+        reply_markup=main_menu_keyboard()
+    )
+    return ConversationHandler.END
+
+# ===================================================================
+# 10. استقبال الرابط
 # ===================================================================
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -522,13 +574,18 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ لا يوجد project_id")
         return WAITING_LINK
 
+    user = get_user(user_id)
+    if not user or not user.get("email") or not user.get("password"):
+        await update.message.reply_text("❌ يرجى تعيين البريد وكلمة المرور أولاً.\nاستخدم زر 'تعيين البريد' أو /set_creds")
+        return WAITING_LINK
+
     context.user_data["lab_url"] = text
     context.user_data["project_id"] = project_id
 
     await update.message.reply_text("🔄 **جاري الدخول إلى الـ Lab وبدء التجهيز...**\n✔ تم التحقق من صلاحية الرابط، سيتم ربط الحساب وبدء عملية الإنشاء...")
 
     try:
-        token = await get_master_token(user_id, text, project_id)
+        token = await get_master_token(user_id, text, project_id, user["email"], user["password"])
         context.user_data["token"] = token
 
         regions = get_scan_cache(user_id, project_id)
@@ -557,12 +614,11 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_REGION
 
     except Exception as e:
-        log_failure(user_id, "INIT_FAIL", str(e))
         await update.message.reply_text(f"❌ فشل:\n{str(e)[:300]}")
         return ConversationHandler.END
 
 # ===================================================================
-# 10. معالج الأزرار الثانوية
+# 11. معالج الأزرار الثانوية
 # ===================================================================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -579,16 +635,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
 
-    # تعيين منطقة مفضلة (من القائمة)
+    # تعيين منطقة مفضلة
     if data == "pref_btn":
-        # نحصل على المنطقة المختارة حالياً (آخر منطقة تم اختيارها)
         pending = context.user_data.get("pending_region")
         if pending:
             set_preferred_region(user_id, pending)
             await query.edit_message_text(
                 f"⭐ **تم تعيين {KNOWN_REGIONS.get(pending, pending)} كمنطقة مفضلة!**"
             )
-            # نعود لعرض المناطق
             regions = context.user_data.get("regions", [])
             page = context.user_data.get("current_page", 0)
             preferred = get_preferred_region(user_id)
@@ -673,7 +727,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             increment_deploy_count(user_id)
             add_deploy_history(user_id, lab_url, service_url, vless, region, success=1)
 
-            # إذا لم تكن هناك منطقة مفضلة، نجعل هذه هي المفضلة
             if not get_preferred_region(user_id):
                 set_preferred_region(user_id, region)
 
@@ -689,7 +742,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except Exception as e:
             error_msg = str(e)[:300]
-            log_failure(user_id, "DEPLOY_FAIL", error_msg)
             add_deploy_history(user_id, lab_url, "", "", region, success=0, error_msg=error_msg)
             await query.message.reply_text(
                 f"❌ **فشل النشر:**\n`{error_msg}`\n\n"
@@ -703,36 +755,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return WAITING_REGION
 
 # ===================================================================
-# 11. إلغاء
+# 12. أوامر مباشرة
 # ===================================================================
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("❌ تم الإلغاء")
-    return ConversationHandler.END
-
-# ===================================================================
-# 12. التشغيل
-# ===================================================================
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(button_main_handler, pattern="^(deploy_btn|stats_btn|pref_info_btn|help_btn)$")
-        ],
-        states={
-            WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
-            WAITING_REGION: [CallbackQueryHandler(button_handler, pattern="^(select_|page_|rescan|pref_btn|cancel|noop)$")],
-            CONFIRM_DEPLOY: [CallbackQueryHandler(button_handler, pattern="^(confirm_|back)$")],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(conv)
-
-    logger.info("🚀 SHADOW LEGION v999 (Ultimate Ask Region) جاهز، بدء Polling...")
-    app.run_polling(drop_pending_updates=True)
-
-if __name__ == "__main__":
-    main()
+async def set_creds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        email = context.args[0]
+        password = " ".join(context.args[1:])
+        update_user(user_id, email=email, password=password)
+        await update.message.reply
