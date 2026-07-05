@@ -1,14 +1,19 @@
-# استخدام صورة Playwright الرسمية (جاهزة بكل التبعيات)
-FROM mcr.microsoft.com/playwright:python-1.40.0
+FROM python:3.10-slim
 
 WORKDIR /app
 
-# نسخ ملف المتطلبات وتثبيت حزم بايثون
+# تثبيت الحد الأدنى من التبعيات (لنستخدم apt.txt ولكن بمحتوى صحيح)
+COPY apt.txt /tmp/apt.txt
+RUN apt-get update && apt-get install -y $(cat /tmp/apt.txt) \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# نسخ كود البوت
+# تثبيت Chromium (بدون تشغيل install-deps)
+RUN playwright install chromium
+
 COPY bot.py .
 
-# تشغيل البوت
 CMD ["python", "bot.py"]
