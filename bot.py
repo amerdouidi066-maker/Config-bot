@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║   SHADOW LEGION v999 – ULTIMATE LONG PROFESSIONAL EDITION     ║
-║   الطول: 850+ سطر  │  جميع الميزات الاحترافية               ║
-║   Incognito  │  اختيار السيرفرات  │  إحصائيات  │  سجل تاريخي ║
+║   SHADOW LEGION v999 – ULTIMATE ASK REGION EDITION            ║
+║   الطول: 800+ سطر  │  أزرار متطورة  │  Incognito             ║
+║   يسأل عن المنطقة  │  ترقيم  │  تأكيد  │  إحصائيات           ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -19,7 +19,7 @@ import sqlite3
 import urllib.parse
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Tuple
 
 import requests
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
@@ -39,9 +39,9 @@ from telegram.ext import (
 # ===================================================================
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
-    raise ValueError("❌ TOKEN غير موجود. أضفه في Railway Variables.")
+    raise ValueError("❌ TOKEN غير موجود في البيئة")
 
-DB_PATH = "shadow_ultimate_long.db"
+DB_PATH = "shadow_ultimate_ask.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -49,7 +49,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (النسخة الطويلة الاحترافية) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (Ultimate Ask Region) بدأ التشغيل...")
 
 # حالات المحادثة
 WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY = range(3)
@@ -65,11 +65,10 @@ KNOWN_REGIONS = {
     "asia-east1": "🇹🇼 تايوان",
     "australia-southeast1": "🇦🇺 سيدني",
     "southamerica-east1": "🇧🇷 ساو باولو",
-    "northamerica-northeast1": "🇨🇦 مونتريال"
 }
 
 # ===================================================================
-# 2. قاعدة البيانات المتقدمة (6 جداول)
+# 2. قاعدة البيانات المتقدمة (7 جداول)
 # ===================================================================
 def init_ultimate_db():
     conn = sqlite3.connect(DB_PATH)
@@ -77,7 +76,6 @@ def init_ultimate_db():
     c.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
-            region TEXT DEFAULT 'us-central1',
             deploy_count INTEGER DEFAULT 0,
             status TEXT DEFAULT 'idle',
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -114,32 +112,37 @@ def init_ultimate_db():
         );
         CREATE TABLE IF NOT EXISTS user_preferences (
             user_id INTEGER PRIMARY KEY,
-            preferred_region TEXT,
-            auto_deploy INTEGER DEFAULT 0
+            preferred_region TEXT
+        );
+        CREATE TABLE IF NOT EXISTS failure_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            error_type TEXT,
+            error_detail TEXT,
+            logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
     conn.commit()
     conn.close()
-    logger.info("✅ قاعدة البيانات المتقدمة (6 جداول) جاهزة")
+    logger.info("✅ قاعدة البيانات المتقدمة (7 جداول) جاهزة")
 
 init_ultimate_db()
 
 # ===================================================================
-# 3. دوال قاعدة البيانات (مفصلة بالكامل)
+# 3. دوال قاعدة البيانات
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT user_id, region, deploy_count, status, last_activity FROM users WHERE user_id=?", (user_id,))
+    c.execute("SELECT user_id, deploy_count, status, last_activity FROM users WHERE user_id=?", (user_id,))
     row = c.fetchone()
     conn.close()
     if row:
         return {
             "user_id": row[0],
-            "region": row[1],
-            "deploy_count": row[2],
-            "status": row[3],
-            "last_activity": row[4]
+            "deploy_count": row[1],
+            "status": row[2],
+            "last_activity": row[3]
         }
     return None
 
@@ -213,8 +216,8 @@ def add_deploy_history(user_id: int, lab_url: str, service_url: str, vless: str,
 def log_failure(user_id: int, error_type: str, error_detail: str):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO deploy_history (user_id, error_msg, success) VALUES (?,?,0)",
-              (user_id, f"{error_type}: {error_detail[:200]}"))
+    c.execute("INSERT INTO failure_logs (user_id, error_type, error_detail) VALUES (?,?,?)",
+              (user_id, error_type, error_detail[:500]))
     conn.commit()
     conn.close()
 
@@ -241,22 +244,6 @@ def set_preferred_region(user_id: int, region: str):
     conn.commit()
     conn.close()
 
-def get_auto_deploy(user_id: int) -> bool:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT auto_deploy FROM user_preferences WHERE user_id=?", (user_id,))
-    row = c.fetchone()
-    conn.close()
-    return bool(row[0]) if row else False
-
-def set_auto_deploy(user_id: int, enabled: bool):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO user_preferences (user_id, auto_deploy) VALUES (?,?)",
-              (user_id, 1 if enabled else 0))
-    conn.commit()
-    conn.close()
-
 # ===================================================================
 # 4. دوال مساعدة
 # ===================================================================
@@ -272,7 +259,7 @@ def build_vless_link(service_url: str, seed: str = "shadow_v999") -> str:
     host = service_url.replace('https://', '').replace('http://', '')
     raw = hashlib.md5((seed + str(time.time()) + os.urandom(4).hex()).encode()).hexdigest()
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
-    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#UltimateTunnel"
+    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#AskTunnel"
 
 def test_token_validity(token: str, project_id: str) -> bool:
     if not token or len(token) < 40:
@@ -285,7 +272,7 @@ def test_token_validity(token: str, project_id: str) -> bool:
         return False
 
 # ===================================================================
-# 5. استخراج التوكن (Incognito + Async)
+# 5. استخراج التوكن (Incognito)
 # ===================================================================
 async def extract_token_from_incognito(link: str, project_id: str) -> str:
     async with async_playwright() as p:
@@ -299,38 +286,29 @@ async def extract_token_from_incognito(link: str, project_id: str) -> str:
             ]
         )
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 720},
-            locale="en-US",
-            ignore_https_errors=True,
+            locale="en-US"
         )
         page = await context.new_page()
         await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
         # فتح الرابط
-        await page.goto(link, timeout=60000)
-        await page.wait_for_timeout(5000)
+        await page.goto(link, timeout=60000, wait_until="networkidle")
+        await page.wait_for_timeout(3000)
 
-        # البحث عن Open Console
-        console_opened = False
+        # متابعة التوجيه
+        for i in range(5):
+            if "console.cloud.google.com" in page.url:
+                break
+            await page.wait_for_timeout(3000)
+
+        # انتظار تحميل الصفحة
         try:
-            console_btn = await page.query_selector("text=Open Console")
-            if console_btn:
-                await console_btn.click()
-                console_opened = True
-        except:
-            pass
-
-        if not console_opened:
-            console_url = f"https://console.cloud.google.com/run?project={project_id}&hl=en"
-            await page.goto(console_url, timeout=60000)
-            await page.wait_for_timeout(8000)
-        else:
-            pages = context.pages
-            if len(pages) > 1:
-                page = pages[-1]
-                await page.wait_for_load_state()
-            await page.wait_for_timeout(7000)
+            await page.wait_for_selector("body", timeout=30000)
+            await page.wait_for_timeout(5000)
+        except PlaywrightTimeoutError:
+            logger.warning("⚠️ انتهت مهلة تحميل الصفحة")
 
         # استخراج التوكن
         token = await page.evaluate("""
@@ -347,18 +325,26 @@ async def extract_token_from_incognito(link: str, project_id: str) -> str:
                         if (v && v.length > 40) return v;
                     }
                 }
+                let cookies = document.cookie.split(';');
+                for (let c of cookies) {
+                    let parts = c.trim().split('=');
+                    if (parts[0] && (parts[0].includes('token')||parts[0].includes('oauth'))) {
+                        if (parts[1] && parts[1].length > 40) return parts[1];
+                    }
+                }
                 return null;
             }
         """)
 
         await browser.close()
-        if not token or len(token) < 40:
-            raise Exception("لم أجد التوكن")
-        return token
+        if token and len(token) > 40:
+            return token
+        raise Exception("لم أجد التوكن بعد فتح الرابط في Incognito")
 
 async def get_master_token(user_id: int, link: str, project_id: str) -> str:
     cached = get_cached_token(user_id)
     if cached and test_token_validity(cached, project_id):
+        logger.info("♻️ استخدام التوكن المخبأ")
         return cached
     token = await extract_token_from_incognito(link, project_id)
     if token and test_token_validity(token, project_id):
@@ -378,13 +364,13 @@ def fetch_allowed_regions(project_id: str, token: str) -> List[str]:
             allowed = [loc["locationId"] for loc in data.get("locations", []) if loc.get("state") == "ENABLED"]
             if allowed:
                 return allowed
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"⚠️ فشل جلب المناطق: {e}")
     return ["us-central1", "us-east1", "europe-west1", "asia-southeast1"]
 
 def deploy_service(project_id: str, token: str, region: str) -> Tuple[str, str]:
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    service_name = f"app-{int(time.time())}"
+    service_name = f"my-app-{int(time.time())}"
     payload = {
         "apiVersion": "serving.knative.dev/v1",
         "kind": "Service",
@@ -418,7 +404,7 @@ def build_region_keyboard(regions: List[str], page: int = 0, preferred: str = No
     total_pages = (total + PER_PAGE - 1) // PER_PAGE
     start, end = page * PER_PAGE, min((page + 1) * PER_PAGE, total)
     keyboard = []
-    status_text = f"📋 الصفحة {page+1}/{total_pages} | {total} منطقة"
+    status_text = f"📋 الصفحة {page+1}/{total_pages} | إجمالي {total} منطقة"
     if preferred:
         status_text += f" | ⭐ مفضلة: {KNOWN_REGIONS.get(preferred, preferred)}"
     keyboard.append([InlineKeyboardButton(status_text, callback_data="noop")])
@@ -436,7 +422,8 @@ def build_region_keyboard(regions: List[str], page: int = 0, preferred: str = No
         keyboard.append(nav)
     keyboard.append([
         InlineKeyboardButton("🔄 إعادة فحص", callback_data="rescan"),
-        InlineKeyboardButton("⚡ نشر تلقائي", callback_data="auto_deploy")
+        InlineKeyboardButton("⭐ تعيين مفضلة", callback_data="pref_btn"),
+        InlineKeyboardButton("❌ إلغاء", callback_data="cancel")
     ])
     return InlineKeyboardMarkup(keyboard)
 
@@ -444,27 +431,26 @@ def build_confirm_keyboard(region: str) -> InlineKeyboardMarkup:
     display = KNOWN_REGIONS.get(region, region)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"✅ تأكيد النشر على {display}", callback_data=f"confirm_{region}")],
-        [InlineKeyboardButton("⭐ تعيين مفضلة", callback_data=f"set_pref_{region}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data="back")]
     ])
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚀 بدء النشر", callback_data="deploy_btn")],
-        [InlineKeyboardButton("📊 إحصائيات", callback_data="stats_btn")],
-        [InlineKeyboardButton("⭐ المنطقة المفضلة", callback_data="pref_btn")],
-        [InlineKeyboardButton("⚡ النشر التلقائي", callback_data="auto_btn")],
+        [InlineKeyboardButton("🚀 بدء النشر (أرسل الرابط)", callback_data="deploy_btn")],
+        [InlineKeyboardButton("📊 إحصائياتي", callback_data="stats_btn")],
+        [InlineKeyboardButton("⭐ المنطقة المفضلة", callback_data="pref_info_btn")],
         [InlineKeyboardButton("❓ مساعدة", callback_data="help_btn")]
     ])
 
 # ===================================================================
-# 8. معالجات البوت (الرئيسية)
+# 8. معالجات البوت
 # ===================================================================
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     update_user(user_id)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v999 – Professional**\nاختر أحد الخيارات:",
+        "🔥 **SHADOW LEGION v999 – Ask Region**\n"
+        "اختر أحد الخيارات أدناه:",
         reply_markup=main_menu_keyboard()
     )
 
@@ -496,39 +482,27 @@ async def button_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             msg += "📭 لا توجد إحصائيات بعد."
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard())
-        return
+        return ConversationHandler.END
 
-    elif data == "pref_btn":
+    elif data == "pref_info_btn":
         preferred = get_preferred_region(user_id)
         if preferred:
-            msg = f"⭐ منطقتك المفضلة: {KNOWN_REGIONS.get(preferred, preferred)}\nللتغيير، اختر منطقة جديدة من قائمة النشر."
+            msg = f"⭐ منطقتك المفضلة: {KNOWN_REGIONS.get(preferred, preferred)}"
         else:
-            msg = "⭐ لم تحدد منطقة مفضلة بعد.\nاختر منطقة من قائمة النشر واختر 'تعيين مفضلة'."
+            msg = "⭐ لم تحدد منطقة مفضلة بعد.\nاختر منطقة من القائمة واضغط 'تعيين مفضلة'."
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard())
-        return
-
-    elif data == "auto_btn":
-        current = get_auto_deploy(user_id)
-        new_state = not current
-        set_auto_deploy(user_id, new_state)
-        status = "مفعل" if new_state else "معطل"
-        await query.edit_message_text(
-            f"⚡ **النشر التلقائي:** {status}\n"
-            f"{'✅ سيتم النشر تلقائياً عند إرسال الرابط' if new_state else '❌ سيُطلب منك اختيار المنطقة'}",
-            reply_markup=main_menu_keyboard()
-        )
-        return
+        return ConversationHandler.END
 
     elif data == "help_btn":
         await query.edit_message_text(
             "❓ **المساعدة:**\n"
             "• أرسل رابط Qwiklabs لبدء النشر.\n"
             "• اختر المنطقة من الأزرار.\n"
-            "• استخدم النشر التلقائي لتجاوز الاختيار.\n"
-            "• يمكنك تعيين منطقة مفضلة لتظهر أولاً.",
+            "• يمكنك تعيين منطقة مفضلة لتظهر أولاً.\n"
+            "• استخدم /cancel لإلغاء العملية.",
             reply_markup=main_menu_keyboard()
         )
-        return
+        return ConversationHandler.END
 
     return ConversationHandler.END
 
@@ -567,35 +541,13 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         preferred = get_preferred_region(user_id)
         if preferred and preferred in regions:
-            context.user_data["default_region"] = preferred
-        else:
-            context.user_data["default_region"] = regions[0] if regions else "us-central1"
+            context.user_data["preferred"] = preferred
 
         region_list = "\n".join([f"  - {r}" for r in regions])
         await update.message.reply_text(
             f"📡 **جاري تحليل سياسات المشروع لاستخراج المناطق المسموح بها...**\n"
             f"✔ تم اكتشاف {len(regions)} منطقة مسموح بها:\n{region_list}"
         )
-
-        # النشر التلقائي
-        if get_auto_deploy(user_id):
-            default_region = context.user_data["default_region"]
-            await update.message.reply_text(f"⚡ **النشر التلقائي مفعل.** سيتم النشر على {KNOWN_REGIONS.get(default_region, default_region)}")
-            try:
-                service_url, vless = deploy_service(project_id, token, default_region)
-                increment_deploy_count(user_id)
-                add_deploy_history(user_id, text, service_url, vless, default_region, success=1)
-                result = (
-                    f"✅ **تم النشر التلقائي!**\n"
-                    f"🌍 المنطقة: {KNOWN_REGIONS.get(default_region, default_region)}\n"
-                    f"🌐 الرابط: {service_url}\n\n"
-                    f"🔗 VLESS:\n{vless}"
-                )
-                await update.message.reply_text(result)
-                context.user_data.clear()
-                return ConversationHandler.END
-            except Exception as e:
-                await update.message.reply_text(f"⚠️ فشل النشر التلقائي: {str(e)[:100]}\nسيتم عرض المناطق للاختيار.")
 
         keyboard = build_region_keyboard(regions, 0, preferred)
         await update.message.reply_text(
@@ -606,7 +558,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         log_failure(user_id, "INIT_FAIL", str(e))
-        await update.message.reply_text(f"❌ فشل:\n{str(e)[:200]}")
+        await update.message.reply_text(f"❌ فشل:\n{str(e)[:300]}")
         return ConversationHandler.END
 
 # ===================================================================
@@ -621,31 +573,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "noop":
         return
 
-    # النشر التلقائي السريع
-    if data == "auto_deploy":
-        default_region = context.user_data.get("default_region", "us-central1")
-        project_id = context.user_data.get("project_id")
-        token = context.user_data.get("token")
-        lab_url = context.user_data.get("lab_url")
-        if not token or not project_id:
-            await query.edit_message_text("❌ انتهت الجلسة")
-            return ConversationHandler.END
-        await query.edit_message_text(f"⚡ **جاري النشر التلقائي على {KNOWN_REGIONS.get(default_region, default_region)}...**")
-        try:
-            service_url, vless = deploy_service(project_id, token, default_region)
-            increment_deploy_count(user_id)
-            add_deploy_history(user_id, lab_url, service_url, vless, default_region, success=1)
-            result = (
-                f"✅ **تم النشر التلقائي!**\n"
-                f"🌍 المنطقة: {KNOWN_REGIONS.get(default_region, default_region)}\n"
-                f"🌐 الرابط: {service_url}\n\n"
-                f"🔗 VLESS:\n{vless}"
-            )
-            await query.message.reply_text(result)
-        except Exception as e:
-            await query.message.reply_text(f"❌ فشل النشر:\n{str(e)[:300]}")
+    # إلغاء
+    if data == "cancel":
+        await query.edit_message_text("❌ تم الإلغاء")
         context.user_data.clear()
         return ConversationHandler.END
+
+    # تعيين منطقة مفضلة (من القائمة)
+    if data == "pref_btn":
+        # نحصل على المنطقة المختارة حالياً (آخر منطقة تم اختيارها)
+        pending = context.user_data.get("pending_region")
+        if pending:
+            set_preferred_region(user_id, pending)
+            await query.edit_message_text(
+                f"⭐ **تم تعيين {KNOWN_REGIONS.get(pending, pending)} كمنطقة مفضلة!**"
+            )
+            # نعود لعرض المناطق
+            regions = context.user_data.get("regions", [])
+            page = context.user_data.get("current_page", 0)
+            preferred = get_preferred_region(user_id)
+            keyboard = build_region_keyboard(regions, page, preferred)
+            await query.message.reply_text("📡 اختر المنطقة:", reply_markup=keyboard)
+            return WAITING_REGION
+        else:
+            await query.edit_message_text("⚠️ اختر منطقة أولاً ثم اضغط 'تعيين مفضلة'.")
+            return WAITING_REGION
 
     # إعادة فحص
     if data == "rescan":
@@ -681,28 +633,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"📡 صفحة {page+1}:", reply_markup=keyboard)
         return WAITING_REGION
 
-    # اختيار منطقة
+    # اختيار منطقة → تأكيد
     if data.startswith("select_"):
         region = data.replace("select_", "")
         context.user_data["pending_region"] = region
         keyboard = build_confirm_keyboard(region)
         await query.edit_message_text(
-            f"⚠️ **تأكيد النشر**\nالمنطقة: {KNOWN_REGIONS.get(region, region)}",
+            f"⚠️ **تأكيد النشر**\n"
+            f"المنطقة: {KNOWN_REGIONS.get(region, region)}\n"
+            f"هل أنت متأكد من النشر عليها؟",
             reply_markup=keyboard
         )
         return CONFIRM_DEPLOY
 
-    # تعيين منطقة مفضلة
-    if data.startswith("set_pref_"):
-        region = data.replace("set_pref_", "")
-        set_preferred_region(user_id, region)
-        await query.edit_message_text(
-            f"⭐ **تم تعيين {KNOWN_REGIONS.get(region, region)} كمنطقة مفضلة!**",
-            reply_markup=main_menu_keyboard()
-        )
-        return ConversationHandler.END
-
-    # رجوع
+    # رجوع من التأكيد
     if data == "back":
         regions = context.user_data.get("regions", [])
         page = context.user_data.get("current_page", 0)
@@ -717,51 +661,77 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         project_id = context.user_data.get("project_id")
         token = context.user_data.get("token")
         lab_url = context.user_data.get("lab_url")
+
         if not token or not project_id:
             await query.edit_message_text("❌ انتهت الجلسة")
             return ConversationHandler.END
+
         await query.edit_message_text(f"🚀 **جاري النشر على {KNOWN_REGIONS.get(region, region)}...**")
+
         try:
             service_url, vless = deploy_service(project_id, token, region)
             increment_deploy_count(user_id)
             add_deploy_history(user_id, lab_url, service_url, vless, region, success=1)
+
+            # إذا لم تكن هناك منطقة مفضلة، نجعل هذه هي المفضلة
+            if not get_preferred_region(user_id):
+                set_preferred_region(user_id, region)
+
             result = (
                 f"✅ **تم النشر بنجاح!**\n"
-                f"🌍 المنطقة: {KNOWN_REGIONS.get(region, region)}\n"
-                f"🌐 الرابط: {service_url}\n\n"
-                f"🔗 VLESS:\n{vless}"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🌍 **المنطقة المستخدمة:** `{KNOWN_REGIONS.get(region, region)}`\n"
+                f"🌐 **رابط Cloud Run:**\n`{service_url}`\n\n"
+                f"🔗 **رابط VLESS:**\n`{vless}`\n\n"
+                f"📌 الرابط صالح لمدة ساعة أو حتى انتهاء المشروع."
             )
-            await query.message.reply_text(result)
+            await query.message.reply_text(result, reply_markup=main_menu_keyboard())
+
         except Exception as e:
             error_msg = str(e)[:300]
             log_failure(user_id, "DEPLOY_FAIL", error_msg)
             add_deploy_history(user_id, lab_url, "", "", region, success=0, error_msg=error_msg)
-            await query.message.reply_text(f"❌ فشل النشر:\n{error_msg}")
+            await query.message.reply_text(
+                f"❌ **فشل النشر:**\n`{error_msg}`\n\n"
+                f"💡 حاول اختيار منطقة أخرى أو أعد إرسال الرابط.",
+                reply_markup=main_menu_keyboard()
+            )
+
         context.user_data.clear()
         return ConversationHandler.END
 
     return WAITING_REGION
 
 # ===================================================================
-# 11. التشغيل الرئيسي
+# 11. إلغاء
+# ===================================================================
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("❌ تم الإلغاء")
+    return ConversationHandler.END
+
+# ===================================================================
+# 12. التشغيل
 # ===================================================================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(button_main_handler, pattern="^(deploy_btn|stats_btn|pref_btn|auto_btn|help_btn)$")],
+        entry_points=[
+            CallbackQueryHandler(button_main_handler, pattern="^(deploy_btn|stats_btn|pref_info_btn|help_btn)$")
+        ],
         states={
             WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
-            WAITING_REGION: [CallbackQueryHandler(button_handler, pattern="^(select_|page_|rescan|auto_deploy|noop)$")],
-            CONFIRM_DEPLOY: [CallbackQueryHandler(button_handler, pattern="^(confirm_|back|set_pref_)")],
+            WAITING_REGION: [CallbackQueryHandler(button_handler, pattern="^(select_|page_|rescan|pref_btn|cancel|noop)$")],
+            CONFIRM_DEPLOY: [CallbackQueryHandler(button_handler, pattern="^(confirm_|back)$")],
         },
-        fallbacks=[CommandHandler("cancel", lambda u,c: u.message.reply_text("❌ تم الإلغاء"))],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v999 (النسخة الطويلة الاحترافية) جاهز، بدء Polling...")
+    logger.info("🚀 SHADOW LEGION v999 (Ultimate Ask Region) جاهز، بدء Polling...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
