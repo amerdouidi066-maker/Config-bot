@@ -17,3 +17,13 @@ libatk-bridge2.0-0
 libgtk-3-0
 libdrm2
 libgbm1
+libxfixes3
+libxrender1
+libxext6
+libxshmfence1
+libgl1-mesa-glx
+libglib2.0-0
+libpango-1.0-0
+libcairo2
+libgdk-pixbuf2.0-0
+libxss1
