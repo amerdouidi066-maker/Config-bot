@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v999 – DEBUG LOGS EDITION
-يرسل سجلاً تفصيلياً لكل خطوة بعد الضغط على تأكيد.
+SHADOW LEGION v999 – NETWORK CAPTURE FINAL
+يحاكي البوت الآخر، يلتقط التوكن من طلبات الشبكة.
 """
 
 import os
@@ -38,7 +38,7 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN غير موجود في متغيرات البيئة")
 
-DB_PATH = "shadow_debug.db"
+DB_PATH = "shadow_network_final.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -46,7 +46,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (Debug Logs) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (Network Final) بدأ التشغيل...")
 
 # حالات المحادثة
 WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY = range(3)
@@ -233,9 +233,9 @@ def extract_project_id(link: str) -> Optional[str]:
 
 def build_vless_link(service_url: str) -> str:
     host = service_url.replace('https://', '').replace('http://', '')
-    raw = hashlib.md5(("debug" + str(time.time())).encode()).hexdigest()
+    raw = hashlib.md5(("network_final" + str(time.time())).encode()).hexdigest()
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
-    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#DebugTunnel"
+    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#NetworkFinalTunnel"
 
 def test_token_validity(token: str, project_id: str) -> bool:
     if not token or len(token) < 40:
@@ -248,16 +248,14 @@ def test_token_validity(token: str, project_id: str) -> bool:
         return False
 
 # ===================================================================
-# 5. استخراج التوكن مع سجل تفصيلي
+# 5. استخراج التوكن عن طريق التقاط طلبات الشبكة
 # ===================================================================
-async def extract_token_real_incognito(link: str, project_id: str) -> Tuple[Optional[str], bool, List[str]]:
-    """
-    يفتح الرابط في متصفح متخفي، ويسجل كل خطوة.
-    يعيد (token, expired_flag, steps_list)
-    """
+async def extract_token_from_network(link: str, project_id: str) -> Tuple[Optional[str], bool, List[str]]:
     steps = []
+    token = None
+
     try:
-        steps.append("🚀 فتح الرابط في متصفح متخفي (Incognito)...")
+        steps.append("🚀 فتح الرابط في متصفح متخفي...")
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
@@ -275,40 +273,56 @@ async def extract_token_real_incognito(link: str, project_id: str) -> Tuple[Opti
                 locale="en-US",
                 ignore_https_errors=True,
             )
+
             page = await context.new_page()
             await page.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
                 Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
             """)
 
+            # الاستماع لطلبات الشبكة
+            captured_token = None
+
+            def handle_request(request):
+                nonlocal captured_token
+                try:
+                    headers = request.headers
+                    auth_header = headers.get('authorization')
+                    if auth_header and auth_header.startswith('Bearer '):
+                        captured_token = auth_header.replace('Bearer ', '')
+                        steps.append(f"✅ تم التقاط التوكن من طلب: {request.url[:80]}...")
+                except:
+                    pass
+
+            page.on("request", handle_request)
+
             steps.append("⏳ فتح الرابط الأساسي...")
             await page.goto(link, timeout=60000, wait_until="networkidle")
             await page.wait_for_timeout(3000)
 
-            steps.append("🔍 البحث عن زر 'Open Console' أو رابط Console...")
+            steps.append("🔍 البحث عن زر 'Open Console'...")
             console_opened = False
             try:
                 open_console_btn = await page.query_selector("text=Open Console")
                 if open_console_btn:
-                    steps.append("✅ العثور على زر 'Open Console'، جاري النقر عليه...")
+                    steps.append("✅ العثور على زر 'Open Console'، جاري النقر...")
                     await open_console_btn.click()
                     console_opened = True
                 else:
                     console_link = await page.query_selector('a[href*="console.cloud.google.com"]')
                     if console_link:
-                        steps.append("✅ العثور على رابط Console، جاري النقر عليه...")
+                        steps.append("✅ العثور على رابط Console، جاري النقر...")
                         await console_link.click()
                         console_opened = True
             except Exception as e:
-                steps.append(f"⚠️ فشل النقر على Console (الاستثناء: {str(e)[:50]})")
+                steps.append(f"⚠️ فشل النقر على Console: {str(e)[:50]}")
 
             if not console_opened:
-                steps.append("⚠️ لم نجد زر Open Console، التوجه مباشرة إلى Cloud Run...")
+                steps.append("⚠️ لم نجد زر Console، التوجه مباشرة إلى Cloud Run...")
                 console_url = f"https://console.cloud.google.com/run?project={project_id}&hl=en"
                 await page.goto(console_url, timeout=60000, wait_until="networkidle")
                 await page.wait_for_timeout(5000)
             else:
-                # التعامل مع النوافذ الجديدة
                 pages = context.pages
                 if len(pages) > 1:
                     page = pages[-1]
@@ -317,63 +331,78 @@ async def extract_token_real_incognito(link: str, project_id: str) -> Tuple[Opti
                 await page.wait_for_timeout(5000)
 
             steps.append("🌐 انتظار التوجيه إلى Cloud Console...")
-            for attempt in range(10):
-                current_url = page.url
-                if "console.cloud.google.com" in current_url:
-                    steps.append(f"✅ تم التوجيه إلى Console (المحاولة {attempt+1})")
+            for attempt in range(15):
+                if "console.cloud.google.com" in page.url:
+                    steps.append(f"✅ تم التوجيه (المحاولة {attempt+1})")
                     break
                 await page.wait_for_timeout(3000)
             else:
-                steps.append(f"⚠️ لم يتم التوجيه إلى Console بعد 10 محاولات. الرابط الحالي: {page.url[:100]}...")
+                steps.append("⚠️ لم يتم التوجيه بعد 15 محاولة")
 
-            steps.append("⏳ انتظار تحميل واجهة Console...")
-            await page.wait_for_timeout(5000)
+            steps.append("⏳ انتظار تحميل الصفحة...")
+            await page.wait_for_timeout(10000)
 
-            steps.append("🔑 محاولة استخراج التوكن من localStorage و sessionStorage...")
-            token = await page.evaluate("""
-                () => {
-                    const keys = ['access_token', 'id_token', 'gapi_token', 'oauth_token', 'gc_token'];
-                    for (let k of keys) {
-                        let v = localStorage.getItem(k);
-                        if (v && v.length > 40) return v;
-                    }
-                    for (let i=0; i<sessionStorage.length; i++) {
-                        let k = sessionStorage.key(i);
-                        if (k && (k.includes('token')||k.includes('oauth'))) {
-                            let v = sessionStorage.getItem(k);
+            # إذا لم نلتقط التوكن، حاول من localStorage
+            if not captured_token:
+                steps.append("🔑 محاولة استخراج التوكن من localStorage...")
+                token = await page.evaluate("""
+                    () => {
+                        const keys = ['access_token', 'id_token', 'gapi_token', 'oauth_token', 'gc_token', 'token'];
+                        for (let k of keys) {
+                            let v = localStorage.getItem(k);
                             if (v && v.length > 40) return v;
                         }
+                        return null;
                     }
-                    return null;
-                }
-            """)
+                """)
+                if token:
+                    steps.append("✅ تم استخراج التوكن من localStorage!")
+                    captured_token = token
+
+            # إذا لم نجد، حاول sessionStorage
+            if not captured_token:
+                steps.append("🔑 محاولة استخراج التوكن من sessionStorage...")
+                token = await page.evaluate("""
+                    () => {
+                        for (let i=0; i<sessionStorage.length; i++) {
+                            let k = sessionStorage.key(i);
+                            if (k && (k.includes('token')||k.includes('oauth')||k.includes('access'))) {
+                                let v = sessionStorage.getItem(k);
+                                if (v && v.length > 40) return v;
+                            }
+                        }
+                        return null;
+                    }
+                """)
+                if token:
+                    steps.append("✅ تم استخراج التوكن من sessionStorage!")
+                    captured_token = token
 
             await browser.close()
 
-            if token and len(token) > 40:
-                steps.append(f"✅ تم استخراج التوكن بنجاح (الطول: {len(token)})")
-                return token, False, steps
+            if captured_token and len(captured_token) > 40:
+                steps.append(f"✅ تم استخراج التوكن بنجاح (الطول: {len(captured_token)})")
+                return captured_token, False, steps
             else:
-                steps.append("❌ لم أجد التوكن في localStorage أو sessionStorage!")
+                steps.append("❌ لم أجد التوكن في أي مكان!")
                 return None, True, steps
 
     except PlaywrightTimeoutError:
-        steps.append("⏰ انتهت مهلة تحميل الصفحة (Timeout)!")
+        steps.append("⏰ انتهت مهلة التحميل (Timeout)!")
         return None, True, steps
     except Exception as e:
         steps.append(f"❌ خطأ غير متوقع: {str(e)[:100]}")
         return None, True, steps
 
 # ===================================================================
-# 6. الحصول على التوكن مع السجل
+# 6. الحصول على التوكن (مع التخزين المؤقت)
 # ===================================================================
 async def get_master_token(user_id: int, link: str, project_id: str) -> Tuple[Optional[str], bool, List[str]]:
     cached_token, cached_project = get_cached_token(user_id)
     if cached_token and cached_project == project_id and test_token_validity(cached_token, project_id):
-        steps = ["♻️ استخدام التوكن المخبأ (صالح)"]
-        return cached_token, False, steps
+        return cached_token, False, ["♻️ استخدام التوكن المخبأ (صالح)"]
 
-    token, expired, steps = await extract_token_real_incognito(link, project_id)
+    token, expired, steps = await extract_token_from_network(link, project_id)
     if token and not expired and test_token_validity(token, project_id):
         save_cached_token(user_id, token, project_id)
         steps.append("✅ تم حفظ التوكن في المخبأ")
@@ -473,7 +502,56 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     ])
 
 # ===================================================================
-# 9. معالجات البوت
+# 9. الأوامر اليدوية
+# ===================================================================
+async def set_token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        token = context.args[0]
+        if len(token) < 40:
+            await update.message.reply_text("❌ التوكن قصير جداً.")
+            return
+        context.user_data["manual_token"] = token
+        await update.message.reply_text("✅ تم حفظ التوكن يدوياً!")
+    except IndexError:
+        await update.message.reply_text("❌ /set_token <التوكن>")
+
+async def set_project_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        project_id = context.args[0]
+        context.user_data["project_id"] = project_id
+        await update.message.reply_text(f"✅ تم حفظ project_id: `{project_id}`")
+    except IndexError:
+        await update.message.reply_text("❌ /set_project <project_id>")
+
+async def deploy_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    token = context.user_data.get("manual_token")
+    project_id = context.user_data.get("project_id")
+    if not token or not project_id:
+        await update.message.reply_text("❌ يرجى تعيين التوكن و project_id أولاً.")
+        return
+    if not test_token_validity(token, project_id):
+        await update.message.reply_text("❌ التوكن غير صالح.")
+        return
+    try:
+        regions = fetch_allowed_regions(project_id, token)
+        save_scan_cache(user_id, project_id, regions)
+        context.user_data["regions"] = regions
+        context.user_data["token"] = token
+        context.user_data["current_page"] = 0
+        preferred = get_preferred_region(user_id)
+        if preferred and preferred in regions:
+            context.user_data["preferred"] = preferred
+        keyboard = build_region_keyboard(regions, 0, preferred)
+        await update.message.reply_text("🌍 اختر منطقة النشر:", reply_markup=keyboard)
+        return WAITING_REGION
+    except Exception as e:
+        await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
+
+# ===================================================================
+# 10. معالجات القائمة الرئيسية
 # ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -482,7 +560,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"مرحباً بك في بوت تشغيل الخدمات السحابية! 😊\n\n"
         f"نوع اشتراكك الحالي: **عادي (استخدام شخصي)**\n\n"
-        "استخدم الأزرار أدناه للاستفادة من ميزات البوت.",
+        "استخدم الأزرار أدناه للاستفادة من ميزات البوت.\n"
+        "أو استخدم الأوامر المباشرة:\n"
+        "/set_token <التوكن>\n"
+        "/set_project <project_id>\n"
+        "/deploy",
         reply_markup=main_menu_keyboard()
     )
 
@@ -493,21 +575,13 @@ async def button_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = query.from_user.id
 
     if data == "quick_deploy":
-        await query.edit_message_text(
-            "🔗 **يرجى إرسال رابط Google Cloud Console الخاص بك:**\n"
-            "سيقوم البوت بفتح الرابط في متصفح متخفي، وسيرسل لك سجلاً مفصلاً بكل خطوة بعد الضغط على تأكيد."
-        )
+        await query.edit_message_text("🔗 أرسل رابط Google Cloud Console الخاص بك:")
         return WAITING_LINK
-
     elif data == "subscription_status":
         user = get_user(user_id)
         deploy_count = user["deploy_count"] if user else 0
-        await query.edit_message_text(
-            f"📊 **حالة اشتراكك:**\n• النوع: عادي\n• عدد النشر: {deploy_count}\n• الحالة: نشط",
-            reply_markup=main_menu_keyboard()
-        )
+        await query.edit_message_text(f"📊 حالة اشتراكك:\n• النوع: عادي\n• عدد النشر: {deploy_count}", reply_markup=main_menu_keyboard())
         return
-
     elif data == "my_history":
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -517,20 +591,20 @@ async def button_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not rows:
             await query.edit_message_text("📭 لا توجد عمليات نشر سابقة.", reply_markup=main_menu_keyboard())
             return
-        msg = "📜 **آخر 5 عمليات نشر:**\n"
+        msg = "📜 آخر 5 عمليات نشر:\n"
         for i, row in enumerate(rows, 1):
             icon = "✅" if row[3] == 1 else "❌"
-            msg += f"{i}. {icon} **{row[0]}**\n   📅 {row[2][:16]}\n"
+            msg += f"{i}. {icon} {row[0]}\n   📅 {row[2][:16]}\n"
         await query.edit_message_text(msg, reply_markup=main_menu_keyboard())
         return
-
     elif data == "help_menu":
         await query.edit_message_text(
-            "❓ **المساعدة:**\n• اضغط 'تشغيل خدمة سريعة' لإرسال الرابط.\n• اختر المنطقة، ثم اضغط تأكيد.\n• سيرسل البوت سجلاً تفصيلياً لكل خطوة لمساعدتنا في معرفة مكان الفشل.",
+            "❓ المساعدة:\n"
+            "• أرسل الرابط (استخراج تلقائي).\n"
+            "• أو استخدم /set_token و /set_project و /deploy يدوياً.",
             reply_markup=main_menu_keyboard()
         )
         return
-
     return ConversationHandler.END
 
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -543,58 +617,50 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not project_id:
         await update.message.reply_text("❌ لا يوجد project_id.")
         return WAITING_LINK
-
     context.user_data["lab_url"] = text
     context.user_data["project_id"] = project_id
-
     regions = ["us-central1", "us-east1", "europe-west1", "asia-southeast1"]
     context.user_data["regions"] = regions
     context.user_data["current_page"] = 0
-
     preferred = get_preferred_region(user_id)
     if preferred and preferred in regions:
         context.user_data["preferred"] = preferred
-
     await update.message.reply_text(
-        "🌍 **اختر منطقة النشر (Region) المطلوبة:**",
+        "🌍 اختر منطقة النشر (Region) المطلوبة:",
         reply_markup=build_region_keyboard(regions, 0, preferred)
     )
     return WAITING_REGION
 
 # ===================================================================
-# 10. معالج الأزرار الثانوية
+# 11. معالج الأزرار الثانوية
 # ===================================================================
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-
-    logger.info(f"📍 استلام callback: {data} من المستخدم {user_id}")
+    logger.info(f"📍 استلام callback: {data}")
 
     if data == "noop":
         return
-
     if data == "cancel":
         await query.edit_message_text("❌ تم الإلغاء", reply_markup=main_menu_keyboard())
         context.user_data.clear()
         return ConversationHandler.END
-
     if data == "back_to_regions":
         regions = context.user_data.get("regions", [])
         page = context.user_data.get("current_page", 0)
         preferred = get_preferred_region(user_id)
         keyboard = build_region_keyboard(regions, page, preferred)
-        await query.edit_message_text("🌍 **اختر منطقة النشر:**", reply_markup=keyboard)
+        await query.edit_message_text("🌍 اختر منطقة النشر:", reply_markup=keyboard)
         return WAITING_REGION
-
     if data == "rescan":
         project_id = context.user_data.get("project_id")
         await query.edit_message_text("🔄 جاري إعادة فحص المناطق...")
         try:
             token, expired, _ = await get_master_token(user_id, context.user_data.get("lab_url"), project_id)
             if expired or not token:
-                await query.edit_message_text("⚠️ **رابط منتهي الصلاحية أو غير صالح!**")
+                await query.edit_message_text("⚠️ رابط منتهي أو غير صالح!")
                 return ConversationHandler.END
             regions = fetch_allowed_regions(project_id, token)
             save_scan_cache(user_id, project_id, regions)
@@ -607,7 +673,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(f"❌ فشل إعادة الفحص: {str(e)[:150]}")
             return WAITING_REGION
-
     if data == "stats_regions":
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -617,17 +682,16 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not rows:
             await query.edit_message_text("📊 لا توجد إحصائيات للمناطق بعد.")
             return WAITING_REGION
-        msg = "📊 **إحصائيات المناطق:**\n"
+        msg = "📊 إحصائيات المناطق:\n"
         for r in rows:
             msg += f"• {KNOWN_REGIONS.get(r[0], r[0])}: ✅ {r[1]} | ❌ {r[2]}\n"
         await query.edit_message_text(msg)
         return WAITING_REGION
-
     if data == "set_pref":
         pending = context.user_data.get("pending_region")
         if pending:
             set_preferred_region(user_id, pending)
-            await query.edit_message_text(f"⭐ **تم تعيين {KNOWN_REGIONS.get(pending, pending)} كمنطقة مفضلة!**")
+            await query.edit_message_text(f"⭐ تم تعيين {KNOWN_REGIONS.get(pending, pending)} كمنطقة مفضلة!")
             regions = context.user_data.get("regions", [])
             page = context.user_data.get("current_page", 0)
             preferred = get_preferred_region(user_id)
@@ -637,7 +701,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("⚠️ اختر منطقة أولاً ثم اضغط 'تعيين مفضلة'.")
             return WAITING_REGION
-
     if data.startswith("page_"):
         page = int(data.replace("page_", ""))
         regions = context.user_data.get("regions", [])
@@ -649,7 +712,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = build_region_keyboard(regions, page, preferred)
         await query.edit_message_text(f"📡 صفحة {page+1}:", reply_markup=keyboard)
         return WAITING_REGION
-
     if data.startswith("select_"):
         region = data.replace("select_", "")
         context.user_data["pending_region"] = region
@@ -657,37 +719,33 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link_preview = link[:80] + "..." if len(link) > 80 else link
         keyboard = confirm_keyboard(region, link_preview)
         await query.edit_message_text(
-            f"⚠️ **تأكيد عملية النشر المباشر (Cloud Run)**\n\n"
-            f"🔗 **رابط الكونسول:**\n{link_preview}\n\n"
-            f"🆔 **Project ID:** `{context.user_data.get('project_id')}`\n"
-            f"🌍 **المنطقة:** `{region}`\n"
-            f"نوع الاستخدام: استخدام شخصي\n\n"
-            f"اضغط على **تأكيد** لإرسال طلب النشر.\n"
-            f"سيتم فتح الرابط في متصفح متخفي، وسأرسل لك سجلاً بكل خطوة.",
+            f"⚠️ تأكيد عملية النشر المباشر (Cloud Run)\n\n"
+            f"🔗 الرابط:\n{link_preview}\n\n"
+            f"🆔 Project ID: `{context.user_data.get('project_id')}`\n"
+            f"🌍 المنطقة: `{region}`\n\n"
+            f"اضغط على تأكيد لإرسال طلب النشر.",
             reply_markup=keyboard
         )
         return CONFIRM_DEPLOY
-
     await query.edit_message_text(f"📩 ضغطة غير متوقعة: `{data}`")
     return WAITING_REGION
 
 # ===================================================================
-# 11. تأكيد النشر (مع إرسال السجل التفصيلي)
+# 12. تأكيد النشر
 # ===================================================================
 async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-
-    logger.info(f"✅ استلام confirm: {data} من المستخدم {user_id}")
+    logger.info(f"✅ استلام confirm: {data}")
 
     if data == "back_to_regions":
         regions = context.user_data.get("regions", [])
         page = context.user_data.get("current_page", 0)
         preferred = get_preferred_region(user_id)
         keyboard = build_region_keyboard(regions, page, preferred)
-        await query.edit_message_text("🌍 **اختر منطقة النشر:**", reply_markup=keyboard)
+        await query.edit_message_text("🌍 اختر منطقة النشر:", reply_markup=keyboard)
         return WAITING_REGION
 
     if data.startswith("confirm_"):
@@ -695,28 +753,27 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lab_url = context.user_data.get("lab_url")
         project_id = context.user_data.get("project_id")
 
-        # إرسال رسالة بدء العملية
-        await query.edit_message_text("⏳ **جاري تنفيذ عملية الاستخراج والنشر...**\nسأرسل لك السجل التفصيلي فوراً.")
+        await query.edit_message_text("🌐 جاري فتح الرابط والتقاط التوكن من الشبكة...")
 
-        # استخراج التوكن مع السجل
         token, expired, steps = await get_master_token(user_id, lab_url, project_id)
 
-        # إرسال كل خطوة للمستخدم
         for step in steps:
             await query.message.reply_text(f"📌 {step}")
-            await asyncio.sleep(0.3)  # تأثير تتابعي
+            await asyncio.sleep(0.3)
 
         if expired or not token:
             await query.message.reply_text(
-                "❌ **فشل استخراج التوكن أو الرابط منتهي!**\n"
-                "تحقق من السجل أعلاه لمعرفة أين حدث الفشل، ثم حاول مرة أخرى برابط جديد."
+                "❌ فشل استخراج التوكن!\n"
+                "استخدم الأوامر اليدوية:\n"
+                "/set_token <التوكن>\n"
+                "/set_project <project_id>\n"
+                "/deploy"
             )
             add_deploy_history(user_id, lab_url, "", "", region, success=0, error_msg="فشل استخراج التوكن")
             context.user_data.clear()
             return ConversationHandler.END
 
-        # إذا كان التوكن صالحاً، نواصل النشر
-        await query.message.reply_text(f"✅ **تم استخراج التوكن بنجاح!** جاري النشر الآن...")
+        await query.message.reply_text(f"✅ تم استخراج التوكن! جاري النشر...")
 
         try:
             service_url, vless = deploy_to_cloud_run(project_id, token, region)
@@ -725,11 +782,11 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             add_deploy_history(user_id, lab_url, service_url, vless, region, success=1)
 
             result = (
-                f"🎉 **تم النشر بنجاح!**\n"
+                f"🎉 تم النشر بنجاح!\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🌍 **المنطقة:** `{region}`\n"
-                f"🌐 **رابط Cloud Run:**\n`{service_url}`\n\n"
-                f"🔗 **رابط VLESS:**\n`{vless}`\n\n"
+                f"🌍 المنطقة: `{region}`\n"
+                f"🌐 رابط Cloud Run:\n`{service_url}`\n\n"
+                f"🔗 رابط VLESS:\n`{vless}`\n\n"
                 f"📌 الرابط صالح لمدة ساعة."
             )
             await query.message.reply_text(result)
@@ -737,7 +794,7 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             error_msg = str(e)[:300]
             add_deploy_history(user_id, lab_url, "", "", region, success=0, error_msg=error_msg)
-            await query.message.reply_text(f"❌ **فشل النشر:**\n`{error_msg}`")
+            await query.message.reply_text(f"❌ فشل النشر:\n`{error_msg}`")
 
         context.user_data.clear()
         return ConversationHandler.END
@@ -746,7 +803,7 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CONFIRM_DEPLOY
 
 # ===================================================================
-# 12. إلغاء
+# 13. إلغاء
 # ===================================================================
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -754,7 +811,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ===================================================================
-# 13. التشغيل الرئيسي
+# 14. التشغيل الرئيسي
 # ===================================================================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -776,9 +833,12 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("set_token", set_token_command))
+    app.add_handler(CommandHandler("set_project", set_project_command))
+    app.add_handler(CommandHandler("deploy", deploy_manual))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v999 (Debug Logs) جاهز، بدء Polling...")
+    logger.info("🚀 SHADOW LEGION v999 (Network Final) جاهز، بدء Polling...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
