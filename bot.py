@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-╔══════════════════════════════════════════════════════════════════╗
-║   SHADOW LEGION v999 – ULTIMATE PROFESSIONAL BOT              ║
-║   الطول: 900+ سطر  │  أزرار متطورة بالكامل                  ║
-║   التحقق من صلاحية الرابط في آخر خطوة  │  نشر مباشر         ║
-║   ترقيم الصفحات  │  إعادة فحص  │  إحصائيات  │  تفضيلات      ║
-╚══════════════════════════════════════════════════════════════════╝
+SHADOW LEGION v999 – ULTIMATE PROFESSIONAL FINAL
+أزرار متطورة، تحقق من صلاحية الرابط في آخر خطوة، نشر مباشر.
 """
 
 import os
@@ -19,9 +15,6 @@ import logging
 import sqlite3
 import urllib.parse
 import asyncio
-import threading
-import queue
-import random
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Tuple
 
@@ -45,7 +38,7 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN غير موجود في متغيرات البيئة")
 
-DB_PATH = "shadow_ultimate_pro.db"
+DB_PATH = "shadow_pro_final.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -53,7 +46,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (Ultimate Pro Bot) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (Professional Final) بدأ التشغيل...")
 
 # حالات المحادثة
 WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY = range(3)
@@ -139,7 +132,7 @@ def init_db():
 init_db()
 
 # ===================================================================
-# 3. دوال قاعدة البيانات (مفصلة)
+# 3. دوال قاعدة البيانات
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -606,6 +599,9 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
 
+    # سجل لمعرفة أي زر تم الضغط عليه (لمساعدة التصحيح)
+    logger.info(f"📍 استلام callback: {data} من المستخدم {user_id}")
+
     if data == "noop":
         return
 
@@ -622,10 +618,9 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🌍 **اختر منطقة النشر:**", reply_markup=keyboard)
         return WAITING_REGION
 
-    # إعادة فحص المناطق (هنا نستخدم التوكن إن وجد، وإلا نعرض الافتراضي)
+    # إعادة فحص المناطق
     if data == "rescan":
         project_id = context.user_data.get("project_id")
-        # نحاول استخراج التوكن فقط لإعادة الفحص (إذا كان موجوداً)
         token = extract_token_from_link(context.user_data.get("lab_url", ""))
         if token and project_id and test_token_validity(token, project_id):
             try:
@@ -641,7 +636,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"❌ فشل إعادة الفحص: {str(e)[:150]}")
                 return WAITING_REGION
         else:
-            # إذا لم يكن هناك توكن، نعرض المناطق الافتراضية
             regions = ["us-central1", "us-east1", "europe-west1", "asia-southeast1"]
             context.user_data["regions"] = regions
             context.user_data["current_page"] = 0
@@ -704,18 +698,23 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link = context.user_data.get("lab_url", "")
         link_preview = link[:80] + "..." if len(link) > 80 else link
         keyboard = confirm_keyboard(region, link_preview)
-        await query.edit_message_text(
-            f"⚠️ **تأكيد عملية النشر المباشر (Cloud Run)**\n\n"
-            f"🔗 **رابط الكونسول:**\n{link_preview}\n\n"
-            f"🆔 **Project ID:** `{context.user_data.get('project_id')}`\n"
-            f"🔑 **Token:** `{extract_token_from_link(link)[:20] if extract_token_from_link(link) else 'غير موجود'}...`\n\n"
-            f"🌍 **المنطقة:** `{region}`\n"
-            f"نوع الاستخدام: استخدام شخصي\n\n"
-            f"اضغط على **تأكيد** لإرسال طلب النشر.\n"
-            f"سيتم التحقق من صلاحية الرابط الآن.",
-            reply_markup=keyboard
-        )
-        return CONFIRM_DEPLOY
+        try:
+            await query.edit_message_text(
+                f"⚠️ **تأكيد عملية النشر المباشر (Cloud Run)**\n\n"
+                f"🔗 **رابط الكونسول:**\n{link_preview}\n\n"
+                f"🆔 **Project ID:** `{context.user_data.get('project_id')}`\n"
+                f"🔑 **Token:** `{extract_token_from_link(link)[:20] if extract_token_from_link(link) else 'غير موجود'}...`\n\n"
+                f"🌍 **المنطقة:** `{region}`\n"
+                f"نوع الاستخدام: استخدام شخصي\n\n"
+                f"اضغط على **تأكيد** لإرسال طلب النشر.\n"
+                f"سيتم التحقق من صلاحية الرابط الآن.",
+                reply_markup=keyboard
+            )
+            return CONFIRM_DEPLOY
+        except Exception as e:
+            logger.error(f"❌ خطأ في عرض شاشة التأكيد: {e}")
+            await query.edit_message_text(f"❌ حدث خطأ أثناء التحضير للتأكيد: {str(e)[:100]}")
+            return WAITING_REGION
 
     return WAITING_REGION
 
@@ -818,7 +817,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v999 (Ultimate Pro Bot) جاهز، بدء Polling...")
+    logger.info("🚀 SHADOW LEGION v999 (Professional Final) جاهز، بدء Polling...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
