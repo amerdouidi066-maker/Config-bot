@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v999 – ULTIMATE PROFESSIONAL FINAL
+SHADOW LEGION v999 – ULTIMATE PROFESSIONAL FIXED
 أزرار متطورة، تحقق من صلاحية الرابط في آخر خطوة، نشر مباشر.
+مع تصحيح عدم استجابة زر المنطقة.
 """
 
 import os
@@ -38,7 +39,7 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN غير موجود في متغيرات البيئة")
 
-DB_PATH = "shadow_pro_final.db"
+DB_PATH = "shadow_pro_fixed.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -46,7 +47,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (Professional Final) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (Professional Fixed) بدأ التشغيل...")
 
 # حالات المحادثة
 WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY = range(3)
@@ -132,7 +133,7 @@ def init_db():
 init_db()
 
 # ===================================================================
-# 3. دوال قاعدة البيانات
+# 3. دوال قاعدة البيانات (مفصلة)
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -591,7 +592,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return WAITING_REGION
 
 # ===================================================================
-# 10. معالج الأزرار الثانوية (التصفح، الإحصائيات، التفضيلات، إعادة الفحص)
+# 10. معالج الأزرار الثانوية (مع تصحيح عدم استجابة المنطقة)
 # ===================================================================
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -601,6 +602,8 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # سجل لمعرفة أي زر تم الضغط عليه (لمساعدة التصحيح)
     logger.info(f"📍 استلام callback: {data} من المستخدم {user_id}")
+
+    # ===== معالجة الأزرار المعروفة =====
 
     if data == "noop":
         return
@@ -618,7 +621,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🌍 **اختر منطقة النشر:**", reply_markup=keyboard)
         return WAITING_REGION
 
-    # إعادة فحص المناطق
     if data == "rescan":
         project_id = context.user_data.get("project_id")
         token = extract_token_from_link(context.user_data.get("lab_url", ""))
@@ -644,7 +646,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("📡 تم إعادة الفحص (قائمة افتراضية)", reply_markup=keyboard)
             return WAITING_REGION
 
-    # إحصائيات المناطق
     if data == "stats_regions":
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -660,7 +661,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(msg)
         return WAITING_REGION
 
-    # تعيين منطقة مفضلة
     if data == "set_pref":
         pending = context.user_data.get("pending_region")
         if pending:
@@ -678,7 +678,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("⚠️ اختر منطقة أولاً ثم اضغط 'تعيين مفضلة'.")
             return WAITING_REGION
 
-    # تغيير الصفحة
     if data.startswith("page_"):
         page = int(data.replace("page_", ""))
         regions = context.user_data.get("regions", [])
@@ -691,7 +690,7 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"📡 صفحة {page+1}:", reply_markup=keyboard)
         return WAITING_REGION
 
-    # اختيار منطقة → تأكيد
+    # ===== معالج اختيار المنطقة (الجزء المهم) =====
     if data.startswith("select_"):
         region = data.replace("select_", "")
         context.user_data["pending_region"] = region
@@ -716,6 +715,8 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ حدث خطأ أثناء التحضير للتأكيد: {str(e)[:100]}")
             return WAITING_REGION
 
+    # ===== أي ضغطة أخرى غير معالجة =====
+    await query.edit_message_text(f"📩 تم استلام ضغطة غير متوقعة: `{data}`\nيرجى المحاولة مرة أخرى.")
     return WAITING_REGION
 
 # ===================================================================
@@ -808,7 +809,9 @@ def main():
         ],
         states={
             WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
-            WAITING_REGION: [CallbackQueryHandler(region_callback, pattern="^(select_|page_|rescan|set_pref|stats_regions|cancel|noop|back_to_regions)$")],
+            WAITING_REGION: [
+                CallbackQueryHandler(region_callback, pattern="^(select_|page_|rescan|set_pref|stats_regions|cancel|noop|back_to_regions|.*)$")
+            ],
             CONFIRM_DEPLOY: [CallbackQueryHandler(confirm_callback, pattern="^(confirm_|back_to_regions)$")],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
@@ -817,7 +820,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v999 (Professional Final) جاهز، بدء Polling...")
+    logger.info("🚀 SHADOW LEGION v999 (Professional Fixed) جاهز، بدء Polling...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
