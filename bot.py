@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v999 – NETWORK CAPTURE FINAL
-يحاكي البوت الآخر، يلتقط التوكن من طلبات الشبكة.
+SHADOW LEGION v999 – NETWORK CAPTURE FINAL (يعمل مثل البوت الآخر)
+يلتقط التوكن من طلبات الشبكة مباشرة.
 """
 
 import os
@@ -38,7 +38,7 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN غير موجود في متغيرات البيئة")
 
-DB_PATH = "shadow_network_final.db"
+DB_PATH = "shadow_network_ultimate.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -46,9 +46,8 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (Network Final) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (Network Ultimate) بدأ التشغيل...")
 
-# حالات المحادثة
 WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY = range(3)
 
 KNOWN_REGIONS = {
@@ -65,7 +64,7 @@ KNOWN_REGIONS = {
 }
 
 # ===================================================================
-# 2. قاعدة البيانات
+# 2. قاعدة البيانات (نفسها)
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -119,7 +118,7 @@ def init_db():
 init_db()
 
 # ===================================================================
-# 3. دوال قاعدة البيانات
+# 3. دوال قاعدة البيانات (مختصرة)
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -233,9 +232,9 @@ def extract_project_id(link: str) -> Optional[str]:
 
 def build_vless_link(service_url: str) -> str:
     host = service_url.replace('https://', '').replace('http://', '')
-    raw = hashlib.md5(("network_final" + str(time.time())).encode()).hexdigest()
+    raw = hashlib.md5(("network_ultimate" + str(time.time())).encode()).hexdigest()
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
-    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#NetworkFinalTunnel"
+    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#NetworkUltimateTunnel"
 
 def test_token_validity(token: str, project_id: str) -> bool:
     if not token or len(token) < 40:
@@ -248,7 +247,7 @@ def test_token_validity(token: str, project_id: str) -> bool:
         return False
 
 # ===================================================================
-# 5. استخراج التوكن عن طريق التقاط طلبات الشبكة
+# 5. استخراج التوكن من طلبات الشبكة (الطريقة الصحيحة)
 # ===================================================================
 async def extract_token_from_network(link: str, project_id: str) -> Tuple[Optional[str], bool, List[str]]:
     steps = []
@@ -280,7 +279,7 @@ async def extract_token_from_network(link: str, project_id: str) -> Tuple[Option
                 Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
             """)
 
-            # الاستماع لطلبات الشبكة
+            # متغير لالتقاط التوكن من الطلبات
             captured_token = None
 
             def handle_request(request):
@@ -294,6 +293,7 @@ async def extract_token_from_network(link: str, project_id: str) -> Tuple[Option
                 except:
                     pass
 
+            # الاستماع للطلبات
             page.on("request", handle_request)
 
             steps.append("⏳ فتح الرابط الأساسي...")
@@ -502,7 +502,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     ])
 
 # ===================================================================
-# 9. الأوامر اليدوية
+# 9. الأوامر اليدوية (كحل احتياطي)
 # ===================================================================
 async def set_token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -601,7 +601,7 @@ async def button_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text(
             "❓ المساعدة:\n"
             "• أرسل الرابط (استخراج تلقائي).\n"
-            "• أو استخدم /set_token و /set_project و /deploy يدوياً.",
+            "• إذا فشل، استخدم الأوامر اليدوية.",
             reply_markup=main_menu_keyboard()
         )
         return
@@ -731,7 +731,7 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return WAITING_REGION
 
 # ===================================================================
-# 12. تأكيد النشر
+# 12. تأكيد النشر (مع التقاط الشبكة)
 # ===================================================================
 async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -838,7 +838,7 @@ def main():
     app.add_handler(CommandHandler("deploy", deploy_manual))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v999 (Network Final) جاهز، بدء Polling...")
+    logger.info("🚀 SHADOW LEGION v999 (Network Ultimate) جاهز، بدء Polling...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
