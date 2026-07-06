@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v999 – ULTIMATE PROFESSIONAL FINAL (CONFIRM FIXED)
-أزرار متطورة، تحقق من صلاحية الرابط في آخر خطوة، نشر مباشر.
-مع تصحيح زر التأكيد.
+SHADOW LEGION v999 – ULTIMATE PROFESSIONAL (FAST VERIFICATION)
+أزرار متطورة، تحقق سريع من صلاحية الرابط عبر API فقط، نشر مباشر.
 """
 
 import os
@@ -20,7 +19,6 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Tuple
 
 import requests
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -39,7 +37,7 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN غير موجود في متغيرات البيئة")
 
-DB_PATH = "shadow_pro_final_confirm.db"
+DB_PATH = "shadow_fast_pro.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -47,7 +45,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (Confirm Fixed) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (Fast Professional) بدأ التشغيل...")
 
 # حالات المحادثة
 WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY = range(3)
@@ -133,7 +131,7 @@ def init_db():
 init_db()
 
 # ===================================================================
-# 3. دوال قاعدة البيانات (مختصرة للمساحة)
+# 3. دوال قاعدة البيانات (مفصلة)
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -209,6 +207,7 @@ def add_deploy_history(user_id: int, lab_url: str, service_url: str, vless: str,
         c.execute("INSERT INTO region_stats (region_code, success_count) VALUES (?,1) ON CONFLICT(region_code) DO UPDATE SET success_count = success_count + 1, last_used = CURRENT_TIMESTAMP", (region,))
     else:
         c.execute("INSERT INTO region_stats (region_code, fail_count) VALUES (?,1) ON CONFLICT(region_code) DO UPDATE SET fail_count = fail_count + 1", (region,))
+    # تحديث التحليلات اليومية
     c.execute("INSERT INTO analytics (date, total_deploys, successful, failed) VALUES (CURRENT_DATE, 1, ?, ?) ON CONFLICT(date) DO UPDATE SET total_deploys = total_deploys + 1, successful = successful + ?, failed = failed + ?",
               (1 if success else 0, 1 if success else 0, 1 if not success else 0))
     conn.commit()
@@ -263,95 +262,40 @@ def extract_token_from_link(link: str) -> Optional[str]:
         return m.group(1)
     return None
 
-def build_vless_link(service_url: str, seed: str = "shadow_v999") -> str:
+def build_vless_link(service_url: str) -> str:
     host = service_url.replace('https://', '').replace('http://', '')
-    raw = hashlib.md5((seed + str(time.time()) + os.urandom(4).hex()).encode()).hexdigest()
+    raw = hashlib.md5(("fast_pro" + str(time.time())).encode()).hexdigest()
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
-    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#ProUltimateTunnel"
+    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#FastProTunnel"
 
 def test_token_validity(token: str, project_id: str) -> bool:
+    """اختبار سريع للتوكن عبر API (بدون متصفح)"""
     if not token or len(token) < 40:
         return False
     try:
         url = f"https://run.googleapis.com/v1/projects/{project_id}/locations"
-        r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
         return r.status_code == 200
     except:
         return False
 
 # ===================================================================
-# 5. استخراج التوكن (آخر خطوة)
+# 5. استخراج التوكن (سريع، بدون متصفح)
 # ===================================================================
 async def get_token_or_detect_expired(link: str, project_id: str) -> Tuple[Optional[str], bool]:
-    token_from_link = extract_token_from_link(link)
-    if token_from_link and test_token_validity(token_from_link, project_id):
-        return token_from_link, False
+    """
+    تحقق سريع من صلاحية الرابط (مثل البوت الآخر).
+    يعيد (token, expired_flag)
+    """
+    token = extract_token_from_link(link)
+    if not token:
+        return None, True  # لا يوجد توكن في الرابط
 
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage", "--incognito"]
-            )
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0",
-                viewport={"width": 1280, "height": 720}
-            )
-            page = await context.new_page()
-            await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
-            try:
-                await page.goto(link, timeout=45000, wait_until="networkidle")
-            except:
-                await browser.close()
-                return None, True
-
-            await page.wait_for_timeout(3000)
-            content = await page.content()
-            if "identifierId" in content or "sign in" in content.lower():
-                await browser.close()
-                return None, True
-
-            if "console.cloud.google.com" not in page.url:
-                console_url = f"https://console.cloud.google.com/run?project={project_id}&hl=en"
-                try:
-                    await page.goto(console_url, timeout=45000, wait_until="networkidle")
-                except:
-                    await browser.close()
-                    return None, True
-                await page.wait_for_timeout(8000)
-
-            token = None
-            for attempt in range(10):
-                token = await page.evaluate("""
-                    () => {
-                        const keys = ['access_token', 'id_token', 'gapi_token', 'oauth_token', 'gc_token'];
-                        for (let k of keys) {
-                            let v = localStorage.getItem(k);
-                            if (v && v.length > 40) return v;
-                        }
-                        for (let i=0; i<sessionStorage.length; i++) {
-                            let k = sessionStorage.key(i);
-                            if (k && (k.includes('token')||k.includes('oauth'))) {
-                                let v = sessionStorage.getItem(k);
-                                if (v && v.length > 40) return v;
-                            }
-                        }
-                        return null;
-                    }
-                """)
-                if token and len(token) > 40:
-                    break
-                await page.wait_for_timeout(3000)
-
-            await browser.close()
-            if token and len(token) > 40:
-                return token, False
-            if token_from_link:
-                return token_from_link, False
-            return None, True
-    except:
-        return None, True
+    # اختبار التوكن عبر API
+    if test_token_validity(token, project_id):
+        return token, False  # صالح
+    else:
+        return None, True   # غير صالح (منتهي)
 
 # ===================================================================
 # 6. فحص المناطق والنشر
@@ -363,7 +307,8 @@ def fetch_allowed_regions(project_id: str, token: str) -> List[str]:
         if r.status_code == 200:
             data = r.json()
             allowed = [loc["locationId"] for loc in data.get("locations", []) if loc.get("state") == "ENABLED"]
-            return allowed
+            if allowed:
+                return allowed
     except:
         pass
     return ["us-central1", "us-east1", "europe-west1", "asia-southeast1"]
@@ -517,6 +462,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["lab_url"] = text
     context.user_data["project_id"] = project_id
 
+    # جلب المناطق (بدون التحقق من التوكن في هذه المرحلة)
     regions = ["us-central1", "us-east1", "europe-west1", "asia-southeast1"]
     context.user_data["regions"] = regions
     context.user_data["current_page"] = 0
@@ -625,36 +571,31 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"📡 صفحة {page+1}:", reply_markup=keyboard)
         return WAITING_REGION
 
-    # ⭐ اختيار المنطقة
+    # اختيار المنطقة
     if data.startswith("select_"):
         region = data.replace("select_", "")
         context.user_data["pending_region"] = region
         link = context.user_data.get("lab_url", "")
         link_preview = link[:80] + "..." if len(link) > 80 else link
         keyboard = confirm_keyboard(region, link_preview)
-        try:
-            await query.edit_message_text(
-                f"⚠️ **تأكيد عملية النشر المباشر (Cloud Run)**\n\n"
-                f"🔗 **رابط الكونسول:**\n{link_preview}\n\n"
-                f"🆔 **Project ID:** `{context.user_data.get('project_id')}`\n"
-                f"🔑 **Token:** `{extract_token_from_link(link)[:20] if extract_token_from_link(link) else 'غير موجود'}...`\n\n"
-                f"🌍 **المنطقة:** `{region}`\n"
-                f"نوع الاستخدام: استخدام شخصي\n\n"
-                f"اضغط على **تأكيد** لإرسال طلب النشر.\n"
-                f"سيتم التحقق من صلاحية الرابط الآن.",
-                reply_markup=keyboard
-            )
-            return CONFIRM_DEPLOY
-        except Exception as e:
-            logger.error(f"❌ خطأ في عرض شاشة التأكيد: {e}")
-            await query.edit_message_text(f"❌ حدث خطأ أثناء التحضير للتأكيد: {str(e)[:100]}")
-            return WAITING_REGION
+        await query.edit_message_text(
+            f"⚠️ **تأكيد عملية النشر المباشر (Cloud Run)**\n\n"
+            f"🔗 **رابط الكونسول:**\n{link_preview}\n\n"
+            f"🆔 **Project ID:** `{context.user_data.get('project_id')}`\n"
+            f"🔑 **Token:** `{extract_token_from_link(link)[:20] if extract_token_from_link(link) else 'غير موجود'}...`\n\n"
+            f"🌍 **المنطقة:** `{region}`\n"
+            f"نوع الاستخدام: استخدام شخصي\n\n"
+            f"اضغط على **تأكيد** لإرسال طلب النشر.\n"
+            f"سيتم التحقق من صلاحية الرابط الآن.",
+            reply_markup=keyboard
+        )
+        return CONFIRM_DEPLOY
 
     await query.edit_message_text(f"📩 ضغطة غير متوقعة: `{data}`")
     return WAITING_REGION
 
 # ===================================================================
-# 10. تأكيد النشر (التحقق من صلاحية الرابط في آخر خطوة)
+# 10. تأكيد النشر (التحقق السريع)
 # ===================================================================
 async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -677,8 +618,7 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lab_url = context.user_data.get("lab_url")
         project_id = context.user_data.get("project_id")
 
-        await query.edit_message_text("🔍 **جاري التحقق من صلاحية الرابط...**")
-
+        # ⚡ التحقق السريع (مثل البوت الآخر)
         token, expired = await get_token_or_detect_expired(lab_url, project_id)
 
         if expired or not token:
@@ -690,6 +630,7 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             return ConversationHandler.END
 
+        # إذا كان الرابط صالحاً، نواصل النشر
         await query.edit_message_text(f"🚀 **جاري النشر المباشر على المنطقة {region}...**\n⏳ انتظر لحظات...")
 
         try:
@@ -717,7 +658,6 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
 
-    # إذا وصلنا هنا، فهذا يعني أن هناك ضغطة غير متوقعة في حالة التأكيد
     await query.edit_message_text(f"📩 ضغطة غير متوقعة في التأكيد: `{data}`")
     return CONFIRM_DEPLOY
 
@@ -754,7 +694,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v999 (Confirm Fixed) جاهز، بدء Polling...")
+    logger.info("🚀 SHADOW LEGION v999 (Fast Professional) جاهز، بدء Polling...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
