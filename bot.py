@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v999 – FIXED TOKEN EXTRACTION
-يستخرج التوكن من روابط skills.google بشكل صحيح
+SHADOW LEGION v999 – ULTIMATE PROFESSIONAL FINAL
+أزرار متطورة، تحقق سريع، استخراج توكن من روابط skills.google
 """
 
 import os
@@ -37,7 +37,7 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN غير موجود في متغيرات البيئة")
 
-DB_PATH = "shadow_fixed.db"
+DB_PATH = "shadow_pro_final.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -45,7 +45,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (Fixed Token Extraction) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (Professional Final) بدأ التشغيل...")
 
 # حالات المحادثة
 WAITING_LINK, WAITING_REGION, CONFIRM_DEPLOY = range(3)
@@ -64,7 +64,7 @@ KNOWN_REGIONS = {
 }
 
 # ===================================================================
-# 2. قاعدة البيانات (نفسها)
+# 2. قاعدة البيانات المتقدمة
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -131,7 +131,7 @@ def init_db():
 init_db()
 
 # ===================================================================
-# 3. دوال قاعدة البيانات (مختصرة)
+# 3. دوال قاعدة البيانات
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -201,7 +201,6 @@ def add_deploy_history(user_id: int, lab_url: str, service_url: str, vless: str,
               (user_id, lab_url, service_url, vless, region, success, error_msg))
     conn.commit()
     conn.close()
-    # تحديث إحصائيات المنطقة
     c = conn.cursor()
     if success:
         c.execute("INSERT INTO region_stats (region_code, success_count) VALUES (?,1) ON CONFLICT(region_code) DO UPDATE SET success_count = success_count + 1, last_used = CURRENT_TIMESTAMP", (region,))
@@ -255,13 +254,10 @@ def extract_project_id(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 def extract_token_from_link(link: str) -> Optional[str]:
-    """
-    استخراج التوكن من الرابط بغض النظر عن مكانه.
-    يبحث في: token=, display_token=, أو داخل relay.
-    """
+    """استخراج التوكن من الرابط بغض النظر عن مكانه (token, display_token, أو relay)"""
     decoded = urllib.parse.unquote(link)
     
-    # 1. البحث عن token= مباشر
+    # 1. البحث عن token=
     m = re.search(r'[?&]token=([^&]+)', decoded)
     if m:
         return m.group(1)
@@ -271,7 +267,7 @@ def extract_token_from_link(link: str) -> Optional[str]:
     if m:
         return m.group(1)
     
-    # 3. البحث داخل relay (قد يحتوي على token)
+    # 3. البحث في relay (قد يحتوي على token)
     m = re.search(r'relay[=:].*[?&]token=([^&]+)', decoded)
     if m:
         return m.group(1)
@@ -280,12 +276,11 @@ def extract_token_from_link(link: str) -> Optional[str]:
 
 def build_vless_link(service_url: str) -> str:
     host = service_url.replace('https://', '').replace('http://', '')
-    raw = hashlib.md5(("fixed" + str(time.time())).encode()).hexdigest()
+    raw = hashlib.md5(("pro_final" + str(time.time())).encode()).hexdigest()
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
-    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#FixedTunnel"
+    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#ProFinalTunnel"
 
 def test_token_validity(token: str, project_id: str) -> bool:
-    """اختبار صلاحية التوكن عبر API مع تجاهل أخطاء الشبكة المؤقتة"""
     if not token or len(token) < 40:
         return False
     try:
@@ -293,22 +288,17 @@ def test_token_validity(token: str, project_id: str) -> bool:
         r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
         return r.status_code == 200
     except:
-        return False  # أي خطأ يعتبر عدم صلاحية
+        return False
 
 # ===================================================================
 # 5. استخراج التوكن (بدون متصفح)
 # ===================================================================
 async def get_token_or_detect_expired(link: str, project_id: str) -> Tuple[Optional[str], bool]:
-    """
-    تحقق من صلاحية الرابط باستخدام التوكن المستخرج.
-    يعيد (token, expired_flag)
-    """
     token = extract_token_from_link(link)
     if not token:
         logger.warning("⚠️ لم أجد توكن في الرابط")
         return None, True
 
-    # اختبار التوكن عبر API
     if test_token_validity(token, project_id):
         logger.info("✅ التوكن صالح")
         return token, False
@@ -357,7 +347,7 @@ def deploy_to_cloud_run(project_id: str, token: str, region: str) -> Tuple[str, 
     return service_url, build_vless_link(service_url)
 
 # ===================================================================
-# 7. الأزرار المتطورة (نفسها)
+# 7. الأزرار المتطورة
 # ===================================================================
 PER_PAGE = 4
 
@@ -408,7 +398,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     ])
 
 # ===================================================================
-# 8. معالجات البوت (نفسها)
+# 8. معالجات البوت
 # ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -481,7 +471,6 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["lab_url"] = text
     context.user_data["project_id"] = project_id
 
-    # جلب المناطق (بدون التحقق من التوكن في هذه المرحلة)
     regions = ["us-central1", "us-east1", "europe-west1", "asia-southeast1"]
     context.user_data["regions"] = regions
     context.user_data["current_page"] = 0
@@ -497,7 +486,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return WAITING_REGION
 
 # ===================================================================
-# 9. معالج الأزرار الثانوية (نفسه)
+# 9. معالج الأزرار الثانوية
 # ===================================================================
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -636,7 +625,6 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lab_url = context.user_data.get("lab_url")
         project_id = context.user_data.get("project_id")
 
-        # ⚡ التحقق السريع باستخدام الدالة المعدلة
         token, expired = await get_token_or_detect_expired(lab_url, project_id)
 
         if expired or not token:
@@ -648,7 +636,6 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             return ConversationHandler.END
 
-        # إذا كان الرابط صالحاً، نواصل النشر
         await query.edit_message_text(f"🚀 **جاري النشر المباشر على المنطقة {region}...**\n⏳ انتظر لحظات...")
 
         try:
@@ -712,7 +699,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v999 (Fixed Token Extraction) جاهز، بدء Polling...")
+    logger.info("🚀 SHADOW LEGION v999 (Professional Final) جاهز، بدء Polling...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
