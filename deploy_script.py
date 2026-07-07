@@ -19,6 +19,10 @@ def run_cmd(cmd):
 
 def log(msg): print(f"🔹 {msg}")
 
+# ✅ الإصلاح الجوهري: تعيين المشروع قبل أي أمر
+log("0. تعيين المشروع في gcloud...")
+run_cmd(["gcloud", "config", "set", "project", PROJECT_ID])
+
 log("1. تفعيل Cloud Run API...")
 run_cmd(["gcloud", "services", "enable", "run.googleapis.com", f"--project={PROJECT_ID}"])
 time.sleep(5)
