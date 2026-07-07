@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v8.6 – COMPLETE STEALTH (Welcome + Terms + Login)
-يتعامل مع شاشة الترحيب (Welcome)، وشاشة الشروط (Terms of Service)، وشاشة تسجيل الدخول (Sign in) تلقائياً.
+SHADOW LEGION v8.7 – FINAL FIX (No false Sign-in detection)
+يتعامل مع شاشة الترحيب، الشروط، وتسجيل الدخول، ويستخرج النتيجة من ملف result.txt.
 """
 
 import os
@@ -44,7 +44,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v8.6 (Complete Stealth) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v8.7 (Final Fix) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -220,15 +220,16 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             await page.goto(link, timeout=60000, wait_until="networkidle")
             await asyncio.sleep(5)
 
-            # 2. التحقق من الصفحة الحالية ومعالجتها
+            # 2. التحقق من الصفحة الحالية – تجاوز الشاشات التي تعترض الطريق
             page_text = await page.inner_text("body")
 
-            # 2أ. شاشة تسجيل الدخول (Sign in) → الرابط منتهي
-            if "Sign in" in page_text or "Use your Google Account" in page_text or "Email or phone" in page_text:
+            # 2أ. شاشة تسجيل الدخول (Sign in) – فقط إذا كان الرابط منتهياً
+            # نتحقق بدقة: إذا كانت الصفحة فارغة أو تحتوي فقط على نموذج تسجيل الدخول
+            if "Sign in" in page_text and "Email or phone" in page_text and "Use your Google Account" in page_text:
                 await browser.close()
                 return False, "", "❌ **الرابط منتهي الصلاحية!** يرجى الحصول على رابط جديد من مختبر Qwiklabs.", int(time.time() - start_time)
 
-            # 2ب. شاشة الترحيب (Welcome) → زر Understand
+            # 2ب. شاشة الترحيب (Welcome)
             if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
                 logger.info("👋 تم اكتشاف شاشة الترحيب. جاري الضغط على زر Understand...")
                 try:
@@ -332,25 +333,30 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(3)
 
-            # 6. انتظار النتيجة
+            # 6. انتظار النتيجة وقراءة الملف مباشرة
             logger.info("⏳ انتظار اكتمال النشر وظهور النتيجة (حتى 3 دقائق)...")
             try:
+                # ننتظر ظهور النتيجة في الطرفية (من cat result.txt)
                 await page.wait_for_selector("text=/SERVICE_URL:|VLESS:/", timeout=180000)
                 logger.info("✅ تم العثور على النتيجة.")
             except:
                 logger.warning("⚠️ لم يتم العثور على النتيجة خلال المهلة.")
 
             await asyncio.sleep(3)
+            
+            # ✅ قراءة النتيجة من الملف مباشرة عبر cat result.txt (الموجود بالفعل في الأوامر)
             terminal_text = await page.evaluate("() => document.body.innerText")
             await browser.close()
 
+            # استخراج SERVICE_URL و VLESS من النص (تجاهل أي نص آخر)
             service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', terminal_text)
             vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', terminal_text)
 
             if service_match and vless_match:
                 return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time)
             else:
-                return False, "", f"⚠️ لم أتمكن من استخراج النتيجة. آخر ما ظهر:\n```\n{terminal_text[-800:]}\n```", int(time.time() - start_time)
+                # ✅ تحسين رسالة الخطأ: نعرض آخر 500 حرف من المخرجات، ونخبر المستخدم أن السكربت قد فشل
+                return False, "", f"⚠️ فشل تنفيذ السكربت في Cloud Shell.\nآخر ما ظهر في الطرفية:\n```\n{terminal_text[-500:]}\n```", int(time.time() - start_time)
 
     except Exception as e:
         return False, "", str(e), int(time.time() - start_time)
@@ -380,7 +386,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v8.6 – Complete Stealth**\n\n"
+        "🔥 **SHADOW LEGION v8.7 – Final Fix**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
         "✅ سأتعامل مع جميع الشاشات: الترحيب، الشروط، وتسجيل الدخول.\n"
         "❌ إذا كان الرابط منتهياً، سأخبرك فوراً.",
@@ -530,7 +536,7 @@ def main():
     app.add_handler(CallbackQueryHandler(region_callback, pattern="^region_"))
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
-    logger.info("🤖 SHADOW LEGION v8.6 (Complete Stealth) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v8.7 (Final Fix) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
