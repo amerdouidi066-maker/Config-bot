@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v8.0 – PROFESSIONAL EDITION
+SHADOW LEGION v8.2 – PROFESSIONAL EDITION (FULL FIX)
 بوت احترافي مع أزرار تفاعلية، سجل النشر، إحصائيات، وأتمتة Cloud Shell.
+تم إصلاح مشكلة الأزرار وإضافة كشف فوري لشاشة تسجيل الدخول.
 """
 
 import os
@@ -45,7 +46,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v8.0 (Professional) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v8.2 (Professional) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -204,7 +205,7 @@ def extract_email(link: str) -> str:
     return "student-02-93b0e6f4b24d@qwiklabs.net"
 
 # ===================================================================
-# 6. أتمتة Cloud Shell (Playwright)
+# 6. أتمتة Cloud Shell (Playwright) – مع كشف فوري لشاشة تسجيل الدخول
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -230,17 +231,23 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, email: str, 
             )
             page = await context.new_page()
 
-            # 1. تسجيل الدخول
+            # 1. تسجيل الدخول – كشف فوري لشاشة تسجيل الدخول
             logger.info("🌐 فتح رابط تسجيل الدخول...")
             await page.goto(link, timeout=60000, wait_until="networkidle")
             await asyncio.sleep(5)
 
-            # التحقق من عدم ظهور شاشة تسجيل الدخول
+            # التحقق من شاشة تسجيل الدخول (طريقة قوية)
+            page_text = await page.inner_text("body")
+            if "Sign in" in page_text or "Use your Google Account" in page_text or "Email or phone" in page_text:
+                await browser.close()
+                return False, "", "❌ **الرابط منتهي الصلاحية أو غير صالح!**\nيرجى الحصول على رابط جديد من مختبر Qwiklabs (الرابط صالح لمدة ~4 ساعات).", int(time.time() - start_time)
+            
+            # تحقق إضافي من وجود حقل البريد الإلكتروني
             try:
                 email_input = await page.wait_for_selector("input[type='email']", timeout=3000)
                 if email_input:
                     await browser.close()
-                    return False, "", "❌ انتهت صلاحية الرابط! يرجى الحصول على رابط جديد.", int(time.time() - start_time)
+                    return False, "", "❌ **الرابط غير صالح!** ظهرت شاشة تسجيل الدخول. يرجى استخدام رابط جديد.", int(time.time() - start_time)
             except:
                 pass
 
@@ -333,14 +340,14 @@ def region_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 # ===================================================================
-# 8. أوامر البوت (Handlers)
+# 8. أوامر البوت ومعالجات الأزرار
 # ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     
     welcome_text = (
-        f"🔥 **مرحباً بك في SHADOW LEGION v8.0**\n\n"
+        f"🔥 **مرحباً بك في SHADOW LEGION v8.2**\n\n"
         f"أنا بوت احترافي لنشر خدمات Cloud Run عبر أتمتة Cloud Shell.\n"
         f"📌 **كيفية الاستخدام:**\n"
         f"1️⃣ أرسل رابط Qwiklabs (يحتوي على `token=` و `project=`).\n"
@@ -449,31 +456,28 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return WAITING_REGION
 
+# ===================================================================
+# 9. معالجات الأزرار (CallbackQueryHandlers العامة)
+# ===================================================================
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-
-    if query.data == "cancel":
-        await query.edit_message_text("❌ تم الإلغاء.")
-        context.user_data.clear()
-        return ConversationHandler.END
-
     region = query.data.replace("region_", "")
+    
     project_id = context.user_data.get("project_id")
     token = context.user_data.get("token")
     email = context.user_data.get("email")
     lab_url = context.user_data.get("lab_url")
-
+    
     if not project_id or not token:
         await query.edit_message_text("❌ انتهت الجلسة. أعد إرسال الرابط.")
-        return ConversationHandler.END
+        return
 
     region_name = KNOWN_REGIONS.get(region, region)
     await query.edit_message_text(
         f"🚀 **جاري النشر على {region_name}...**\n"
-        f"⏳ هذه العملية قد تستغرق 2-3 دقائق.\n"
-        f"🔄 يرجى الانتظار..."
+        f"⏳ قد تستغرق العملية 2-3 دقائق."
     )
 
     success, service_url, vless_or_error, duration = await run_in_cloudshell(
@@ -483,27 +487,34 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if success:
         increment_deploy_count(user_id)
         add_history(user_id, lab_url, service_url, service_url, vless_or_error, region, success=1, duration=duration)
-
         await query.message.reply_text(
-            f"✅ **تم النشر بنجاح!**\n\n"
-            f"🌍 **المنطقة:** {region_name}\n"
-            f"⏱️ **المدة:** {duration} ثانية\n"
-            f"🌐 **الرابط:** `{service_url}`\n\n"
-            f"🔗 **رابط VLESS الجاهز:**\n`{vless_or_error}`",
+            f"✅ **تم النشر!**\n\n"
+            f"🌍 المنطقة: {region_name}\n"
+            f"⏱️ المدة: {duration} ثانية\n"
+            f"🌐 الرابط: `{service_url}`\n\n"
+            f"🔗 **VLESS:**\n`{vless_or_error}`",
             parse_mode="Markdown",
             reply_markup=main_menu_keyboard()
         )
     else:
         add_history(user_id, lab_url, "", "", "", region, success=0, error_msg=vless_or_error[:200], duration=duration)
         await query.message.reply_text(
-            f"❌ **فشل النشر:**\n\n```\n{vless_or_error[:500]}\n```",
+            f"❌ **فشل النشر:**\n```\n{vless_or_error[:500]}\n```",
             parse_mode="Markdown",
             reply_markup=main_menu_keyboard()
         )
-
+    
     context.user_data.clear()
-    return ConversationHandler.END
 
+async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("❌ تم الإلغاء.")
+    context.user_data.clear()
+
+# ===================================================================
+# 10. أوامر الإلغاء والمساعدة
+# ===================================================================
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ تم إلغاء العملية.", reply_markup=main_menu_keyboard())
@@ -526,11 +537,12 @@ async def fallback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 9. التشغيل الرئيسي
+# 11. التشغيل الرئيسي
 # ===================================================================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # ConversationHandler لإدارة تدفق النشر
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("deploy", deploy_command),
@@ -538,23 +550,31 @@ def main():
         ],
         states={
             WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
-            WAITING_REGION: [CallbackQueryHandler(region_callback, pattern="^(region_|cancel)")],
+            WAITING_REGION: [],  # فارغ لأننا نستخدم معالج أزرار عام
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
             MessageHandler(filters.Regex("^❌ إلغاء العملية$"), cancel)
         ],
-        allow_reentry=True
+        allow_reentry=True,
+        per_message=False
     )
 
+    # إضافة المعالجات الأساسية
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(conv_handler)
+    
+    # ✅ إضافة معالجات الأزرار (خارج ConversationHandler)
+    app.add_handler(CallbackQueryHandler(region_callback, pattern="^region_"))
+    app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
+    
+    # معالج النصوص العادية (للأزرار غير المذكورة أعلاه)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v8.0 (Professional) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v8.2 (Professional) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
