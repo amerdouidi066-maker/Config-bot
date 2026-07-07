@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v8.9 – DETAILED ERROR REPORTING + TERMINAL READING
+SHADOW LEGION v9.0 – ULTIMATE FIX (URL-based login check + Terminal reading)
 """
 
 import os
@@ -43,7 +43,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v8.9 (Detailed Errors) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v9.0 (URL Check + Terminal Reading) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -63,7 +63,7 @@ KNOWN_REGIONS = {
 }
 
 # ===================================================================
-# 3. قاعدة البيانات (SQLite)
+# 3. قاعدة البيانات
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -97,7 +97,7 @@ def init_db():
 init_db()
 
 # ===================================================================
-# 4. دوال قاعدة البيانات (CRUD)
+# 4. دوال قاعدة البيانات
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -173,7 +173,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     return history
 
 # ===================================================================
-# 5. دوال مساعدة لاستخراج البيانات من الرابط
+# 5. دوال مساعدة
 # ===================================================================
 def extract_project_id(link: str) -> Optional[str]:
     decoded = urllib.parse.unquote(link)
@@ -192,7 +192,7 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 6. أتمتة Cloud Shell (Playwright) – مع قراءة الطرفية وتقارير الخطأ
+# 6. أتمتة Cloud Shell – مع التحقق عبر URL
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -214,20 +214,26 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             )
             page = await context.new_page()
 
-            # 1. فتح الرابط
+            # 1. فتح الرابط مع متابعة إعادة التوجيه
             logger.info("🌐 فتح الرابط...")
             await page.goto(link, timeout=60000, wait_until="networkidle")
-            await asyncio.sleep(5)
+            
+            # ✅ التحقق من نجاح تسجيل الدخول عبر عنوان URL
+            logger.info("⏳ انتظار إعادة التوجيه بعد تسجيل الدخول...")
+            try:
+                await page.wait_for_url(
+                    lambda url: "console.cloud.google.com" in url or "shell.cloud.google.com" in url,
+                    timeout=30000
+                )
+                logger.info("✅ تم تسجيل الدخول بنجاح (تم التحقق عبر URL).")
+            except:
+                current_url = page.url
+                await browser.close()
+                return False, "", f"❌ **فشل تسجيل الدخول!**\nلم يتم التوجيه إلى Google Cloud Console.\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
 
-            # 2. تجاوز العقبات
+            # 2. تجاوز العقبات (ترحيب، شروط)
             page_text = await page.inner_text("body")
 
-            # 2أ. شاشة تسجيل الدخول (الرابط منتهي)
-            if "Sign in" in page_text and "Email or phone" in page_text:
-                await browser.close()
-                return False, "", "❌ **الرابط منتهي الصلاحية!** يرجى الحصول على رابط جديد.", int(time.time() - start_time)
-
-            # 2ب. شاشة الترحيب
             if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
                 logger.info("👋 شاشة الترحيب... جاري الضغط Understand")
                 for selector in ["button:has-text('Understand')", "button:has-text('I understand')", "button:has-text('Accept')"]:
@@ -239,7 +245,6 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                     except:
                         continue
 
-            # 2ج. شاشة الشروط
             if "Terms of Service" in page_text and "I agree to the Google Cloud Platform Terms of Service" in page_text:
                 logger.info("📜 شاشة الشروط... جاري الموافقة")
                 try:
@@ -303,7 +308,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(3)
 
-            # 6. انتظار النتيجة وقراءة ملف result.txt
+            # 6. انتظار النتيجة
             logger.info("⏳ انتظار اكتمال النشر (حتى 3 دقائق)...")
             try:
                 await page.wait_for_selector("text=/SERVICE_URL:|VLESS:|❌ الخطوة:/", timeout=180000)
@@ -328,7 +333,6 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
 
             # تحليل النص
             if "❌ الخطوة:" in terminal_text:
-                # استخراج الخطأ
                 lines = terminal_text.splitlines()
                 error_lines = [line for line in lines if "❌ الخطوة:" in line or "ERROR" in line or "فشل" in line]
                 error_msg = "\n".join(error_lines) if error_lines else terminal_text
@@ -364,16 +368,16 @@ def region_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 # ===================================================================
-# 8. أوامر البوت ومعالجات الأزرار
+# 8. أوامر البوت
 # ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v8.9 – Detailed Error Reports**\n\n"
+        "🔥 **SHADOW LEGION v9.0 – Ultimate Fix**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ سأقرأ النتيجة من الطرفية مباشرة.\n"
-        "❌ إذا فشل السكربت، سأخبرك بالخطوة التي فشلت فيها بالضبط.",
+        "✅ سأتحقق من تسجيل الدخول عبر عنوان URL (أكثر دقة).\n"
+        "❌ إذا فشل تسجيل الدخول، سأخبرك بالسبب فوراً.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
     )
@@ -535,7 +539,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v8.9 (Detailed Errors) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v9.0 جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
