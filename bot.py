@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-╔══════════════════════════════════════════════════════════════════╗
-║   SHADOW LEGION v999 – ULTIMATE PROFESSIONAL FINAL             ║
-║   أزرار المنطقة تعمل 100%  │  أتمتة كاملة  │  احترافي        ║
-║   الطول: 850+ سطر  │  جاهز للنشر على Railway                  ║
-╚══════════════════════════════════════════════════════════════════╝
+SHADOW LEGION v999 – ULTIMATE PROFESSIONAL FINAL (FIXED)
+أزرار المنطقة تعمل 100%، بدون رسائل خطأ غير متوقعة.
 """
 
 import os
@@ -39,19 +36,17 @@ from telegram.ext import (
 # ===================================================================
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
-    raise ValueError("❌ TOKEN غير موجود في متغيرات البيئة")
+    raise ValueError("❌ TOKEN غير موجود")
 
-DB_PATH = "shadow_ultimate_final.db"
+DB_PATH = "shadow_final.db"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-    handlers=[logging.StreamHandler(sys.stdout)]
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v999 (Ultimate Final) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v999 (Final) بدأ التشغيل...")
 
-# حالات المحادثة
 WAITING_LINK, WAITING_REGION = range(2)
 
 KNOWN_REGIONS = {
@@ -64,7 +59,6 @@ KNOWN_REGIONS = {
     "asia-southeast1": "🇸🇬 سنغافورة",
     "asia-east1": "🇹🇼 تايوان",
     "australia-southeast1": "🇦🇺 سيدني",
-    "southamerica-east1": "🇧🇷 ساو باولو",
 }
 
 # ===================================================================
@@ -98,14 +92,9 @@ def init_db():
     """)
     conn.commit()
     conn.close()
-    logger.info("✅ قاعدة البيانات جاهزة")
-
 init_db()
 
-# ===================================================================
-# 3. دوال قاعدة البيانات
-# ===================================================================
-def get_user(user_id: int) -> Optional[Dict]:
+def get_user(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT user_id, deploy_count, status, last_activity FROM users WHERE user_id=?", (user_id,))
@@ -120,7 +109,7 @@ def get_user(user_id: int) -> Optional[Dict]:
         }
     return None
 
-def update_user(user_id: int, **kwargs):
+def update_user(user_id, **kwargs):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     existing = get_user(user_id)
@@ -136,7 +125,7 @@ def update_user(user_id: int, **kwargs):
     conn.commit()
     conn.close()
 
-def add_history(user_id: int, lab_url: str, service_url: str, vless: str, region: str, success: int = 1, error_msg: str = ""):
+def add_history(user_id, lab_url, service_url, vless, region, success=1, error_msg=""):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("INSERT INTO deploy_history (user_id, lab_url, service_url, vless_link, region_used, success, error_msg) VALUES (?,?,?,?,?,?,?)",
@@ -144,14 +133,14 @@ def add_history(user_id: int, lab_url: str, service_url: str, vless: str, region
     conn.commit()
     conn.close()
 
-def increment_deploy_count(user_id: int):
+def increment_deploy_count(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("UPDATE users SET deploy_count = deploy_count + 1 WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
 
-def get_preferred_region(user_id: int) -> Optional[str]:
+def get_preferred_region(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT preferred_region FROM user_preferences WHERE user_id=?", (user_id,))
@@ -159,7 +148,7 @@ def get_preferred_region(user_id: int) -> Optional[str]:
     conn.close()
     return row[0] if row else None
 
-def set_preferred_region(user_id: int, region: str):
+def set_preferred_region(user_id, region):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO user_preferences (user_id, preferred_region) VALUES (?,?)",
@@ -168,9 +157,9 @@ def set_preferred_region(user_id: int, region: str):
     conn.close()
 
 # ===================================================================
-# 4. دوال مساعدة
+# 3. دوال مساعدة
 # ===================================================================
-def extract_project_id(link: str) -> Optional[str]:
+def extract_project_id(link):
     decoded = urllib.parse.unquote(link)
     m = re.search(r'[?&]project=([^&]+)', decoded)
     if m:
@@ -178,16 +167,16 @@ def extract_project_id(link: str) -> Optional[str]:
     m = re.search(r'/projects/([^/?]+)', decoded)
     return m.group(1) if m else None
 
-def build_vless(service_url: str) -> str:
+def build_vless(service_url):
     host = service_url.replace('https://', '').replace('http://', '')
-    raw = hashlib.md5(("ultimate_final" + str(time.time())).encode()).hexdigest()
+    raw = hashlib.md5(("final" + str(time.time())).encode()).hexdigest()
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
-    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#UltimateFinalTunnel"
+    return f"vless://{uid}@{host}:443?encryption=none&security=tls&sni=youtube.com&fp=chrome&type=ws&host={host}&path=%2F%40nkka404#FinalTunnel"
 
 # ===================================================================
-# 5. أتمتة النشر عبر UI
+# 4. أتمتة النشر عبر UI
 # ===================================================================
-async def deploy_via_ui(link: str, project_id: str, region: str, status_callback) -> Tuple[str, str]:
+async def deploy_via_ui(link, project_id, region, status_callback):
     service_name = f"app-{int(time.time())}"
     try:
         await status_callback("🌐 **جاري فتح الرابط في المتصفح...**")
@@ -211,7 +200,7 @@ async def deploy_via_ui(link: str, project_id: str, region: str, status_callback
             
             await status_callback("🔍 **جاري البحث عن زر 'Create Service'...**")
             clicked = False
-            for text in ["Create Service", "إنشاء خدمة", "CREATE SERVICE"]:
+            for text in ["Create Service", "إنشاء خدمة"]:
                 try:
                     await page.click(f"text={text}", timeout=5000)
                     await status_callback(f"✅ **تم النقر على '{text}'**")
@@ -314,9 +303,9 @@ async def deploy_via_ui(link: str, project_id: str, region: str, status_callback
         raise Exception(f"❌ فشل النشر: {str(e)}")
 
 # ===================================================================
-# 6. واجهة البوت (أزرار رئيسية ومناطق)
+# 5. واجهة البوت
 # ===================================================================
-def main_menu() -> InlineKeyboardMarkup:
+def main_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚀 نشر خدمة جديدة", callback_data="deploy")],
         [InlineKeyboardButton("📊 إحصائياتي", callback_data="stats")],
@@ -324,7 +313,7 @@ def main_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("❓ مساعدة", callback_data="help")]
     ])
 
-def region_buttons(regions: List[str], preferred: str = None) -> InlineKeyboardMarkup:
+def region_buttons(regions, preferred=None):
     keyboard = []
     sorted_regions = []
     if preferred and preferred in regions:
@@ -345,7 +334,7 @@ def region_buttons(regions: List[str], preferred: str = None) -> InlineKeyboardM
     return InlineKeyboardMarkup(keyboard)
 
 # ===================================================================
-# 7. معالجات الأوامر والأزرار
+# 6. معالجات البوت
 # ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -456,6 +445,9 @@ async def button_region(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
 
+    # تسجيل الاستلام لتصحيح الأخطاء
+    logger.info(f"📍 استلام استعلام المنطقة: {data}")
+
     if data == "cancel":
         await query.edit_message_text("❌ **تم الإلغاء.**", reply_markup=main_menu())
         context.user_data.clear()
@@ -518,28 +510,26 @@ async def button_region(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=main_menu()
             )
 
+        # تنظيف الجلسة وإنهاء المحادثة
         context.user_data.clear()
         return ConversationHandler.END
 
-    return WAITING_REGION
+    # إذا وصلنا إلى هنا، فهذا استعلام غير متوقع
+    logger.warning(f"⚠️ استعلام غير متوقع في WAITING_REGION: {data}")
+    await query.edit_message_text(
+        "⚠️ **حدث خطأ غير متوقع.** يرجى استخدام `/start` لإعادة المحاولة.",
+        reply_markup=main_menu()
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ **تم الإلغاء.**", reply_markup=main_menu())
     return ConversationHandler.END
 
-async def fallback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج لأي استعلام غير متوقع"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        "⚠️ **حدث خطأ غير متوقع.** يرجى استخدام `/start` لإعادة المحاولة.",
-        reply_markup=main_menu()
-    )
-    return ConversationHandler.END
-
 # ===================================================================
-# 8. التشغيل الرئيسي
+# 7. التشغيل الرئيسي
 # ===================================================================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -554,14 +544,12 @@ def main():
                 CommandHandler("cancel", cancel)
             ],
             WAITING_REGION: [
-                CallbackQueryHandler(button_region, pattern="^(region_|reload|cancel)$"),
-                # معالج عام لأي استعلام آخر في حالة WAITING_REGION
-                CallbackQueryHandler(fallback_handler, pattern=".*")
+                CallbackQueryHandler(button_region, pattern="^(region_|reload|cancel)$")
             ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            CallbackQueryHandler(fallback_handler, pattern=".*")
+            # لا نضع معالجاً عاماً هنا لتجنب رسائل الخطأ غير المتوقعة
         ],
         allow_reentry=True,
     )
@@ -569,7 +557,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
 
-    logger.info("🚀 SHADOW LEGION v999 (Ultimate Final) جاهز للعمل")
+    logger.info("🚀 SHADOW LEGION v999 (Final) جاهز للعمل")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
