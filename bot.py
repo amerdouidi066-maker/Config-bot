@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 logger.info("🚀 SHADOW LEGION v999 (Ultimate Pro) بدأ التشغيل...")
 
 # حالات المحادثة
-MAIN_MENU, WAITING_LINK, WAITING_REGION = range(3)
+WAITING_LINK, WAITING_REGION = range(2)
 
 KNOWN_REGIONS = {
     "us-central1": "🇺🇸 أيوا (الوسطى)",
@@ -526,6 +526,7 @@ def main():
             WAITING_REGION: [CallbackQueryHandler(button_region, pattern="^(region_|reload|cancel)$")],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,  # ⭐ هذه الإضافة مهمة
     )
 
     app.add_handler(CommandHandler("start", start))
