@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v8.8 – FIX: Read from terminal only
+SHADOW LEGION v8.9 – DETAILED ERROR REPORTING + TERMINAL READING
 """
 
 import os
@@ -43,7 +43,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v8.8 (Fix terminal reading) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v8.9 (Detailed Errors) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -63,7 +63,7 @@ KNOWN_REGIONS = {
 }
 
 # ===================================================================
-# 3. قاعدة البيانات (نفس السابق)
+# 3. قاعدة البيانات (SQLite)
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -97,7 +97,7 @@ def init_db():
 init_db()
 
 # ===================================================================
-# 4. دوال قاعدة البيانات (نفس السابق)
+# 4. دوال قاعدة البيانات (CRUD)
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -173,7 +173,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     return history
 
 # ===================================================================
-# 5. دوال مساعدة
+# 5. دوال مساعدة لاستخراج البيانات من الرابط
 # ===================================================================
 def extract_project_id(link: str) -> Optional[str]:
     decoded = urllib.parse.unquote(link)
@@ -192,7 +192,7 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 6. أتمتة Cloud Shell (Playwright) – قراءة من الطرفية فقط
+# 6. أتمتة Cloud Shell (Playwright) – مع قراءة الطرفية وتقارير الخطأ
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -219,41 +219,40 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             await page.goto(link, timeout=60000, wait_until="networkidle")
             await asyncio.sleep(5)
 
-            # 2. تجاوز العقبات (نفس الكود السابق)
+            # 2. تجاوز العقبات
             page_text = await page.inner_text("body")
 
-            if "Sign in" in page_text and "Email or phone" in page_text and "Use your Google Account" in page_text:
+            # 2أ. شاشة تسجيل الدخول (الرابط منتهي)
+            if "Sign in" in page_text and "Email or phone" in page_text:
                 await browser.close()
                 return False, "", "❌ **الرابط منتهي الصلاحية!** يرجى الحصول على رابط جديد.", int(time.time() - start_time)
 
+            # 2ب. شاشة الترحيب
             if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
                 logger.info("👋 شاشة الترحيب... جاري الضغط Understand")
-                try:
-                    for selector in ["button:has-text('Understand')", "button:has-text('I understand')", "button:has-text('Accept')"]:
-                        try:
-                            await page.click(selector, timeout=3000)
-                            logger.info("✅ تم الضغط على Understand.")
-                            await asyncio.sleep(3)
-                            break
-                        except:
-                            continue
-                except Exception as e:
-                    logger.warning(f"⚠️ فشل Understand: {e}")
+                for selector in ["button:has-text('Understand')", "button:has-text('I understand')", "button:has-text('Accept')"]:
+                    try:
+                        await page.click(selector, timeout=3000)
+                        logger.info("✅ تم الضغط على Understand.")
+                        await asyncio.sleep(3)
+                        break
+                    except:
+                        continue
 
+            # 2ج. شاشة الشروط
             if "Terms of Service" in page_text and "I agree to the Google Cloud Platform Terms of Service" in page_text:
                 logger.info("📜 شاشة الشروط... جاري الموافقة")
                 try:
-                    for selector in ["input[type='checkbox']", "label:has-text('I agree to the Google Cloud Platform Terms of Service') input"]:
-                        try:
-                            checkbox = await page.wait_for_selector(selector, timeout=3000)
-                            if checkbox:
-                                await checkbox.check()
-                                logger.info("✅ تم تحديد المربع.")
-                                break
-                        except:
-                            continue
+                    checkbox = await page.query_selector("input[type='checkbox']")
+                    if checkbox:
+                        await checkbox.check()
+                    else:
+                        await page.evaluate("""() => {
+                            const cb = document.querySelector('input[type="checkbox"]');
+                            if (cb && !cb.checked) cb.checked = true;
+                        }""")
                     await asyncio.sleep(1)
-                    for btn_text in ["Continue", "Agree and Continue", "Agree", "Accept", "موافق", "متابعة"]:
+                    for btn_text in ["Continue", "Agree and Continue", "Agree", "Accept"]:
                         try:
                             await page.click(f"button:has-text('{btn_text}')", timeout=3000)
                             logger.info(f"✅ تم الضغط على {btn_text}.")
@@ -273,12 +272,11 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             terminal_ready = False
             for attempt in range(10):
                 try:
-                    await page.wait_for_selector(".xterm, .terminal, [role='textbox'], textarea", timeout=5000)
-                    logger.info(f"✅ الطرفية جاهزة (محاولة {attempt+1})")
+                    await page.wait_for_selector(".xterm, .terminal, [role='textbox']", timeout=5000)
                     terminal_ready = True
                     break
                 except:
-                    logger.info(f"⏳ المحاولة {attempt+1}/10...")
+                    continue
             if not terminal_ready:
                 await asyncio.sleep(15)
 
@@ -305,17 +303,17 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(3)
 
-            # 6. انتظار النتيجة وقراءة من الطرفية فقط
-            logger.info("⏳ انتظار النتيجة (حتى 3 دقائق)...")
+            # 6. انتظار النتيجة وقراءة ملف result.txt
+            logger.info("⏳ انتظار اكتمال النشر (حتى 3 دقائق)...")
             try:
-                await page.wait_for_selector("text=/SERVICE_URL:|VLESS:/", timeout=180000)
+                await page.wait_for_selector("text=/SERVICE_URL:|VLESS:|❌ الخطوة:/", timeout=180000)
                 logger.info("✅ تم العثور على النتيجة.")
             except:
                 logger.warning("⚠️ لم تظهر النتيجة خلال المهلة.")
 
             await asyncio.sleep(3)
 
-            # 🔥 قراءة من عنصر الطرفية وليس من الصفحة كاملة
+            # قراءة من عنصر الطرفية
             terminal_text = ""
             try:
                 terminal_element = await page.query_selector(".xterm, .terminal, [role='textbox']")
@@ -328,21 +326,27 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
 
             await browser.close()
 
-            # استخراج النتيجة من نص الطرفية فقط
+            # تحليل النص
+            if "❌ الخطوة:" in terminal_text:
+                # استخراج الخطأ
+                lines = terminal_text.splitlines()
+                error_lines = [line for line in lines if "❌ الخطوة:" in line or "ERROR" in line or "فشل" in line]
+                error_msg = "\n".join(error_lines) if error_lines else terminal_text
+                return False, "", f"⚠️ **فشل السكربت في خطوة محددة:**\n```\n{error_msg}\n```", int(time.time() - start_time)
+
             service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', terminal_text)
             vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', terminal_text)
 
             if service_match and vless_match:
                 return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time)
             else:
-                # عرض آخر 500 حرف من الطرفية فقط (بدون باقي الصفحة)
-                return False, "", f"⚠️ فشل تنفيذ السكربت في Cloud Shell.\nآخر ما ظهر في الطرفية:\n```\n{terminal_text[-500:]}\n```", int(time.time() - start_time)
+                return False, "", f"⚠️ لم أتمكن من استخراج النتيجة.\nآخر ما ظهر في الطرفية:\n```\n{terminal_text[-500:]}\n```", int(time.time() - start_time)
 
     except Exception as e:
         return False, "", str(e), int(time.time() - start_time)
 
 # ===================================================================
-# 7. واجهة البوت (كما هي)
+# 7. واجهة البوت (الأزرار والقوائم)
 # ===================================================================
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
@@ -359,13 +363,17 @@ def region_inline_keyboard() -> InlineKeyboardMarkup:
     keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
     return InlineKeyboardMarkup(keyboard)
 
+# ===================================================================
+# 8. أوامر البوت ومعالجات الأزرار
+# ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v8.8 – Fix Terminal Reading**\n\n"
+        "🔥 **SHADOW LEGION v8.9 – Detailed Error Reports**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ سأقرأ النتيجة من الطرفية مباشرة، ولن تظهر لك رسائل 'Sign in' الخادعة.",
+        "✅ سأقرأ النتيجة من الطرفية مباشرة.\n"
+        "❌ إذا فشل السكربت، سأخبرك بالخطوة التي فشلت فيها بالضبط.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
     )
@@ -466,7 +474,7 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         add_history(user_id, lab_url, "", "", "", region, success=0, error_msg=vless_or_error[:200], duration=duration)
-        await query.message.reply_text(f"❌ **فشل النشر:**\n```\n{vless_or_error[:500]}\n```", parse_mode="Markdown", reply_markup=main_menu_keyboard())
+        await query.message.reply_text(f"❌ **فشل النشر:**\n```\n{vless_or_error}\n```", parse_mode="Markdown", reply_markup=main_menu_keyboard())
     context.user_data.clear()
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -495,15 +503,29 @@ async def fallback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return await receive_link(update, context)
 
+# ===================================================================
+# 9. التشغيل الرئيسي
+# ===================================================================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
+
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("deploy", deploy_command), MessageHandler(filters.Regex("^🚀 نشر خدمة جديدة$"), deploy_command)],
-        states={WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)], WAITING_REGION: []},
-        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex("^❌ إلغاء العملية$"), cancel)],
+        entry_points=[
+            CommandHandler("deploy", deploy_command),
+            MessageHandler(filters.Regex("^🚀 نشر خدمة جديدة$"), deploy_command)
+        ],
+        states={
+            WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
+            WAITING_REGION: [],
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            MessageHandler(filters.Regex("^❌ إلغاء العملية$"), cancel)
+        ],
         allow_reentry=True,
         per_message=False
     )
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats_command))
@@ -512,7 +534,8 @@ def main():
     app.add_handler(CallbackQueryHandler(region_callback, pattern="^region_"))
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
-    logger.info("🤖 SHADOW LEGION v8.8 جاهز ويعمل على Railway...")
+
+    logger.info("🤖 SHADOW LEGION v8.9 (Detailed Errors) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
