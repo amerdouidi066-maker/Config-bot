@@ -3,7 +3,7 @@
 """
 SHADOW LEGION v2.1 – RAILWAY GCLOUD EDITION (PROFESSIONAL UI + NETHERLANDS)
 بوت احترافي مع قائمة تفاعلية، إحصائيات، سجل النشر، وأزرار متطورة.
-تمت إضافة منطقة هولندا (europe-west4).
+تمت إضافة منطقة هولندا (europe-west4) واستخدام CLOUDSDK_AUTH_ACCESS_TOKEN.
 """
 
 import os
@@ -46,7 +46,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v2.1 (PRO + NL) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v2.1 (PRO + NL + TOKEN FIX) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف حالات المحادثة (Conversation States)
@@ -62,7 +62,7 @@ KNOWN_REGIONS = {
     "us-west1": "🇺🇸 أوريغون (الولايات المتحدة)",
     "europe-west1": "🇧🇪 بلجيكا (أوروبا)",
     "europe-west3": "🇩🇪 فرانكفورت (أوروبا)",
-    "europe-west4": "🇳🇱 هولندا (أوروبا)",  # ✅ تمت الإضافة هنا
+    "europe-west4": "🇳🇱 هولندا (أوروبا)",  # ✅ تمت الإضافة
     "asia-southeast1": "🇸🇬 سنغافورة (آسيا)",
     "asia-east1": "🇹🇼 تايوان (آسيا)",
     "australia-southeast1": "🇦🇺 سيدني (أستراليا)",
@@ -247,34 +247,35 @@ def build_vless(service_url: str) -> str:
     )
 
 # ===================================================================
-# 8. تنفيذ أوامر النظام (subprocess) – قلب السكربت الناجح
+# 8. تنفيذ أوامر النظام (مع دعم CLOUDSDK_AUTH_ACCESS_TOKEN)
 # ===================================================================
-def run_cmd(cmd: List[str]) -> Tuple[str, str]:
+def run_cmd(cmd: List[str], env: Dict[str, str] = None) -> Tuple[str, str]:
+    """تنفيذ أمر مع دعم متغيرات البيئة المخصصة"""
     logger.info(f"Executing: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    if env is None:
+        env = os.environ.copy()
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         logger.warning(f"Command error: {result.stderr}")
     return result.stdout.strip(), result.stderr
 
 def deploy_with_gcloud(project_id: str, region: str, token: str) -> Tuple[str, str]:
+    """النشر عبر gcloud باستخدام CLOUDSDK_AUTH_ACCESS_TOKEN (بدون auth login)"""
     start_time = time.time()
-    cred_file = "/tmp/gcloud_cred.json"
-    with open(cred_file, "w") as f:
-        json.dump({"access_token": token, "token_type": "Bearer", "expires_in": 3600}, f)
-    
     service_name = f"vip-{int(time.time())}"
-    service_url = None
-    error_msg = None
     
+    # ✅ الحل السحري: استخدام التوكن مباشرة عبر متغير البيئة
+    env = os.environ.copy()
+    env["CLOUDSDK_AUTH_ACCESS_TOKEN"] = token
+    env["CLOUDSDK_CORE_PROJECT"] = project_id  # تحديد المشروع أيضاً
+
+    service_url = None
     try:
-        # 1. تسجيل الدخول
-        run_cmd(["gcloud", "auth", "login", "--cred-file", cred_file, "--quiet"])
-        
-        # 2. تفعيل API
-        run_cmd(["gcloud", "services", "enable", "run.googleapis.com", f"--project={project_id}", "--quiet"])
+        # 1. تفعيل API
+        run_cmd(["gcloud", "services", "enable", "run.googleapis.com", f"--project={project_id}"], env=env)
         time.sleep(5)
-        
-        # 3. نشر الخدمة
+
+        # 2. نشر الخدمة (مع تمرير env)
         stdout, stderr = run_cmd([
             "gcloud", "run", "deploy", service_name,
             "--image", DOCKER_IMAGE,
@@ -284,17 +285,17 @@ def deploy_with_gcloud(project_id: str, region: str, token: str) -> Tuple[str, s
             "--allow-unauthenticated",
             "--project", project_id,
             "--quiet"
-        ])
+        ], env=env)
         output = stdout + stderr
         if "ERROR" in stderr or "error" in stderr.lower():
             raise Exception(f"فشل النشر: {stderr}")
-        
-        # 4. استخراج الرابط من المخرجات
+
+        # 3. استخراج الرابط من المخرجات
         match = re.search(r'https://[a-zA-Z0-9\-]+\.run\.app', output)
         if match:
             service_url = match.group(0)
         else:
-            # 5. احتياطي: gcloud describe
+            # 4. احتياطي: gcloud describe
             for attempt in range(6):
                 time.sleep(5)
                 url, _ = run_cmd([
@@ -302,25 +303,21 @@ def deploy_with_gcloud(project_id: str, region: str, token: str) -> Tuple[str, s
                     "--region", region,
                     "--project", project_id,
                     "--format", "value(status.url)"
-                ])
+                ], env=env)
                 if url and url.startswith("http"):
                     service_url = url
                     break
-        
+
         if not service_url:
             raise Exception("لم أجد رابط الخدمة بعد المحاولات المتكررة.")
-        
+
         vless = build_vless(service_url)
         duration = int(time.time() - start_time)
         return service_url, vless, duration
-        
+
     except Exception as e:
-        error_msg = str(e)
         duration = int(time.time() - start_time)
-        raise Exception(error_msg)
-    finally:
-        if os.path.exists(cred_file):
-            os.remove(cred_file)
+        raise Exception(str(e))
 
 # ===================================================================
 # 9. واجهة البوت التفاعلية (Reply Keyboard + Inline Buttons)
@@ -339,7 +336,6 @@ def region_inline_keyboard() -> InlineKeyboardMarkup:
     keyboard = []
     row = []
     for code, name in KNOWN_REGIONS.items():
-        # اختصار الاسم للعرض على الزر (اختصار)
         display_name = code
         row.append(InlineKeyboardButton(f"🌍 {display_name}", callback_data=f"region_{code}"))
         if len(row) == 2:
@@ -580,7 +576,7 @@ def main():
     app.add_handler(conv_handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
     
-    logger.info("🤖 SHADOW LEGION v2.1 (PRO + NL) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v2.1 (PRO + NL + TOKEN FIX) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
