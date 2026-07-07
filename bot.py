@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v8.7 – FINAL FIX (No false Sign-in detection)
-يتعامل مع شاشة الترحيب، الشروط، وتسجيل الدخول، ويستخرج النتيجة من ملف result.txt.
+SHADOW LEGION v8.8 – FIX: Read from terminal only
 """
 
 import os
@@ -44,7 +43,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v8.7 (Final Fix) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v8.8 (Fix terminal reading) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -52,19 +51,19 @@ logger.info("🚀 SHADOW LEGION v8.7 (Final Fix) بدأ التشغيل...")
 WAITING_LINK, WAITING_REGION = range(2)
 
 KNOWN_REGIONS = {
-    "us-central1": "🇺🇸 أيوا (الولايات المتحدة)",
-    "us-east1": "🇺🇸 ساوث كارولينا (الولايات المتحدة)",
-    "us-west1": "🇺🇸 أوريغون (الولايات المتحدة)",
-    "europe-west1": "🇧🇪 بلجيكا (أوروبا)",
-    "europe-west3": "🇩🇪 فرانكفورت (أوروبا)",
-    "europe-west4": "🇳🇱 هولندا (أوروبا)",
-    "asia-southeast1": "🇸🇬 سنغافورة (آسيا)",
-    "asia-east1": "🇹🇼 تايوان (آسيا)",
-    "australia-southeast1": "🇦🇺 سيدني (أستراليا)",
+    "us-central1": "🇺🇸 أيوا",
+    "us-east1": "🇺🇸 ساوث كارولينا",
+    "us-west1": "🇺🇸 أوريغون",
+    "europe-west1": "🇧🇪 بلجيكا",
+    "europe-west3": "🇩🇪 فرانكفورت",
+    "europe-west4": "🇳🇱 هولندا",
+    "asia-southeast1": "🇸🇬 سنغافورة",
+    "asia-east1": "🇹🇼 تايوان",
+    "australia-southeast1": "🇦🇺 سيدني",
 }
 
 # ===================================================================
-# 3. قاعدة البيانات (SQLite)
+# 3. قاعدة البيانات (نفس السابق)
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -98,7 +97,7 @@ def init_db():
 init_db()
 
 # ===================================================================
-# 4. دوال قاعدة البيانات
+# 4. دوال قاعدة البيانات (نفس السابق)
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
@@ -174,7 +173,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     return history
 
 # ===================================================================
-# 5. دوال مساعدة لاستخراج البيانات
+# 5. دوال مساعدة
 # ===================================================================
 def extract_project_id(link: str) -> Optional[str]:
     decoded = urllib.parse.unquote(link)
@@ -193,7 +192,7 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 6. أتمتة Cloud Shell (Playwright) – يدعم جميع الشاشات
+# 6. أتمتة Cloud Shell (Playwright) – قراءة من الطرفية فقط
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -215,104 +214,77 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             )
             page = await context.new_page()
 
-            # 1. فتح الرابط في المتصفح المتخفي
-            logger.info("🌐 فتح الرابط في المتصفح المتخفي...")
+            # 1. فتح الرابط
+            logger.info("🌐 فتح الرابط...")
             await page.goto(link, timeout=60000, wait_until="networkidle")
             await asyncio.sleep(5)
 
-            # 2. التحقق من الصفحة الحالية – تجاوز الشاشات التي تعترض الطريق
+            # 2. تجاوز العقبات (نفس الكود السابق)
             page_text = await page.inner_text("body")
 
-            # 2أ. شاشة تسجيل الدخول (Sign in) – فقط إذا كان الرابط منتهياً
-            # نتحقق بدقة: إذا كانت الصفحة فارغة أو تحتوي فقط على نموذج تسجيل الدخول
             if "Sign in" in page_text and "Email or phone" in page_text and "Use your Google Account" in page_text:
                 await browser.close()
-                return False, "", "❌ **الرابط منتهي الصلاحية!** يرجى الحصول على رابط جديد من مختبر Qwiklabs.", int(time.time() - start_time)
+                return False, "", "❌ **الرابط منتهي الصلاحية!** يرجى الحصول على رابط جديد.", int(time.time() - start_time)
 
-            # 2ب. شاشة الترحيب (Welcome)
             if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
-                logger.info("👋 تم اكتشاف شاشة الترحيب. جاري الضغط على زر Understand...")
+                logger.info("👋 شاشة الترحيب... جاري الضغط Understand")
                 try:
                     for selector in ["button:has-text('Understand')", "button:has-text('I understand')", "button:has-text('Accept')"]:
                         try:
                             await page.click(selector, timeout=3000)
-                            logger.info("✅ تم الضغط على زر Understand.")
+                            logger.info("✅ تم الضغط على Understand.")
                             await asyncio.sleep(3)
                             break
                         except:
                             continue
                 except Exception as e:
-                    logger.warning(f"⚠️ فشل الضغط على زر Understand: {e}")
+                    logger.warning(f"⚠️ فشل Understand: {e}")
 
-            # 2ج. شاشة الموافقة على الشروط (Terms of Service)
             if "Terms of Service" in page_text and "I agree to the Google Cloud Platform Terms of Service" in page_text:
-                logger.info("📜 تم اكتشاف شاشة الموافقة على الشروط. جاري الموافقة...")
+                logger.info("📜 شاشة الشروط... جاري الموافقة")
                 try:
-                    # تحديد مربع الاختيار
-                    checkbox_clicked = False
-                    for selector in [
-                        "input[type='checkbox']:has-text('I agree')",
-                        "label:has-text('I agree to the Google Cloud Platform Terms of Service') input",
-                        "input[type='checkbox']"
-                    ]:
+                    for selector in ["input[type='checkbox']", "label:has-text('I agree to the Google Cloud Platform Terms of Service') input"]:
                         try:
                             checkbox = await page.wait_for_selector(selector, timeout=3000)
                             if checkbox:
                                 await checkbox.check()
-                                logger.info("✅ تم تحديد مربع الموافقة.")
-                                checkbox_clicked = True
+                                logger.info("✅ تم تحديد المربع.")
                                 break
                         except:
                             continue
-                    
-                    if not checkbox_clicked:
-                        await page.evaluate("""
-                            () => {
-                                const cb = document.querySelector('input[type="checkbox"]');
-                                if (cb && !cb.checked) {
-                                    cb.checked = true;
-                                    cb.dispatchEvent(new Event('change', { bubbles: true }));
-                                }
-                            }
-                        """)
-                        logger.info("✅ تم تحديد مربع الاختيار عبر JavaScript.")
-                    
                     await asyncio.sleep(1)
-                    
-                    # الضغط على زر المتابعة
                     for btn_text in ["Continue", "Agree and Continue", "Agree", "Accept", "موافق", "متابعة"]:
                         try:
                             await page.click(f"button:has-text('{btn_text}')", timeout=3000)
-                            logger.info(f"✅ تم الضغط على زر '{btn_text}'.")
+                            logger.info(f"✅ تم الضغط على {btn_text}.")
                             await asyncio.sleep(3)
                             break
                         except:
                             continue
                 except Exception as e:
-                    logger.warning(f"⚠️ فشل في تجاوز شاشة الشروط: {e}")
+                    logger.warning(f"⚠️ فشل تجاوز الشروط: {e}")
 
-            # 3. بعد تجاوز جميع الشاشات، ننتقل إلى Cloud Shell
-            logger.info("✅ تم تجاوز جميع الشاشات. التوجه إلى Cloud Shell...")
+            # 3. التوجه إلى Cloud Shell
+            logger.info("📂 التوجه إلى Cloud Shell...")
             await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
 
-            # 4. انتظار تحميل الطرفية
-            logger.info("⏳ انتظار تحميل الطرفية...")
+            # 4. انتظار الطرفية
+            logger.info("⏳ انتظار الطرفية...")
             terminal_ready = False
             for attempt in range(10):
                 try:
                     await page.wait_for_selector(".xterm, .terminal, [role='textbox'], textarea", timeout=5000)
-                    logger.info(f"✅ تم العثور على عنصر الطرفية (المحاولة {attempt+1})")
+                    logger.info(f"✅ الطرفية جاهزة (محاولة {attempt+1})")
                     terminal_ready = True
                     break
                 except:
-                    logger.info(f"⏳ المحاولة {attempt+1}/10: لا يزال التحميل جارياً...")
+                    logger.info(f"⏳ المحاولة {attempt+1}/10...")
             if not terminal_ready:
-                logger.warning("⚠️ لم نتمكن من تأكيد تحميل الطرفية، ننتظر 15 ثانية ونكمل...")
                 await asyncio.sleep(15)
 
             await asyncio.sleep(3)
 
-            # 5. إعداد السكربت وحقنه
+            # 5. حقن السكربت
             with open("deploy_script.py", "r") as f:
                 script_content = f.read()
             script_content = script_content.replace('os.environ.get("PROJECT_ID")', f'"{project_id}"')
@@ -333,36 +305,44 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(3)
 
-            # 6. انتظار النتيجة وقراءة الملف مباشرة
-            logger.info("⏳ انتظار اكتمال النشر وظهور النتيجة (حتى 3 دقائق)...")
+            # 6. انتظار النتيجة وقراءة من الطرفية فقط
+            logger.info("⏳ انتظار النتيجة (حتى 3 دقائق)...")
             try:
-                # ننتظر ظهور النتيجة في الطرفية (من cat result.txt)
                 await page.wait_for_selector("text=/SERVICE_URL:|VLESS:/", timeout=180000)
                 logger.info("✅ تم العثور على النتيجة.")
             except:
-                logger.warning("⚠️ لم يتم العثور على النتيجة خلال المهلة.")
+                logger.warning("⚠️ لم تظهر النتيجة خلال المهلة.")
 
             await asyncio.sleep(3)
-            
-            # ✅ قراءة النتيجة من الملف مباشرة عبر cat result.txt (الموجود بالفعل في الأوامر)
-            terminal_text = await page.evaluate("() => document.body.innerText")
+
+            # 🔥 قراءة من عنصر الطرفية وليس من الصفحة كاملة
+            terminal_text = ""
+            try:
+                terminal_element = await page.query_selector(".xterm, .terminal, [role='textbox']")
+                if terminal_element:
+                    terminal_text = await terminal_element.inner_text()
+                else:
+                    terminal_text = await page.inner_text("body")
+            except:
+                terminal_text = await page.inner_text("body")
+
             await browser.close()
 
-            # استخراج SERVICE_URL و VLESS من النص (تجاهل أي نص آخر)
+            # استخراج النتيجة من نص الطرفية فقط
             service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', terminal_text)
             vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', terminal_text)
 
             if service_match and vless_match:
                 return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time)
             else:
-                # ✅ تحسين رسالة الخطأ: نعرض آخر 500 حرف من المخرجات، ونخبر المستخدم أن السكربت قد فشل
+                # عرض آخر 500 حرف من الطرفية فقط (بدون باقي الصفحة)
                 return False, "", f"⚠️ فشل تنفيذ السكربت في Cloud Shell.\nآخر ما ظهر في الطرفية:\n```\n{terminal_text[-500:]}\n```", int(time.time() - start_time)
 
     except Exception as e:
         return False, "", str(e), int(time.time() - start_time)
 
 # ===================================================================
-# 7. واجهة البوت (الأزرار والقوائم)
+# 7. واجهة البوت (كما هي)
 # ===================================================================
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
@@ -379,17 +359,13 @@ def region_inline_keyboard() -> InlineKeyboardMarkup:
     keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
     return InlineKeyboardMarkup(keyboard)
 
-# ===================================================================
-# 8. أوامر البوت ومعالجات الأزرار
-# ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v8.7 – Final Fix**\n\n"
+        "🔥 **SHADOW LEGION v8.8 – Fix Terminal Reading**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ سأتعامل مع جميع الشاشات: الترحيب، الشروط، وتسجيل الدخول.\n"
-        "❌ إذا كان الرابط منتهياً، سأخبرك فوراً.",
+        "✅ سأقرأ النتيجة من الطرفية مباشرة، ولن تظهر لك رسائل 'Sign in' الخادعة.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
     )
@@ -536,7 +512,7 @@ def main():
     app.add_handler(CallbackQueryHandler(region_callback, pattern="^region_"))
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
-    logger.info("🤖 SHADOW LEGION v8.7 (Final Fix) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v8.8 جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
