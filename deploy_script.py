@@ -1,4 +1,9 @@
-import os, subprocess, time, hashlib, re, json, sys
+import os
+import subprocess
+import time
+import hashlib
+import re
+import sys
 
 PROJECT_ID = os.environ.get("PROJECT_ID")
 TOKEN = os.environ.get("TOKEN")
@@ -23,7 +28,7 @@ def build_vless(service_url):
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
     return f"vless://{uid}@{host}:443?path=%2FTelegram%2F%40AM2_D3%2F%40AHMAD3214&security=tls&encryption=none&host={host}&type=ws&sni={host}#CloudRun"
 
-# 1. تسجيل الدخول باستخدام التوكن (معرف مسبقاً في Cloud Shell)
+# 1. تفعيل API
 print("🔹 1. تفعيل Cloud Run API...")
 run_cmd(["gcloud", "services", "enable", "run.googleapis.com", f"--project={PROJECT_ID}"])
 time.sleep(5)
@@ -70,6 +75,6 @@ if not service_url:
 
 vless = build_vless(service_url)
 print("\n" + "="*70)
-print(f"✅ SERVICE_URL: {service_url}")
-print(f"✅ VLESS: {vless}")
+print(f"SERVICE_URL: {service_url}")
+print(f"VLESS: {vless}")
 print("="*70)
