@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v9.0 – ULTIMATE FIX (URL-based login check + Terminal reading)
+SHADOW LEGION v10.0 – STEALTH BROWSER EDITION
+يتجاوز اكتشاف Google باستخدام تقنيات التخفي (WebGL, Canvas, AudioContext, ...)
 """
 
 import os
@@ -27,6 +28,7 @@ from telegram.ext import (
     filters,
 )
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from playwright_stealth import StealthConfig, stealth_async
 
 # ===================================================================
 # 1. الإعدادات الأساسية
@@ -43,7 +45,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v9.0 (URL Check + Terminal Reading) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v10.0 (Stealth Browser) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -192,46 +194,65 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 6. أتمتة Cloud Shell – مع التحقق عبر URL
+# 6. أتمتة Cloud Shell مع Stealth
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
     try:
         async with async_playwright() as p:
+            # 🔥 تشغيل المتصفح مع إعدادات متقدمة
             browser = await p.chromium.launch(
                 headless=True,
                 args=[
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-blink-features=AutomationControlled",
-                    "--window-size=1920,1080"
+                    "--window-size=1920,1080",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--disable-web-security"
                 ]
             )
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
                 viewport={"width": 1920, "height": 1080},
-                locale="en-US"
+                locale="en-US",
+                timezone_id="America/New_York",
+                permissions=["geolocation"],
+                geolocation={"latitude": 40.7128, "longitude": -74.0060}
             )
             page = await context.new_page()
 
-            # 1. فتح الرابط مع متابعة إعادة التوجيه
-            logger.info("🌐 فتح الرابط...")
+            # 🔥 تطبيق Stealth
+            await stealth_async(page, config=StealthConfig(
+                webgl_vendor=True,
+                renderer_webgl=True,
+                canvas=True,
+                webgl=True,
+                audio_context=True,
+                languages=True,
+                navigator_plugins=True
+            ))
+
+            # 1. فتح الرابط
+            logger.info("🌐 فتح الرابط (بصمة متخفية)...")
             await page.goto(link, timeout=60000, wait_until="networkidle")
-            
-            # ✅ التحقق من نجاح تسجيل الدخول عبر عنوان URL
-            logger.info("⏳ انتظار إعادة التوجيه بعد تسجيل الدخول...")
+            await asyncio.sleep(5)
+
+            # 2. التحقق من نجاح تسجيل الدخول عبر URL
             try:
                 await page.wait_for_url(
                     lambda url: "console.cloud.google.com" in url or "shell.cloud.google.com" in url,
                     timeout=30000
                 )
-                logger.info("✅ تم تسجيل الدخول بنجاح (تم التحقق عبر URL).")
+                logger.info("✅ تم تسجيل الدخول بنجاح (بصمة متخفية).")
             except:
                 current_url = page.url
                 await browser.close()
-                return False, "", f"❌ **فشل تسجيل الدخول!**\nلم يتم التوجيه إلى Google Cloud Console.\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
+                return False, "", f"❌ **فشل تسجيل الدخول (اكتشف Google البوت رغم التخفي).**\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
 
-            # 2. تجاوز العقبات (ترحيب، شروط)
+            # 3. تجاوز شاشات الترحيب والشروط
             page_text = await page.inner_text("body")
 
             if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
@@ -268,11 +289,11 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 except Exception as e:
                     logger.warning(f"⚠️ فشل تجاوز الشروط: {e}")
 
-            # 3. التوجه إلى Cloud Shell
+            # 4. التوجه إلى Cloud Shell
             logger.info("📂 التوجه إلى Cloud Shell...")
             await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
 
-            # 4. انتظار الطرفية
+            # 5. انتظار الطرفية
             logger.info("⏳ انتظار الطرفية...")
             terminal_ready = False
             for attempt in range(10):
@@ -287,7 +308,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
 
             await asyncio.sleep(3)
 
-            # 5. حقن السكربت
+            # 6. حقن السكربت
             with open("deploy_script.py", "r") as f:
                 script_content = f.read()
             script_content = script_content.replace('os.environ.get("PROJECT_ID")', f'"{project_id}"')
@@ -308,7 +329,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(3)
 
-            # 6. انتظار النتيجة
+            # 7. انتظار النتيجة
             logger.info("⏳ انتظار اكتمال النشر (حتى 3 دقائق)...")
             try:
                 await page.wait_for_selector("text=/SERVICE_URL:|VLESS:|❌ الخطوة:/", timeout=180000)
@@ -350,7 +371,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
         return False, "", str(e), int(time.time() - start_time)
 
 # ===================================================================
-# 7. واجهة البوت (الأزرار والقوائم)
+# 7. واجهة البوت
 # ===================================================================
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
@@ -374,10 +395,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v9.0 – Ultimate Fix**\n\n"
+        "🔥 **SHADOW LEGION v10.0 – Stealth Browser**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ سأتحقق من تسجيل الدخول عبر عنوان URL (أكثر دقة).\n"
-        "❌ إذا فشل تسجيل الدخول، سأخبرك بالسبب فوراً.",
+        "✅ سأستخدم تقنيات تخفيف لتجنب اكتشاف Google.\n"
+        "❌ إذا فشل تسجيل الدخول، سأخبرك بالسبب.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
     )
@@ -539,7 +560,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v9.0 جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v10.0 (Stealth Browser) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
