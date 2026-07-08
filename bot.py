@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v15.1 – ULTIMATE STEALTH (FIXED)
-أقوى أدوات التخفي (بدون playwright-extra)
+SHADOW LEGION v15.2 – ULTIMATE STEALTH (FIXED HEADLESS)
+أقوى أدوات التخفي (مع headless=True)
 """
 
 import os
@@ -48,7 +48,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v15.1 (Ultimate Stealth) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v15.2 (Ultimate Stealth) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -212,7 +212,7 @@ def random_delay(min_sec: float = 0.5, max_sec: float = 2.0) -> float:
     return random.uniform(min_sec, max_sec)
 
 # ===================================================================
-# 5. أتمتة Cloud Shell – النسخة الخارقة (بدون playwright-extra)
+# 5. أتمتة Cloud Shell – النسخة الخارقة (مع headless=True)
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -237,8 +237,9 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
         
         try:
             async with async_playwright() as p:
+                # 🔥 التصحيح: استخدم headless=True مع إضافة وسيط --headless=new
                 browser = await p.chromium.launch(
-                    headless="new",
+                    headless=True,
                     args=[
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
@@ -274,6 +275,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                         "--disable-features=GlobalMediaControls",
                         "--disable-features=TabGroups",
                         "--disable-features=PrivacySandboxAdsAPIsOverride",
+                        "--headless=new",  # 🔥 استخدام الوضع الجديد
                     ]
                 )
                 context = await browser.new_context(
@@ -343,7 +345,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                         logger.warning(f"⚠️ فشل تسجيل الدخول في المحاولة {attempt+1}، نعيد المحاولة...")
                         continue
 
-                # 3. تجاوز شاشات الترحيب والشروط (نفس الكود السابق)
+                # 3. تجاوز شاشات الترحيب والشروط
                 page_text = await page.inner_text("body")
 
                 if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
@@ -515,7 +517,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v15.1 – ULTIMATE STEALTH (FIXED)**\n\n"
+        "🔥 **SHADOW LEGION v15.2 – ULTIMATE STEALTH (FIXED HEADLESS)**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
         "🕵️ أقوى أدوات التخفي:\n"
         "   • بصمة متصفح عشوائية (WebGL, Canvas, AudioContext)\n"
@@ -716,7 +718,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v15.1 (Ultimate Stealth) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v15.2 (Ultimate Stealth) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
