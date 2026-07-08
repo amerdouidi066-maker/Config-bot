@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v14.4 – CLOUD SHELL SCREENS FIX
-التعامل مع شاشات Continue و Authorize في Cloud Shell.
+SHADOW LEGION v14.5 – SMART WAIT STRATEGY
+استراتيجية انتظار ذكية لتجنب Timeout.
 """
 
 import os
@@ -47,7 +47,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v14.4 (Cloud Shell Screens) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v14.5 (Smart Wait) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -192,7 +192,7 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 5. أتمتة Cloud Shell (مع شاشات Continue و Authorize)
+# 5. أتمتة Cloud Shell (استراتيجية انتظار ذكية)
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -226,10 +226,12 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
 
             await stealth_async(page)
 
-            # 1. فتح الرابط
+            # 1. فتح الرابط (استراتيجية انتظار ذكية)
             logger.info("🌐 فتح الرابط (Stealth Mode)...")
             try:
-                await page.goto(link, timeout=120000, wait_until="domcontentloaded")
+                # انتظر حتى يبدأ تحميل الصفحة، ثم انتظر العنصر المطلوب
+                await page.goto(link, timeout=60000)
+                # انتظر ظهور حقل البريد الإلكتروني (بدون انتظار networkidle أو domcontentloaded)
                 await page.wait_for_selector("input[type='email']", timeout=30000)
                 logger.info("✅ تم تحميل الصفحة الرئيسية.")
             except PlaywrightTimeout:
@@ -290,40 +292,40 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
 
             # ===================================================================
-            # 🔥 التعامل مع شاشات Cloud Shell الجديدة
+            # التعامل مع شاشات Cloud Shell
             # ===================================================================
             logger.info("🔍 التحقق من شاشات Cloud Shell...")
 
-            # شاشة 1: شاشة "Continue" (الترحيب)
+            # شاشة "Continue"
             try:
                 continue_button = await page.wait_for_selector(
-                    "button:has-text('Continue'), button:has-text('متابعة'), button:has-text('Start Cloud Shell')",
+                    "button:has-text('Continue'), button:has-text('متابعة')",
                     timeout=5000
                 )
                 if continue_button:
                     await continue_button.click()
-                    logger.info("✅ تم الضغط على زر Continue.")
+                    logger.info("✅ تم الضغط على Continue.")
                     await asyncio.sleep(3)
             except:
                 pass
 
-            # شاشة 2: شاشة "Authorize" (التفويض)
+            # شاشة "Authorize"
             try:
                 authorize_button = await page.wait_for_selector(
-                    "button:has-text('Authorize'), button:has-text('تفويض'), button:has-text('Allow')",
+                    "button:has-text('Authorize'), button:has-text('تفويض')",
                     timeout=5000
                 )
                 if authorize_button:
                     await authorize_button.click()
-                    logger.info("✅ تم الضغط على زر Authorize.")
+                    logger.info("✅ تم الضغط على Authorize.")
                     await asyncio.sleep(3)
             except:
                 pass
 
-            # شاشة 3: أي شاشة أخرى تحتوي على "Start Cloud Shell"
+            # شاشة "Start Cloud Shell"
             try:
                 start_button = await page.wait_for_selector(
-                    "button:has-text('Start Cloud Shell'), button:has-text('Launch Cloud Shell'), button:has-text('Open Cloud Shell')",
+                    "button:has-text('Start Cloud Shell')",
                     timeout=5000
                 )
                 if start_button:
@@ -421,9 +423,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v14.4 – Cloud Shell Screens**\n\n"
+        "🔥 **SHADOW LEGION v14.5 – Smart Wait**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ تم إضافة معالجة لشاشات Continue و Authorize في Cloud Shell.\n"
+        "✅ استراتيجية انتظار ذكية لتجنب Timeout.\n"
+        "🕵️ وكيل مستخدم عشوائي + Stealth.\n"
         "⏳ المدة المتوقعة: 3-5 دقائق.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
@@ -615,7 +618,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v14.4 (Cloud Shell Screens) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v14.5 (Smart Wait) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
