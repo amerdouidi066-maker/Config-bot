@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v14.1 – PROFESSIONAL EDITION (CLOUD SHELL SCREENS FIX + TIMEOUT FIX)
+SHADOW LEGION v14.1 – PROFESSIONAL EDITION (FULL TIMEOUT FIX)
 Stealth Browser + Cloud Shell Automation + VLESS Generator
 """
 
@@ -46,7 +46,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v14.1 (Professional + Cloud Shell Screens + Timeout Fix) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v14.1 (Professional + Full Timeout Fix) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -188,7 +188,7 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 6. أتمتة Cloud Shell (مع إصلاح Timeout لـ Cloud Shell)
+# 6. أتمتة Cloud Shell (مع إصلاح Timeout للرابط و Cloud Shell)
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -220,7 +220,8 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             await stealth_async(page)
 
             logger.info("فتح الرابط (Stealth Mode)...")
-            await page.goto(link, timeout=60000, wait_until="networkidle")
+            # 🔥 التغيير الأول: استخدم domcontentloaded بدلاً من networkidle
+            await page.goto(link, timeout=60000, wait_until="domcontentloaded")
             await asyncio.sleep(5)
 
             # التحقق من تسجيل الدخول
@@ -273,9 +274,9 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 except Exception as e:
                     logger.warning(f"فشل تجاوز الشروط: {e}")
 
-            # التوجه إلى Cloud Shell (مع تغيير استراتيجية الانتظار لتجنب Timeout)
+            # التوجه إلى Cloud Shell
             logger.info("التوجه إلى Cloud Shell...")
-            # 🔥 التغيير الوحيد: استخدم domcontentloaded بدلاً من networkidle
+            # 🔥 التغيير الثاني: استخدم domcontentloaded بدلاً من networkidle
             await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
 
             # ===================================================================
@@ -415,9 +416,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v14.1 – Professional Edition (Cloud Shell Screens Fix + Timeout Fix)**\n\n"
+        "🔥 **SHADOW LEGION v14.1 – Professional Edition (Full Timeout Fix)**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ تم إصلاح Timeout عند التوجه إلى Cloud Shell.\n"
+        "✅ تم إصلاح Timeout عند فتح الرابط وعند التوجه إلى Cloud Shell.\n"
         "⏳ المدة المتوقعة: 3-5 دقائق. سيتم إرسال النتيجة فور ظهورها.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
@@ -615,7 +616,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v14.1 (Professional + Cloud Shell Screens + Timeout Fix) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v14.1 (Professional + Full Timeout Fix) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
