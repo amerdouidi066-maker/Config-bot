@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v20.1 – REAL CHROME STEALTH
-يستخدم متصفح Chrome الحقيقي (وليس Chromium)
+SHADOW LEGION v20.2 – REAL CHROME STEALTH (FIXED HEADLESS)
+يستخدم متصفح Chrome الحقيقي (وليس Chromium) مع إصلاح headless
 """
 
 import os
@@ -49,7 +49,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v20.1 (Real Chrome) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v20.2 (Real Chrome + Headless Fix) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -281,7 +281,7 @@ print("="*70)
 '''
 
 # ===================================================================
-# 5. القلب النابض – أتمتة المتصفح المتخفي مع Chrome الحقيقي
+# 5. القلب النابض – أتمتة المتصفح المتخفي مع Chrome الحقيقي (headless fix)
 # ===================================================================
 async def run_full_automation(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -290,10 +290,10 @@ async def run_full_automation(link: str, project_id: str, token: str, region: st
 
     try:
         async with async_playwright() as p:
-            # 🔥 استخدام Chrome الحقيقي (وليس Chromium)
+            # 🔥 استخدام Chrome الحقيقي مع إصلاح headless
             browser = await p.chromium.launch(
-                channel="chrome",  # ✅ استخدم Chrome المثبت على النظام
-                headless="new",    # ✅ أحدث إصدار headless
+                channel="chrome",        # ✅ استخدم Chrome المثبت على النظام
+                headless=True,           # ✅ قيمة منطقية
                 args=[
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
@@ -303,6 +303,7 @@ async def run_full_automation(link: str, project_id: str, token: str, region: st
                     "--disable-software-rasterizer",
                     "--disable-features=IsolateOrigins,site-per-process",
                     "--disable-web-security",
+                    "--headless=new",      # ✅ تفعيل الوضع الجديد عبر الوسيط
                     "--disable-features=BlockInsecurePrivateNetworkRequests",
                     "--disable-features=OutOfBlinkCors",
                     "--disable-features=SameSiteByDefaultCookies",
@@ -613,7 +614,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v20.1 – Real Chrome Stealth**\n\n"
+        "🔥 **SHADOW LEGION v20.2 – Real Chrome Stealth (Headless Fix)**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
         "✅ يستخدم متصفح Chrome الحقيقي (وليس Chromium).\n"
         "✅ أقوى تقنيات التخفي.\n"
@@ -813,7 +814,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v20.1 (Real Chrome) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v20.2 (Real Chrome + Headless Fix) جاهز ويعمل على Railway...")
     logger.info("⚡ يستخدم Chrome الحقيقي مع أحدث تقنيات التخفي.")
     app.run_polling()
 
