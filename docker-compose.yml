@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  shadow-legion:
+    build: .
+    container_name: shadow_legion
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - TOKEN=${TOKEN}
+      - WEB_PASSWORD=${WEB_PASSWORD:-shadow2099}
+      - WEB_SECRET=${WEB_SECRET:-random_secret}
+    volumes:
+      - ./shadow_legion.db:/app/shadow_legion.db
+      - ./bot.log:/app/bot.log
+      - ./screenshots:/app/screenshots
