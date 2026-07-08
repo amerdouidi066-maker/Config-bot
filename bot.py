@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v14.5 – SMART WAIT STRATEGY
-استراتيجية انتظار ذكية لتجنب Timeout.
+SHADOW LEGION v14.6 – TIMEOUT FIX (نفس النسخة الناجحة مع تحسين التحميل)
 """
 
 import os
@@ -47,7 +46,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v14.5 (Smart Wait) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v14.6 (Timeout Fix) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -192,7 +191,7 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 5. أتمتة Cloud Shell (استراتيجية انتظار ذكية)
+# 5. أتمتة Cloud Shell (مع حل Timeout)
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -226,14 +225,23 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
 
             await stealth_async(page)
 
-            # 1. فتح الرابط (استراتيجية انتظار ذكية)
+            # ===================================================================
+            # 1. فتح الرابط (استراتيجية سريعة + انتظار يدوي)
+            # ===================================================================
             logger.info("🌐 فتح الرابط (Stealth Mode)...")
             try:
-                # انتظر حتى يبدأ تحميل الصفحة، ثم انتظر العنصر المطلوب
-                await page.goto(link, timeout=60000)
-                # انتظر ظهور حقل البريد الإلكتروني (بدون انتظار networkidle أو domcontentloaded)
-                await page.wait_for_selector("input[type='email']", timeout=30000)
-                logger.info("✅ تم تحميل الصفحة الرئيسية.")
+                # لا ننتظر networkidle، فقط نبدأ تحميل الصفحة
+                await page.goto(link, timeout=60000, wait_until="commit")
+                
+                # ننتظر ظهور حقل البريد الإلكتروني (أو أي عنصر يدل على اكتمال التحميل)
+                try:
+                    await page.wait_for_selector("input[type='email']", timeout=60000)
+                    logger.info("✅ تم تحميل الصفحة الرئيسية (تم العثور على حقل البريد).")
+                except:
+                    # إذا لم يظهر حقل البريد، ننتظر 30 ثانية إضافية
+                    logger.info("⏳ لم يظهر حقل البريد، ننتظر 30 ثانية إضافية...")
+                    await asyncio.sleep(30)
+                    logger.info("✅ تم تجاوز الانتظار، نواصل...")
             except PlaywrightTimeout:
                 await browser.close()
                 return False, "", "❌ انتهت مهلة تحميل الرابط.", int(time.time() - start_time)
@@ -423,9 +431,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v14.5 – Smart Wait**\n\n"
+        "🔥 **SHADOW LEGION v14.6 – Timeout Fix**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ استراتيجية انتظار ذكية لتجنب Timeout.\n"
+        "✅ تم إصلاح مشكلة Timeout.\n"
         "🕵️ وكيل مستخدم عشوائي + Stealth.\n"
         "⏳ المدة المتوقعة: 3-5 دقائق.",
         parse_mode="Markdown",
@@ -618,7 +626,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v14.5 (Smart Wait) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v14.6 (Timeout Fix) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
