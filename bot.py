@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v15.0 – ULTIMATE STEALTH ARSENAL
-أقوى أدوات التخفي والاختراق في السوق
+SHADOW LEGION v15.1 – ULTIMATE STEALTH (FIXED)
+أقوى أدوات التخفي (بدون playwright-extra)
 """
 
 import os
@@ -48,7 +48,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v15.0 (Ultimate Stealth) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v15.1 (Ultimate Stealth) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -62,10 +62,10 @@ KNOWN_REGIONS = {
     "asia-southeast1": "🇸🇬 سنغافورة",
 }
 
-# توليد وكيل مستخدم عشوائي (أداة التخفي 1)
+# وكيل مستخدم عشوائي
 ua = UserAgent()
 
-# قائمة بصمات WebGL مختلفة (أداة التخفي 2)
+# بصمات WebGL عشوائية
 WEBGL_VENDORS = ["Google Inc.", "Intel Inc.", "NVIDIA Corporation", "AMD", "Apple Inc."]
 WEBGL_RENDERERS = [
     "ANGLE (Intel, Intel(R) UHD Graphics 620, Direct3D11 vs_5_0 ps_5_0)",
@@ -74,14 +74,14 @@ WEBGL_RENDERERS = [
     "ANGLE (Apple, Apple M1, OpenGL 4.1)",
 ]
 
-# قائمة مواقع جغرافية عشوائية (أداة التخفي 3)
+# مواقع جغرافية عشوائية
 LOCATIONS = [
-    {"latitude": 40.7128, "longitude": -74.0060},  # نيويورك
-    {"latitude": 51.5074, "longitude": -0.1278},   # لندن
-    {"latitude": 48.8566, "longitude": 2.3522},    # باريس
-    {"latitude": 35.6895, "longitude": 139.6917},  # طوكيو
-    {"latitude": 37.7749, "longitude": -122.4194}, # سان فرانسيسكو
-    {"latitude": 25.2048, "longitude": 55.2708},   # دبي
+    {"latitude": 40.7128, "longitude": -74.0060},
+    {"latitude": 51.5074, "longitude": -0.1278},
+    {"latitude": 48.8566, "longitude": 2.3522},
+    {"latitude": 35.6895, "longitude": 139.6917},
+    {"latitude": 37.7749, "longitude": -122.4194},
+    {"latitude": 25.2048, "longitude": 55.2708},
 ]
 
 # ===================================================================
@@ -209,57 +209,36 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 def random_delay(min_sec: float = 0.5, max_sec: float = 2.0) -> float:
-    """تأخير عشوائي لمحاكاة السلوك البشري"""
     return random.uniform(min_sec, max_sec)
 
 # ===================================================================
-# 5. أتمتة Cloud Shell – النسخة الخارقة
+# 5. أتمتة Cloud Shell – النسخة الخارقة (بدون playwright-extra)
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
     
-    # ===================================================================
-    # 🔥 إعدادات التخفي الخارقة (تتغير في كل محاولة)
-    # ===================================================================
-    # 1. وكيل مستخدم عشوائي
+    # إعدادات التخفي العشوائية
     user_agent = ua.random
-    logger.info(f"🕵️ وكيل المستخدم: {user_agent[:60]}...")
-    
-    # 2. بصمة WebGL عشوائية
     webgl_vendor = random.choice(WEBGL_VENDORS)
     webgl_renderer = random.choice(WEBGL_RENDERERS)
-    
-    # 3. موقع جغرافي عشوائي
     location = random.choice(LOCATIONS)
-    
-    # 4. دقة شاشة عشوائية
     viewport_width = random.choice([1366, 1440, 1536, 1600, 1920, 2560])
     viewport_height = random.choice([768, 900, 960, 1050, 1080, 1440])
-    
-    # 5. المنطقة الزمنية عشوائية
     timezones = ["America/New_York", "Europe/London", "Europe/Paris", "Asia/Tokyo", "America/Los_Angeles", "Asia/Dubai"]
     timezone = random.choice(timezones)
-    
-    # 6. اللغة عشوائية
     locales = ["en-US", "en-GB", "fr-FR", "de-DE", "es-ES", "ja-JP", "ar-SA"]
     locale = random.choice(locales)
-    
-    # 7. حجم الخط (عشوائي)
     device_scale_factor = random.choice([1, 1.5, 2])
     
-    # ===================================================================
-    # المحاولات (إعادة المحاولة التلقائية)
-    # ===================================================================
+    logger.info(f"🕵️ وكيل المستخدم: {user_agent[:60]}...")
+    
     for attempt in range(3):
         logger.info(f"🔄 المحاولة {attempt+1}/3 (بصمة جديدة)")
         
         try:
             async with async_playwright() as p:
-                # ============================================================
-                # تشغيل المتصفح بإعدادات خارقة
-                # ============================================================
                 browser = await p.chromium.launch(
-                    headless="new",  # 🔥 أحدث إصدار headless
+                    headless="new",
                     args=[
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
@@ -295,12 +274,6 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                         "--disable-features=GlobalMediaControls",
                         "--disable-features=TabGroups",
                         "--disable-features=PrivacySandboxAdsAPIsOverride",
-                        # 🔥 إخفاء بصمة WebDriver بشكل أعمق
-                        "--disable-blink-features=AutomationControlled",
-                        "--disable-features=ChromeWhatsNewUI",
-                        "--disable-features=ChromeLabs",
-                        "--disable-features=SideSearch",
-                        "--disable-features=UserAgentClientHint",
                     ]
                 )
                 context = await browser.new_context(
@@ -328,9 +301,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 )
                 page = await context.new_page()
 
-                # ============================================================
-                # 🔥 تطبيق Stealth مع جميع الخيارات (أقوى إعدادات)
-                # ============================================================
+                # تطبيق Stealth (بدون playwright-extra)
                 await stealth_async(page, config=StealthConfig(
                     webgl_vendor=True,
                     renderer_webgl=True,
@@ -349,29 +320,14 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                     shared_array_buffer=True,
                     speech_synthesis=True,
                     user_agent=True,
-                    # 🔥 إعدادات إضافية قوية
-                    navigator_hardware_concurrency=True,
-                    navigator_device_memory=True,
-                    navigator_platform=True,
-                    screen_avail=True,
-                    screen_color_depth=True,
-                    screen_pixel_depth=True,
-                    timezone=True,
-                    webrtc=True,
                 ))
 
-                # ============================================================
-                # 1. فتح الرابط (مع انتظار networkidle لتسجيل الدخول)
-                # ============================================================
+                # 1. فتح الرابط
                 logger.info("🌐 فتح الرابط (بصمة جديدة)...")
                 await page.goto(link, timeout=60000, wait_until="networkidle")
-                
-                # تأخير عشوائي (سلوك بشري)
                 await asyncio.sleep(random_delay(2, 4))
 
-                # ============================================================
                 # 2. التحقق من تسجيل الدخول
-                # ============================================================
                 try:
                     await page.wait_for_url(
                         lambda url: "console.cloud.google.com" in url or "shell.cloud.google.com" in url,
@@ -381,16 +337,13 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 except:
                     current_url = page.url
                     await browser.close()
-                    # إذا كانت المحاولة الأخيرة، نبلغ عن الفشل
                     if attempt == 2:
                         return False, "", f"❌ فشل تسجيل الدخول (بعد 3 محاولات).\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
                     else:
                         logger.warning(f"⚠️ فشل تسجيل الدخول في المحاولة {attempt+1}، نعيد المحاولة...")
                         continue
 
-                # ============================================================
-                # 3. تجاوز شاشات الترحيب والشروط
-                # ============================================================
+                # 3. تجاوز شاشات الترحيب والشروط (نفس الكود السابق)
                 page_text = await page.inner_text("body")
 
                 if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
@@ -427,19 +380,13 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                     except Exception as e:
                         logger.warning(f"⚠️ فشل تجاوز الشروط: {e}")
 
-                # ============================================================
-                # 4. التوجه إلى Cloud Shell (domcontentloaded)
-                # ============================================================
+                # 4. التوجه إلى Cloud Shell
                 logger.info("📂 التوجه إلى Cloud Shell...")
                 await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
                 await asyncio.sleep(random_delay(2, 4))
 
-                # ============================================================
-                # 5. الضغط على Start Cloud Shell (طريقتان)
-                # ============================================================
+                # 5. الضغط على Start Cloud Shell (JavaScript)
                 logger.info("🔍 البحث عن زر Start Cloud Shell...")
-                
-                # الطريقة 1: JavaScript (الأقوى)
                 clicked = False
                 for js_attempt in range(3):
                     try:
@@ -466,14 +413,11 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                         pass
                     await asyncio.sleep(1)
                 
-                # الطريقة 2: انتظار سلبي
                 if not clicked:
                     logger.info("⏳ ننتظر 15 ثانية (ربما بدأت تلقائياً)...")
                     await asyncio.sleep(15)
 
-                # ============================================================
                 # 6. انتظار الطرفية
-                # ============================================================
                 logger.info("⏳ انتظار تحميل الطرفية...")
                 terminal_ready = False
                 for attempt_terminal in range(20):
@@ -489,9 +433,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
 
                 await asyncio.sleep(random_delay(2, 4))
 
-                # ============================================================
                 # 7. حقن السكربت
-                # ============================================================
                 with open("deploy_script.py", "r") as f:
                     script_content = f.read()
                 script_content = script_content.replace('os.environ.get("PROJECT_ID")', f'"{project_id}"')
@@ -511,9 +453,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                     await page.keyboard.press("Enter")
                     await asyncio.sleep(random_delay(2, 4))
 
-                # ============================================================
                 # 8. انتظار النتيجة
-                # ============================================================
                 logger.info("⏳ انتظار النتيجة (حتى 5 دقائق)...")
                 result_text = ""
                 for attempt_result in range(30):
@@ -538,7 +478,6 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 if service_match and vless_match:
                     return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time)
                 else:
-                    # إذا كانت المحاولة الأخيرة، نبلغ عن الفشل
                     if attempt == 2:
                         return False, "", f"⚠️ لم أتمكن من استخراج النتيجة.\nآخر ما ظهر:\n```\n{result_text[-800:]}\n```", int(time.time() - start_time)
                     else:
@@ -576,9 +515,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v15.0 – ULTIMATE STEALTH ARSENAL**\n\n"
+        "🔥 **SHADOW LEGION v15.1 – ULTIMATE STEALTH (FIXED)**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "🕵️ أقوى أدوات التخفي في السوق:\n"
+        "🕵️ أقوى أدوات التخفي:\n"
         "   • بصمة متصفح عشوائية (WebGL, Canvas, AudioContext)\n"
         "   • وكيل مستخدم عشوائي\n"
         "   • موقع جغرافي عشوائي\n"
@@ -777,7 +716,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v15.0 (Ultimate Stealth) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v15.1 (Ultimate Stealth) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
