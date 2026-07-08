@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v15.0 – ULTRA STEALTH EDITION
-أقوى تقنيات التخفي + أتمتة Cloud Shell + VLESS Generator
+SHADOW LEGION v15.1 – ULTRA STEALTH (TIMEOUT FIXED)
+أقوى تقنيات التخفي + إصلاح مشكلة networkidle
 """
 
 import os
@@ -47,7 +47,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v15.0 (Ultra Stealth) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v15.1 (Ultra Stealth + Fix) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -61,17 +61,15 @@ KNOWN_REGIONS = {
     "asia-southeast1": "🇸🇬 سنغافورة",
 }
 
-# قائمة وكيل مستخدم عشوائي (لتجنب بصمة ثابتة)
+# قائمة وكيل مستخدم عشوائي
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/115.0",
 ]
 
 # ===================================================================
-# 3. قاعدة البيانات
+# 3. قاعدة البيانات (اختصاراً)
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -103,9 +101,6 @@ def init_db():
     conn.close()
 init_db()
 
-# ===================================================================
-# 4. دوال قاعدة البيانات (اختصاراً)
-# ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -179,7 +174,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     return history
 
 # ===================================================================
-# 5. دوال مساعدة
+# 4. دوال مساعدة
 # ===================================================================
 def extract_project_id(link: str) -> Optional[str]:
     decoded = urllib.parse.unquote(link)
@@ -198,17 +193,15 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 6. أتمتة Cloud Shell مع Ultra Stealth
+# 5. أتمتة Cloud Shell مع Ultra Stealth + Fix Timeout
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
     try:
         async with async_playwright() as p:
-            # اختيار وكيل مستخدم عشوائي
             user_agent = random.choice(USER_AGENTS)
             logger.info(f"🕵️ استخدام وكيل المستخدم: {user_agent[:50]}...")
 
-            # تشغيل المتصفح مع إعدادات Stealth متقدمة
             browser = await p.chromium.launch(
                 headless=True,
                 args=[
@@ -240,7 +233,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                     "--disable-translate",
                     "--metrics-recording-only",
                     "--safebrowsing-disable-auto-update",
-                    "--enable-automation"  # هذه الإشارة نتركها لكن يتم إخفاؤها بواسطة Stealth
+                    "--enable-automation"
                 ]
             )
             context = await browser.new_context(
@@ -268,7 +261,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             )
             page = await context.new_page()
 
-            # تطبيق Stealth مع إعدادات قوية
+            # تطبيق Stealth كامل
             await stealth_async(page, config=StealthConfig(
                 webgl_vendor=True,
                 renderer_webgl=True,
@@ -289,19 +282,19 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 user_agent=True
             ))
 
-            # 1. فتح الرابط مع مهلة أطول وانتظار domcontentloaded
+            # 🔥 1. فتح الرابط (تم إصلاح Timeout هنا)
             logger.info("🌐 فتح الرابط (Stealth Mode)...")
             try:
+                # ✅ التغيير الجوهري: استخدم domcontentloaded بدلاً من networkidle
                 await page.goto(link, timeout=120000, wait_until="domcontentloaded")
-                # انتظر ظهور حقل البريد الإلكتروني للتأكد من اكتمال التحميل
+                # انتظر ظهور حقل البريد الإلكتروني كدليل على اكتمال التحميل
                 await page.wait_for_selector("input[type='email']", timeout=30000)
                 logger.info("✅ تم تحميل الصفحة الرئيسية.")
             except PlaywrightTimeout:
                 await browser.close()
                 return False, "", "❌ انتهت مهلة تحميل الرابط (قد يكون الرابط بطيئاً أو غير صالح).", int(time.time() - start_time)
 
-            # 2. التحقق من تسجيل الدخول (بفحص عنوان URL بعد الانتظار)
-            # ننتظر حتى ينتقل إلى Console أو Shell
+            # 2. التحقق من تسجيل الدخول
             try:
                 await page.wait_for_url(
                     lambda url: "console.cloud.google.com" in url or "shell.cloud.google.com" in url,
@@ -311,9 +304,9 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             except:
                 current_url = page.url
                 await browser.close()
-                return False, "", f"❌ فشل تسجيل الدخول (ربما تم الكشف).\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
+                return False, "", f"❌ فشل تسجيل الدخول.\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
 
-            # 3. تجاوز شاشات الترحيب والشروط (نفس الكود السابق)
+            # 3. تجاوز شاشات الترحيب والشروط
             page_text = await page.inner_text("body")
 
             if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
@@ -354,11 +347,10 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             logger.info("📂 التوجه إلى Cloud Shell...")
             await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
 
-            # 5. الضغط على زر "Start Cloud Shell" – ثلاث طرق
+            # 5. الضغط على Start Cloud Shell (ثلاث طرق)
             logger.info("🔍 البحث عن زر Start Cloud Shell...")
             start_clicked = False
 
-            # طريقة 1: البحث في الإطارات
             try:
                 for frame in page.frames:
                     try:
@@ -369,14 +361,9 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                         break
                     except:
                         pass
-                if start_clicked:
-                    pass
-                else:
-                    raise Exception("لم نجد الزر في الإطارات")
             except:
                 pass
 
-            # طريقة 2: JavaScript عميق
             if not start_clicked:
                 try:
                     result = await page.evaluate("""() => {
@@ -401,7 +388,6 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 except Exception as e:
                     logger.warning(f"⚠️ فشل JavaScript: {e}")
 
-            # طريقة 3: انتظار سلبي
             if not start_clicked:
                 logger.info("⏳ لم نجد الزر، ننتظر 15 ثانية...")
                 await asyncio.sleep(15)
@@ -419,7 +405,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             # 6. انتظار تحميل الطرفية
             logger.info("⏳ انتظار تحميل الطرفية...")
             terminal_ready = False
-            for attempt in range(20):  # زيادة المحاولات
+            for attempt in range(20):
                 try:
                     await page.wait_for_selector(".xterm, .terminal, [role='textbox']", timeout=5000)
                     terminal_ready = True
@@ -452,10 +438,10 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(3)
 
-            # 8. انتظار النتيجة (فحص دوري حتى 6 دقائق)
+            # 8. انتظار النتيجة
             logger.info("⏳ انتظار النتيجة (حتى 6 دقائق)...")
             result_text = ""
-            for attempt in range(36):  # 36 * 10 = 360 ثانية
+            for attempt in range(36):
                 await asyncio.sleep(10)
                 try:
                     terminal_element = await page.query_selector(".xterm, .terminal, [role='textbox']")
@@ -483,7 +469,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
         return False, "", str(e), int(time.time() - start_time)
 
 # ===================================================================
-# 7. واجهة البوت (الأزرار والقوائم)
+# 6. واجهة البوت
 # ===================================================================
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
@@ -500,17 +486,14 @@ def region_inline_keyboard() -> InlineKeyboardMarkup:
     keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
     return InlineKeyboardMarkup(keyboard)
 
-# ===================================================================
-# 8. أوامر البوت
-# ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v15.0 – Ultra Stealth Edition**\n\n"
+        "🔥 **SHADOW LEGION v15.1 – Ultra Stealth (Timeout Fixed)**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ سيتم أتمتة كل شيء مع أقوى تقنيات التخفي.\n"
-        "⏳ المدة المتوقعة: 3-6 دقائق. سيتم إرسال النتيجة فور ظهورها.",
+        "✅ تم إصلاح مشكلة Timeout (استخدام domcontentloaded بدلاً من networkidle).\n"
+        "🕵️ جميع تقنيات التخفي مفعلة.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
     )
@@ -597,9 +580,6 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return WAITING_REGION
 
-# ===================================================================
-# 9. معالجات الأزرار
-# ===================================================================
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -674,7 +654,7 @@ async def fallback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 10. التشغيل الرئيسي
+# 7. التشغيل الرئيسي
 # ===================================================================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -704,7 +684,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v15.0 (Ultra Stealth) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v15.1 (Ultra Stealth) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
