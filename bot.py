@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v19.1 – CLOUD SHELL LINK GENERATOR (BUTTONS FIXED)
-يُرسل رابط Cloud Shell مع الأمر الجاهز (أتمتة 90%)
+SHADOW LEGION v20.1 – REAL CHROME STEALTH
+يستخدم متصفح Chrome الحقيقي (وليس Chromium)
 """
 
 import os
 import re
 import time
+import json
 import base64
 import hashlib
 import logging
+import asyncio
+import random
 import sqlite3
 import urllib.parse
 from datetime import datetime
@@ -27,6 +30,10 @@ from telegram.ext import (
     filters,
 )
 
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from playwright_stealth import stealth_async
+from fake_useragent import UserAgent
+
 # ===================================================================
 # 1. الإعدادات الأساسية
 # ===================================================================
@@ -42,7 +49,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v19.1 (Cloud Shell Link Generator - Buttons Fixed) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v20.1 (Real Chrome) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -56,8 +63,10 @@ KNOWN_REGIONS = {
     "asia-southeast1": "🇸🇬 سنغافورة",
 }
 
+ua = UserAgent()
+
 # ===================================================================
-# 3. قاعدة البيانات
+# 3. قاعدة البيانات (نفسها)
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -182,13 +191,16 @@ def extract_token(link: str) -> Optional[str]:
 
 def build_vless(service_url: str) -> str:
     host = service_url.replace('https://', '').replace('http://', '').split('/')[0]
-    raw = hashlib.md5(("cloudshell_link_" + str(int(time.time()))).encode()).hexdigest()
+    raw = hashlib.md5(("shadow_legion_" + str(int(time.time()))).encode()).hexdigest()
     uid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
     return f"vless://{uid}@{host}:443?path=%2FTelegram%2F%40AM2_D3%2F%40AHMAD3214&security=tls&encryption=none&host={host}&type=ws&sni={host}#CloudRun"
 
+def random_delay(min_sec: float = 0.5, max_sec: float = 2.0) -> float:
+    return random.uniform(min_sec, max_sec)
+
 def get_deploy_script() -> str:
-    """السكربت الناجح (نفس deploy_script.py)"""
-    return """
+    """السكربت الناجح (deploy_script.py)"""
+    return '''
 import os, subprocess, time, hashlib, re, sys
 
 PROJECT_ID = os.environ.get("PROJECT_ID")
@@ -266,28 +278,318 @@ print("\\n" + "="*70)
 print(f"SERVICE_URL: {service_url}")
 print(f"VLESS: {vless}")
 print("="*70)
-"""
-
-def build_cloudshell_link(project_id: str, token: str, region: str) -> str:
-    """بناء رابط Cloud Shell مع الأمر الجاهز"""
-    script = get_deploy_script()
-    command = f"""
-PROJECT_ID="{project_id}"
-TOKEN="{token}"
-REGION="{region}"
-export PROJECT_ID TOKEN REGION
-
-cat > deploy.py << 'EOS'
-{script}
-EOS
-
-python3 deploy.py
-"""
-    encoded = base64.b64encode(command.encode()).decode()
-    return f"https://shell.cloud.google.com/cloudshell?command=echo%20{encoded}%20%7C%20base64%20-d%20%7C%20bash"
+'''
 
 # ===================================================================
-# 5. واجهة البوت
+# 5. القلب النابض – أتمتة المتصفح المتخفي مع Chrome الحقيقي
+# ===================================================================
+async def run_full_automation(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
+    start_time = time.time()
+    user_agent = ua.random
+    logger.info(f"🕵️ وكيل المستخدم: {user_agent[:60]}...")
+
+    try:
+        async with async_playwright() as p:
+            # 🔥 استخدام Chrome الحقيقي (وليس Chromium)
+            browser = await p.chromium.launch(
+                channel="chrome",  # ✅ استخدم Chrome المثبت على النظام
+                headless="new",    # ✅ أحدث إصدار headless
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--window-size=1920,1080",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--disable-web-security",
+                    "--disable-features=BlockInsecurePrivateNetworkRequests",
+                    "--disable-features=OutOfBlinkCors",
+                    "--disable-features=SameSiteByDefaultCookies",
+                    "--disable-ipc-flooding-protection",
+                    "--disable-renderer-backgrounding",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-breakpad",
+                    "--disable-client-side-phishing-detection",
+                    "--disable-component-extensions-with-background-pages",
+                    "--disable-default-apps",
+                    "--disable-domain-reliability",
+                    "--disable-extensions",
+                    "--disable-field-trial-config",
+                    "--disable-hang-monitor",
+                    "--disable-prompt-on-repost",
+                    "--disable-sync",
+                    "--disable-translate",
+                    "--metrics-recording-only",
+                    "--safebrowsing-disable-auto-update",
+                    "--disable-features=OptimizationGuideModelDownloading",
+                    "--disable-features=MediaRouter",
+                    "--disable-features=TranslateUI",
+                    "--disable-features=GlobalMediaControls",
+                    "--disable-features=TabGroups",
+                    "--disable-features=PrivacySandboxAdsAPIsOverride",
+                ]
+            )
+            context = await browser.new_context(
+                user_agent=user_agent,
+                viewport={"width": 1920, "height": 1080},
+                locale="en-US",
+                timezone_id="America/New_York",
+                permissions=["geolocation"],
+                geolocation={"latitude": 40.7128, "longitude": -74.0060},
+                color_scheme="light",
+                device_scale_factor=1,
+                is_mobile=False,
+                has_touch=False,
+                java_script_enabled=True,
+                accept_downloads=True,
+                extra_http_headers={
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
+                    "Upgrade-Insecure-Requests": "1",
+                }
+            )
+            page = await context.new_page()
+
+            # Stealth
+            await stealth_async(page)
+
+            # ============================================================
+            # 1. فتح الرابط
+            # ============================================================
+            logger.info("🌐 فتح الرابط (Stealth + Chrome)...")
+            await page.goto(link, timeout=60000, wait_until="domcontentloaded")
+            await asyncio.sleep(random_delay(2, 4))
+
+            # ============================================================
+            # 2. إعادة محاولة تسجيل الدخول إذا ظهرت شاشة Sign in
+            # ============================================================
+            login_success = False
+            for retry in range(3):
+                page_text = await page.inner_text("body")
+                if "Sign in" in page_text and "Email or phone" in page_text:
+                    logger.warning(f"⚠️ ظهور شاشة تسجيل الدخول (محاولة {retry+1}/3)...")
+                    await page.reload(timeout=30000, wait_until="domcontentloaded")
+                    await asyncio.sleep(3)
+                else:
+                    login_success = True
+                    break
+
+            if not login_success:
+                await browser.close()
+                return False, "", "❌ فشل تسجيل الدخول بعد 3 محاولات.", int(time.time() - start_time)
+
+            # ============================================================
+            # 3. انتظار التوجيه إلى Console أو Cloud Shell
+            # ============================================================
+            try:
+                await page.wait_for_url(
+                    lambda url: "console.cloud.google.com" in url or "shell.cloud.google.com" in url,
+                    timeout=45000
+                )
+                logger.info("✅ تم تسجيل الدخول بنجاح.")
+            except:
+                current_url = page.url
+                await browser.close()
+                return False, "", f"❌ فشل التوجيه.\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
+
+            # ============================================================
+            # 4. تجاوز شاشات الترحيب والشروط
+            # ============================================================
+            page_text = await page.inner_text("body")
+
+            if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
+                logger.info("👋 شاشة الترحيب...")
+                for selector in ["button:has-text('Understand')", "button:has-text('I understand')"]:
+                    try:
+                        await page.click(selector, timeout=3000)
+                        logger.info("✅ تم الضغط على Understand.")
+                        await asyncio.sleep(random_delay(2, 3))
+                        break
+                    except:
+                        continue
+
+            if "Terms of Service" in page_text and "I agree to the Google Cloud Platform Terms of Service" in page_text:
+                logger.info("📜 شاشة الشروط...")
+                try:
+                    checkbox = await page.query_selector("input[type='checkbox']")
+                    if checkbox:
+                        await checkbox.check()
+                    else:
+                        await page.evaluate("""() => {
+                            const cb = document.querySelector('input[type="checkbox"]');
+                            if (cb && !cb.checked) cb.checked = true;
+                        }""")
+                    await asyncio.sleep(random_delay(0.5, 1))
+                    for btn_text in ["Continue", "Agree and Continue", "Agree"]:
+                        try:
+                            await page.click(f"button:has-text('{btn_text}')", timeout=3000)
+                            logger.info(f"✅ تم الضغط على {btn_text}.")
+                            await asyncio.sleep(random_delay(2, 3))
+                            break
+                        except:
+                            continue
+                except Exception as e:
+                    logger.warning(f"⚠️ فشل تجاوز الشروط: {e}")
+
+            # ============================================================
+            # 5. التوجه إلى Cloud Shell ومعالجة الشاشات
+            # ============================================================
+            logger.info("📂 التوجه إلى Cloud Shell...")
+            await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
+            await asyncio.sleep(random_delay(2, 4))
+
+            # شاشة Continue
+            try:
+                continue_btn = await page.wait_for_selector(
+                    "button:has-text('Continue'), button:has-text('متابعة')",
+                    timeout=5000
+                )
+                if continue_btn:
+                    await continue_btn.click()
+                    logger.info("✅ تم الضغط على Continue.")
+                    await asyncio.sleep(random_delay(2, 3))
+            except:
+                pass
+
+            # شاشة Authorize
+            try:
+                authorize_btn = await page.wait_for_selector(
+                    "button:has-text('Authorize'), button:has-text('تفويض')",
+                    timeout=5000
+                )
+                if authorize_btn:
+                    await authorize_btn.click()
+                    logger.info("✅ تم الضغط على Authorize.")
+                    await asyncio.sleep(random_delay(2, 3))
+            except:
+                pass
+
+            # شاشة Start Cloud Shell
+            logger.info("🔍 البحث عن زر Start Cloud Shell...")
+            start_clicked = False
+            selectors = [
+                "button:has-text('Start Cloud Shell')",
+                "button:has-text('Launch Cloud Shell')",
+                "[role='button']:has-text('Start Cloud Shell')",
+            ]
+            for selector in selectors:
+                try:
+                    btn = await page.wait_for_selector(selector, timeout=3000)
+                    if btn:
+                        await btn.click()
+                        logger.info(f"✅ تم الضغط على Start Cloud Shell ({selector}).")
+                        start_clicked = True
+                        await asyncio.sleep(5)
+                        break
+                except:
+                    continue
+
+            if not start_clicked:
+                try:
+                    clicked = await page.evaluate("""() => {
+                        const elements = document.querySelectorAll('*');
+                        for (let el of elements) {
+                            const text = el.innerText || el.textContent || '';
+                            if (text.includes('Start Cloud Shell') || text.includes('Launch Cloud Shell')) {
+                                if (el.tagName === 'BUTTON' || el.tagName === 'A') {
+                                    el.click();
+                                    return true;
+                                }
+                                const clickable = el.closest('button') || el.closest('a') || el;
+                                clickable.click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    }""")
+                    if clicked:
+                        logger.info("✅ تم الضغط على Start Cloud Shell (JavaScript).")
+                        start_clicked = True
+                        await asyncio.sleep(5)
+                except:
+                    pass
+
+            if not start_clicked:
+                logger.info("⏳ ننتظر 15 ثانية (ربما بدأت تلقائياً)...")
+                await asyncio.sleep(15)
+
+            # ============================================================
+            # 6. انتظار الطرفية وحقن السكربت
+            # ============================================================
+            logger.info("⏳ انتظار تحميل الطرفية...")
+            terminal_ready = False
+            for attempt in range(20):
+                try:
+                    await page.wait_for_selector(".xterm, .terminal, [role='textbox']", timeout=5000)
+                    terminal_ready = True
+                    logger.info(f"✅ الطرفية جاهزة (محاولة {attempt+1})")
+                    break
+                except:
+                    logger.info(f"⏳ المحاولة {attempt+1}/20...")
+            if not terminal_ready:
+                await asyncio.sleep(20)
+
+            await asyncio.sleep(random_delay(2, 4))
+
+            # حقن السكربت
+            script_content = get_deploy_script()
+            script_content = script_content.replace('os.environ.get("PROJECT_ID")', f'"{project_id}"')
+            script_content = script_content.replace('os.environ.get("TOKEN")', f'"{token}"')
+            script_content = script_content.replace('os.environ.get("REGION")', f'"{region}"')
+            script_content = script_content.replace('os.environ.get("EMAIL")', '"student@qwiklabs.net"')
+            b64_script = base64.b64encode(script_content.encode()).decode()
+
+            commands = [
+                f"echo '{b64_script}' | base64 -d > deploy.py",
+                "python3 deploy.py"
+            ]
+
+            for cmd in commands:
+                logger.info(f"⌨️ كتابة الأمر: {cmd[:50]}...")
+                await page.keyboard.type(cmd)
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(random_delay(2, 4))
+
+            # ============================================================
+            # 7. انتظار النتيجة
+            # ============================================================
+            logger.info("⏳ انتظار النتيجة (حتى 5 دقائق)...")
+            result_text = ""
+            for attempt in range(30):
+                await asyncio.sleep(10)
+                try:
+                    terminal_element = await page.query_selector(".xterm, .terminal, [role='textbox']")
+                    if terminal_element:
+                        result_text = await terminal_element.inner_text()
+                    else:
+                        result_text = await page.inner_text("body")
+                    if "SERVICE_URL:" in result_text or "VLESS:" in result_text:
+                        logger.info(f"✅ تم العثور على النتيجة (محاولة {attempt+1})")
+                        break
+                except:
+                    pass
+
+            await browser.close()
+
+            service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', result_text)
+            vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', result_text)
+
+            if service_match and vless_match:
+                return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time)
+            else:
+                return False, "", f"⚠️ لم أتمكن من استخراج النتيجة.\nآخر ما ظهر:\n```\n{result_text[-800:]}\n```", int(time.time() - start_time)
+
+    except Exception as e:
+        return False, "", str(e), int(time.time() - start_time)
+
+# ===================================================================
+# 6. واجهة البوت
 # ===================================================================
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
@@ -305,18 +607,18 @@ def region_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 # ===================================================================
-# 6. أوامر البوت ومعالجات الأزرار
+# 7. أوامر البوت
 # ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v19.1 – Cloud Shell Link Generator**\n\n"
+        "🔥 **SHADOW LEGION v20.1 – Real Chrome Stealth**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ سأقوم بإنشاء رابط Cloud Shell مع الأمر الجاهز.\n"
-        "📎 **افتح الرابط** في متصفحك، سيظهر Cloud Shell مع الأمر مُلأ مسبقاً.\n"
-        "⌨️ **اضغط Enter** فقط، وسينفذ السكربت وينشر الخدمة.\n\n"
-        "💡 هذا هو الحل الوحيد المضمون 100% لتجاوز قيود Google.",
+        "✅ يستخدم متصفح Chrome الحقيقي (وليس Chromium).\n"
+        "✅ أقوى تقنيات التخفي.\n"
+        "✅ أتمتة كاملة مع السكربت الناجح.\n"
+        "⏳ المدة المتوقعة: 3-6 دقائق.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
     )
@@ -403,9 +705,6 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return WAITING_REGION
 
-# ===================================================================
-# 7. معالجات الأزرار (خارج ConversationHandler)
-# ===================================================================
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -424,27 +723,36 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     region_name = KNOWN_REGIONS.get(region, region)
-
-    # بناء رابط Cloud Shell
-    cloudshell_url = build_cloudshell_link(project_id, token, region)
-
-    # حفظ في السجل
-    add_history(user_id, lab_url, "", "", region, success=1, error_msg="تم إرسال رابط Cloud Shell", duration=0)
-    increment_deploy_count(user_id)
-
     await query.edit_message_text(
-        f"✅ **تم تجهيز الأمر!**\n\n"
-        f"🌍 **المنطقة:** {region_name}\n"
-        f"🆔 **Project ID:** `{project_id}`\n\n"
-        f"📎 **افتح الرابط التالي في متصفحك:**\n"
-        f"{cloudshell_url}\n\n"
-        f"⌨️ **بعد فتح الرابط، ستظهر نافذة Cloud Shell مع الأمر جاهزاً.**\n"
-        f"📌 **اضغط Enter** فقط، وانتظر 2-3 دقائق حتى اكتمال النشر.\n\n"
-        f"✅ **سيظهر لك رابط VLESS في الطرفية عند الانتهاء.**\n\n"
-        f"💡 **هذا الحل مضمون 100%** لأنه يستخدم Cloud Shell نفسه (البيئة الوحيدة التي تعمل فيها المصادقة).",
-        parse_mode="Markdown",
-        reply_markup=main_menu_keyboard()
+        f"🚀 **جاري النشر على {region_name}...**\n"
+        f"🕵️ يتم تطبيق بصمة متصفح عشوائية...\n"
+        f"⏳ المدة المتوقعة: 3-6 دقائق.\n"
+        f"🔄 سيتم إعلامك عند الانتهاء."
     )
+
+    success, service_url, vless_or_error, duration = await run_full_automation(
+        lab_url, project_id, token, region
+    )
+
+    if success:
+        increment_deploy_count(user_id)
+        add_history(user_id, lab_url, service_url, vless_or_error, region, success=1, duration=duration)
+        await query.message.reply_text(
+            f"✅ **تم النشر بنجاح!** 🎉\n\n"
+            f"🌍 المنطقة: {region_name}\n"
+            f"⏱️ المدة: {duration} ثانية\n"
+            f"🌐 الرابط: `{service_url}`\n\n"
+            f"🔗 **VLESS:**\n`{vless_or_error}`",
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
+    else:
+        add_history(user_id, lab_url, "", "", region, success=0, error_msg=vless_or_error[:200], duration=duration)
+        await query.message.reply_text(
+            f"❌ **فشل النشر**\n\n```\n{vless_or_error}\n```",
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
 
     context.user_data.clear()
 
@@ -454,9 +762,6 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("❌ تم الإلغاء.")
     context.user_data.clear()
 
-# ===================================================================
-# 8. أوامر الإلغاء والمساعدة
-# ===================================================================
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ تم إلغاء العملية.", reply_markup=main_menu_keyboard())
@@ -478,7 +783,7 @@ async def fallback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 9. التشغيل الرئيسي
+# 8. التشغيل الرئيسي
 # ===================================================================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -490,28 +795,26 @@ def main():
         ],
         states={
             WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
-            WAITING_REGION: [],  # ✅ فارغ – الأزرار تُعالج خارجياً
+            WAITING_REGION: [],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True,
         per_message=False
     )
 
-    # المعالجات الأساسية
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(conv_handler)
     
-    # ✅ معالجات الأزرار العامة (خارج ConversationHandler)
     app.add_handler(CallbackQueryHandler(region_callback, pattern="^region_"))
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
     
-    # معالج النصوص العادية
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v19.1 (Cloud Shell Link Generator - Buttons Fixed) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v20.1 (Real Chrome) جاهز ويعمل على Railway...")
+    logger.info("⚡ يستخدم Chrome الحقيقي مع أحدث تقنيات التخفي.")
     app.run_polling()
 
 if __name__ == "__main__":
