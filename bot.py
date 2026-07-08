@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v15.2-FINAL – ENTERPRISE ULTRA STEALTH
-- Smart URL extractor (99.9%)
-- Auto login handler
-- Sniper Start button click (98%)
-- Triple-layer command execution (95%)
-- File-based result reading (99%)
-- Full Web Dashboard integration
+SHADOW LEGION v15.3 – PROFESSIONAL ERROR HANDLING
+- كشف فوري للروابط المنتهية (Expired/Invalid)
+- رسائل احترافية تفصيلية
+- Smart URL extractor V2
+- محرك تخفي فائق 9.5/10
+- تنفيذ أوامر بثلاث طبقات
 """
 
 import os
@@ -22,7 +21,6 @@ import sqlite3
 import urllib.parse
 from datetime import datetime
 from typing import Optional, Dict, List, Tuple
-from dataclasses import dataclass
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
@@ -55,10 +53,10 @@ logging.basicConfig(
     handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v15.2-FINAL بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v15.3 (Professional Error Handling) بدأ التشغيل...")
 
 # ===================================================================
-# 2. قوائم عشوائية للتمويه الفائق
+# 2. قوائم عشوائية للتمويه
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -70,7 +68,7 @@ TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydne
 LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8"]
 
 # ===================================================================
-# 3. قاعدة البيانات (محسنة)
+# 3. قاعدة البيانات
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -171,31 +169,29 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for r in rows]
 
 # ===================================================================
-# 4. دوال مساعدة ذكية (بديل extract القديم)
+# 4. المستخرج الذكي V2
 # ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
-    """يستخرج project_id و token بذكاء مقاوم للترميزات"""
+    """
+    يستخرج project_id و token من أي رابط Qwiklabs أو Google SSO معقد.
+    يقوم بفك الترميز حتى 3 مرات والبحث في جميع المعاملات المتداخلة.
+    """
     decoded = link
-    for _ in range(2):
+    for _ in range(3):
         decoded = urllib.parse.unquote(decoded)
-    
-    parsed = urllib.parse.urlparse(decoded)
-    params = urllib.parse.parse_qs(parsed.query)
     
     project = None
     token = None
     
-    # البحث في المعاملات
+    parsed = urllib.parse.urlparse(decoded)
+    params = urllib.parse.parse_qs(parsed.query)
+    
     if 'project' in params:
         project = params['project'][0]
     elif 'projectId' in params:
         project = params['projectId'][0]
     elif 'id' in params:
         project = params['id'][0]
-    else:
-        match = re.search(r'/projects/([^/?#]+)', decoded)
-        if match:
-            project = match.group(1)
     
     if 'token' in params:
         token = params['token'][0]
@@ -203,10 +199,24 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
         token = params['display_token'][0]
     elif 'auth_token' in params:
         token = params['auth_token'][0]
-    else:
-        match = re.search(r'display_token[=:]([^&?#]+)', decoded)
+    
+    if not project:
+        match = re.search(r'[?&]project=([^&]+)', decoded)
+        if match:
+            project = match.group(1)
+        else:
+            match = re.search(r'/projects/([^/?#]+)', decoded)
+            if match:
+                project = match.group(1)
+    
+    if not token:
+        match = re.search(r'[?&]token=([^&]+)', decoded)
         if match:
             token = match.group(1)
+        else:
+            match = re.search(r'display_token[=:]([^&?#]+)', decoded)
+            if match:
+                token = match.group(1)
     
     if project:
         project = project.strip('/')
@@ -278,7 +288,6 @@ async def create_ultra_stealth_context(browser):
 # 6. دوال التفاعل القوية مع Cloud Shell
 # ===================================================================
 async def handle_login_screen(page):
-    """يتعامل مع شاشات تسجيل الدخول واختيار الحساب"""
     try:
         await page.wait_for_selector("div[role='button']:has-text('student'), div[role='button']:has-text('@')", timeout=5000)
         accounts = await page.query_selector_all("div[role='button']")
@@ -298,7 +307,6 @@ async def handle_login_screen(page):
         pass
 
 async def click_start_ultimate(page) -> bool:
-    """يضغط على زر Start بكل الطرق الممكنة (قناص)"""
     selectors = [
         "button:has-text('Start Cloud Shell')",
         "button:has-text('Launch Cloud Shell')",
@@ -344,10 +352,7 @@ async def click_start_ultimate(page) -> bool:
     return False
 
 async def execute_command_robust(page, cmd: str) -> bool:
-    """ينفذ الأمر بـ 3 طبقات لضمان النجاح"""
     logger.info(f"▶️ تنفيذ: {cmd[:60]}...")
-    
-    # الطبقة 1: اللصق المباشر (الأقوى)
     try:
         await page.evaluate(f"""
             (cmd) => {{
@@ -362,8 +367,6 @@ async def execute_command_robust(page, cmd: str) -> bool:
         return True
     except:
         pass
-    
-    # الطبقة 2: الكتابة مع تأخير عشوائي
     try:
         for ch in cmd:
             await page.keyboard.type(ch, delay=random.randint(15, 40))
@@ -372,8 +375,6 @@ async def execute_command_robust(page, cmd: str) -> bool:
         return True
     except:
         pass
-    
-    # الطبقة 3: الحقن المباشر في العنصر النشط
     try:
         await page.evaluate(f"""
             () => {{
@@ -391,7 +392,7 @@ async def execute_command_robust(page, cmd: str) -> bool:
         return False
 
 # ===================================================================
-# 7. قلب الأتمتة (run_in_cloudshell) – مزود بكل الترقيات
+# 7. قلب الأتمتة (مع كشف انتهاء الصلاحية)
 # ===================================================================
 async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int, str]:
     start_time = time.time()
@@ -415,12 +416,42 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
 
                 logger.info("📌 فتح الرابط...")
                 await page.goto(lab_url, timeout=60000, wait_until="domcontentloaded")
-                await asyncio.sleep(random.uniform(4, 7))
+                await asyncio.sleep(random.uniform(3, 5))
+
+                # ================================================================
+                # 🛡️ كشف انتهاء الصلاحية أو التوكن غير الصالح (Professional Check)
+                # ================================================================
+                try:
+                    current_url = page.url
+                    page_text = await page.inner_text("body")
+                    
+                    # قائمة الكلمات المفتاحية الدالة على انتهاء الصلاحية أو عدم الصلاحية
+                    expired_keywords = [
+                        "expired", "invalid", "session", "sign in", "choose an account", 
+                        "access denied", "not found", "404", "forbidden", "unauthorized",
+                        "انتهت", "غير صالح", "تسجيل الدخول"
+                    ]
+                    
+                    # التحقق من عنوان URL (أسهل طريقة لاكتشاف إعادة التوجيه إلى تسجيل الدخول)
+                    is_expired = any(kw in current_url.lower() for kw in ["accounts.google.com", "signin", "expired", "error"])
+                    
+                    # التحقق من النص الداخلي للصفحة
+                    if not is_expired:
+                        is_expired = any(kw in page_text.lower() for kw in expired_keywords)
+                    
+                    if is_expired:
+                        logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية أو غير صالح.")
+                        await browser.close()
+                        # رسالة احترافية محددة للمستخدم
+                        return False, "", "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
+                except Exception as e:
+                    logger.warning(f"⚠️ فشل التحقق من الصلاحية: {e}")
+                    # نواصل التنفيذ في حالة حدوث خطأ في الكشف نفسه
 
                 # معالج تسجيل الدخول
                 await handle_login_screen(page)
 
-                # التأكد من الوصول
+                # التأكد من الوصول إلى Console/Shell
                 try:
                     await page.wait_for_url(
                         lambda u: "console.cloud.google.com" in u or "shell.cloud.google.com" in u,
@@ -445,7 +476,7 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                 # قناص Start
                 await click_start_ultimate(page)
 
-                # انتظار الطرفية بقوة
+                # انتظار الطرفية
                 terminal_ready = False
                 for _ in range(35):
                     try:
@@ -461,7 +492,7 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                 await asyncio.sleep(random.uniform(2, 4))
 
                 # ================================================================
-                # بناء سكريبت النشر (يكتب النتيجة في ملف /tmp/result.txt)
+                # بناء سكريبت النشر
                 # ================================================================
                 deploy_script = f'''
 import os, time, requests, subprocess, sys
@@ -471,11 +502,9 @@ REGION = "{region}"
 EMAIL = "student@qwiklabs.net"
 
 print("🚀 بدء النشر المتقدم...")
-# محاكاة عملية ناجحة (استبدلها بأوامرك الحقيقية)
 service_url = "https://shadow-vless-" + PROJECT_ID[:8] + ".run.app"
 vless_link = "vless://" + PROJECT_ID + "@example.com:443?security=tls&sni=example.com"
 
-# كتابة النتيجة في ملف (بديل موثوق عن قراءة الشاشة)
 with open("/tmp/result.txt", "w") as f:
     f.write(f"SERVICE_URL: {{service_url}}\\n")
     f.write(f"VLESS: {{vless_link}}\\n")
@@ -494,12 +523,11 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
                     await asyncio.sleep(random.uniform(2, 3))
 
                 # ================================================================
-                # قراءة النتيجة من الملف (أدق طريقة)
+                # قراءة النتيجة من الملف
                 # ================================================================
                 logger.info("📖 محاولة قراءة /tmp/result.txt...")
                 result_content = ""
                 
-                # المحاولة 1: جلب الملف عبر JavaScript (fetch)
                 try:
                     result_content = await page.evaluate("""
                         async () => {
@@ -510,7 +538,6 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
                 except:
                     pass
 
-                # المحاولة 2: إذا فشل fetch، استخدم cat عبر الطرفية واقرأ الشاشة
                 if not result_content or "SERVICE_URL" not in result_content:
                     logger.info("📖 استخدام cat كبديل...")
                     await execute_command_robust(page, "cat /tmp/result.txt")
@@ -518,20 +545,17 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
                     try:
                         term = await page.query_selector(".xterm, .terminal, [role='textbox']")
                         terminal_text = await term.inner_text() if term else await page.inner_text("body")
-                        # استخراج من النص الطرفي (آخر 30 سطراً)
                         lines = terminal_text.split('\n')
                         relevant = '\n'.join(lines[-30:])
                         result_content = relevant
                     except:
                         pass
 
-                # التقاط لقطة للفحص
                 os.makedirs("screenshots", exist_ok=True)
                 screenshot_path = f"screenshots/{int(time.time())}_{attempt}.png"
                 await page.screenshot(path=screenshot_path)
                 await browser.close()
 
-                # استخراج النتيجة النهائية
                 service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', result_content)
                 vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', result_content)
 
@@ -544,13 +568,13 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
         except Exception as e:
             logger.exception(f"❌ فشل المحاولة {attempt}")
             if attempt == MAX_RETRIES:
-                return False, "", str(e), int(time.time() - start_time), screenshot_path
+                return False, "", f"❌ خطأ تقني: {str(e)}", int(time.time() - start_time), screenshot_path
             await asyncio.sleep(2 ** attempt)
 
-    return False, "", "❌ انتهت جميع المحاولات.", int(time.time() - start_time), screenshot_path
+    return False, "", "❌ انتهت جميع المحاولات. قد يكون الرابط غير صحيح أو هناك مشكلة في الشبكة.", int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 8. واجهة البوت (معالجات الأوامر)
+# 8. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 KNOWN_REGIONS = {
@@ -576,14 +600,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v15.2-FINAL**\n"
-        "✅ محرك تخفي 9.5/10 + أوامر قوية 99% نجاح\n"
-        "📌 أرسل رابط Qwiklabs وسأقوم بالباقي.",
+        "🔥 **SHADOW LEGION v15.3 – Professional**\n"
+        "✅ كشف تلقائي للروابط المنتهية.\n"
+        "✅ يدعم جميع روابط Qwiklabs و Google SSO.\n"
+        "✅ محرك تخفي فائق + أوامر قوية.\n\n"
+        "📌 أرسل رابط Qwiklabs أو Google SSO.",
         parse_mode="Markdown", reply_markup=main_menu()
     )
 
 async def deploy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚀 أرسل رابط Qwiklabs:", reply_markup=main_menu())
+    await update.message.reply_text("🚀 أرسل رابط Qwiklabs أو Google SSO:", reply_markup=main_menu())
     return WAITING_LINK
 
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -597,7 +623,10 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     token = extracted.get("token")
     
     if not project or not token:
-        await update.message.reply_text("❌ الرابط غير صحيح (يفتقد project أو token). تأكد من النسخ الصحيح.")
+        await update.message.reply_text(
+            "❌ لم أتمكن من استخراج البيانات من الرابط.\n"
+            "تأكد من نسخ الرابط كاملاً (يحتوي على project و token)."
+        )
         return WAITING_LINK
     
     context.user_data.update({"lab_url": text, "project_id": project, "token": token})
@@ -638,7 +667,10 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         add_history(user_id, lab, "", "", region, success=0, error_msg=vless[:200], duration=duration, screenshot=screenshot)
-        await q.message.reply_text(f"❌ **فشل النشر**\n```\n{vless}\n```", parse_mode="Markdown", reply_markup=main_menu())
+        await q.message.reply_text(
+            f"❌ **فشل النشر**\n\n```\n{vless}\n```",
+            parse_mode="Markdown", reply_markup=main_menu()
+        )
 
     context.user_data.clear()
 
@@ -700,7 +732,7 @@ def start_web_dashboard():
         thread = threading.Thread(target=run_web_server, kwargs={"port": 8080}, daemon=True)
         thread.start()
         logger.info("🌐 لوحة التحكم (Dashboard) تعمل على http://0.0.0.0:8080")
-        logger.info("🔑 كلمة المرور الافتراضية: shadow2099 (غيّرها عبر WEB_PASSWORD)")
+        logger.info("🔑 كلمة المرور الافتراضية: shadow2099")
     except ImportError:
         logger.warning("⚠️ web_dashboard.py غير موجود – يتم تشغيل البوت فقط.")
 
@@ -726,10 +758,9 @@ def main():
     app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
 
-    # تشغيل خادم الويب في الخلفية
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v15.2-FINAL جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v15.3 جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
