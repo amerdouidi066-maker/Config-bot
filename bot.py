@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v19.0 – CLOUD SHELL LINK GENERATOR
+SHADOW LEGION v19.1 – CLOUD SHELL LINK GENERATOR (BUTTONS FIXED)
 يُرسل رابط Cloud Shell مع الأمر الجاهز (أتمتة 90%)
 """
 
@@ -42,7 +42,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v19.0 (Cloud Shell Link Generator) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v19.1 (Cloud Shell Link Generator - Buttons Fixed) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -304,11 +304,14 @@ def region_inline_keyboard() -> InlineKeyboardMarkup:
     keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
     return InlineKeyboardMarkup(keyboard)
 
+# ===================================================================
+# 6. أوامر البوت ومعالجات الأزرار
+# ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v19.0 – Cloud Shell Link Generator**\n\n"
+        "🔥 **SHADOW LEGION v19.1 – Cloud Shell Link Generator**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
         "✅ سأقوم بإنشاء رابط Cloud Shell مع الأمر الجاهز.\n"
         "📎 **افتح الرابط** في متصفحك، سيظهر Cloud Shell مع الأمر مُلأ مسبقاً.\n"
@@ -400,6 +403,9 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return WAITING_REGION
 
+# ===================================================================
+# 7. معالجات الأزرار (خارج ConversationHandler)
+# ===================================================================
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -408,13 +414,13 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if region == "cancel":
         await query.edit_message_text("❌ تم الإلغاء.")
         context.user_data.clear()
-        return ConversationHandler.END
+        return
 
     project_id = context.user_data.get("project_id")
     token = context.user_data.get("token")
     lab_url = context.user_data.get("lab_url")
     if not project_id or not token:
-        await query.edit_message_text("❌ انتهت الجلسة.")
+        await query.edit_message_text("❌ انتهت الجلسة. أعد إرسال الرابط.")
         return
 
     region_name = KNOWN_REGIONS.get(region, region)
@@ -441,7 +447,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     context.user_data.clear()
-    return ConversationHandler.END
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -449,6 +454,9 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("❌ تم الإلغاء.")
     context.user_data.clear()
 
+# ===================================================================
+# 8. أوامر الإلغاء والمساعدة
+# ===================================================================
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ تم إلغاء العملية.", reply_markup=main_menu_keyboard())
@@ -470,7 +478,7 @@ async def fallback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 6. التشغيل الرئيسي
+# 9. التشغيل الرئيسي
 # ===================================================================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -482,21 +490,28 @@ def main():
         ],
         states={
             WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
-            WAITING_REGION: [CallbackQueryHandler(region_callback, pattern="^(region_|cancel)")],
+            WAITING_REGION: [],  # ✅ فارغ – الأزرار تُعالج خارجياً
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True,
         per_message=False
     )
 
+    # المعالجات الأساسية
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(conv_handler)
+    
+    # ✅ معالجات الأزرار العامة (خارج ConversationHandler)
+    app.add_handler(CallbackQueryHandler(region_callback, pattern="^region_"))
+    app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
+    
+    # معالج النصوص العادية
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v19.0 (Cloud Shell Link Generator) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v19.1 (Cloud Shell Link Generator - Buttons Fixed) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
