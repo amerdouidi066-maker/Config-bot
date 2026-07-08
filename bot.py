@@ -1,7 +1,8 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v14.1 – PROFESSIONAL EDITION (FULL TIMEOUT FIX)
+SHADOW LEGION v14.1 – PROFESSIONAL EDITION (FIXED START BUTTON)
 Stealth Browser + Cloud Shell Automation + VLESS Generator
 """
 
@@ -46,7 +47,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v14.1 (Professional + Full Timeout Fix) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v14.1 (Professional + Fixed Start Button) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -188,7 +189,7 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 6. أتمتة Cloud Shell (مع إصلاح Timeout للرابط و Cloud Shell)
+# 6. أتمتة Cloud Shell (مع إصلاح زر Start Cloud Shell)
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -220,7 +221,6 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             await stealth_async(page)
 
             logger.info("فتح الرابط (Stealth Mode)...")
-            # 🔥 التغيير الأول: استخدم domcontentloaded بدلاً من networkidle
             await page.goto(link, timeout=60000, wait_until="domcontentloaded")
             await asyncio.sleep(5)
 
@@ -276,7 +276,6 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
 
             # التوجه إلى Cloud Shell
             logger.info("التوجه إلى Cloud Shell...")
-            # 🔥 التغيير الثاني: استخدم domcontentloaded بدلاً من networkidle
             await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
 
             # ===================================================================
@@ -312,18 +311,30 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             except:
                 pass
 
-            # شاشة "Start Cloud Shell"
+            # ===================================================================
+            # 🔥 تحسين الضغط على زر "Start Cloud Shell"
+            # ===================================================================
             try:
                 start_btn = await page.wait_for_selector(
                     "button:has-text('Start Cloud Shell'), button:has-text('Launch Cloud Shell')",
                     timeout=5000
                 )
                 if start_btn:
-                    await start_btn.click()
-                    logger.info("تم الضغط على Start Cloud Shell.")
+                    # محاولة النقر العادي
+                    try:
+                        await start_btn.click()
+                        logger.info("تم الضغط على Start Cloud Shell (طريقة النقر).")
+                    except:
+                        # إذا فشل النقر، نستخدم JavaScript
+                        await page.evaluate("""(btn) => {
+                            btn.click();
+                        }""", start_btn)
+                        logger.info("تم الضغط على Start Cloud Shell (طريقة JavaScript).")
                     await asyncio.sleep(5)
+                else:
+                    logger.info("لم يظهر زر Start Cloud Shell، نواصل...")
             except:
-                pass
+                logger.info("لم يتم العثور على زر Start Cloud Shell، نواصل...")
 
             # انتظار تحميل الطرفية
             logger.info("انتظار تحميل الطرفية...")
@@ -416,9 +427,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v14.1 – Professional Edition (Full Timeout Fix)**\n\n"
+        "🔥 **SHADOW LEGION v14.1 – Professional Edition (Fixed Start Button)**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ تم إصلاح Timeout عند فتح الرابط وعند التوجه إلى Cloud Shell.\n"
+        "✅ تم إصلاح الضغط على زر Start Cloud Shell.\n"
         "⏳ المدة المتوقعة: 3-5 دقائق. سيتم إرسال النتيجة فور ظهورها.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
@@ -616,7 +627,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v14.1 (Professional + Full Timeout Fix) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v14.1 (Professional + Fixed Start Button) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
