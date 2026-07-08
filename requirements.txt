@@ -1,2 +1,4 @@
 python-telegram-bot==20.7
 playwright==1.44.0
+playwright-stealth==1.0.6
+playwright-extra==0.1.8
