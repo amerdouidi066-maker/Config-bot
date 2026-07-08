@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v14.1 – PROFESSIONAL EDITION
+SHADOW LEGION v14.1 – PROFESSIONAL EDITION (CLOUD SHELL SCREENS FIX + TIMEOUT FIX)
 Stealth Browser + Cloud Shell Automation + VLESS Generator
 """
 
@@ -46,7 +46,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v14.1 (Professional) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v14.1 (Professional + Cloud Shell Screens + Timeout Fix) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -188,7 +188,7 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 6. أتمتة Cloud Shell مع Stealth (نسخة احترافية)
+# 6. أتمتة Cloud Shell (مع إصلاح Timeout لـ Cloud Shell)
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -273,24 +273,56 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 except Exception as e:
                     logger.warning(f"فشل تجاوز الشروط: {e}")
 
-            # التوجه إلى Cloud Shell
+            # التوجه إلى Cloud Shell (مع تغيير استراتيجية الانتظار لتجنب Timeout)
             logger.info("التوجه إلى Cloud Shell...")
-            await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
+            # 🔥 التغيير الوحيد: استخدم domcontentloaded بدلاً من networkidle
+            await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
 
-            # الضغط على زر "Start Cloud Shell" إذا ظهر
+            # ===================================================================
+            # معالجة شاشات Cloud Shell الجديدة
+            # ===================================================================
+            logger.info("التحقق من شاشات Cloud Shell...")
+            
+            await asyncio.sleep(3)
+
+            # شاشة "Continue"
             try:
-                start_button = await page.wait_for_selector(
-                    "button:has-text('Start Cloud Shell'), button:has-text('Launch Cloud Shell'), button:has-text('Open Cloud Shell')",
-                    timeout=15000
+                continue_btn = await page.wait_for_selector(
+                    "button:has-text('Continue'), button:has-text('متابعة')",
+                    timeout=5000
                 )
-                if start_button:
-                    await start_button.click()
+                if continue_btn:
+                    await continue_btn.click()
+                    logger.info("تم الضغط على زر Continue.")
+                    await asyncio.sleep(3)
+            except:
+                pass
+
+            # شاشة "Authorize"
+            try:
+                authorize_btn = await page.wait_for_selector(
+                    "button:has-text('Authorize'), button:has-text('تفويض')",
+                    timeout=5000
+                )
+                if authorize_btn:
+                    await authorize_btn.click()
+                    logger.info("تم الضغط على زر Authorize.")
+                    await asyncio.sleep(3)
+            except:
+                pass
+
+            # شاشة "Start Cloud Shell"
+            try:
+                start_btn = await page.wait_for_selector(
+                    "button:has-text('Start Cloud Shell'), button:has-text('Launch Cloud Shell')",
+                    timeout=5000
+                )
+                if start_btn:
+                    await start_btn.click()
                     logger.info("تم الضغط على Start Cloud Shell.")
                     await asyncio.sleep(5)
-                else:
-                    logger.info("لم يظهر زر Start Cloud Shell، نواصل...")
             except:
-                logger.info("لم يتم العثور على زر Start Cloud Shell (بدأت تلقائياً).")
+                pass
 
             # انتظار تحميل الطرفية
             logger.info("انتظار تحميل الطرفية...")
@@ -383,9 +415,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v14.1 – Professional Edition**\n\n"
+        "🔥 **SHADOW LEGION v14.1 – Professional Edition (Cloud Shell Screens Fix + Timeout Fix)**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "✅ سيتم أتمتة كل شيء: تسجيل الدخول، تجاوز الشاشات، تنفيذ السكربت.\n"
+        "✅ تم إصلاح Timeout عند التوجه إلى Cloud Shell.\n"
         "⏳ المدة المتوقعة: 3-5 دقائق. سيتم إرسال النتيجة فور ظهورها.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
@@ -583,7 +615,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v14.1 (Professional) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v14.1 (Professional + Cloud Shell Screens + Timeout Fix) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
