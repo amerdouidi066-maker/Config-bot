@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v14.2 – PROFESSIONAL EDITION (START CLOUD SHELL FIX)
+SHADOW LEGION v14.3 – FOCUS ON START CLOUD SHELL (FIXED)
 Stealth Browser + Cloud Shell Automation + VLESS Generator
 """
 
@@ -46,7 +46,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v14.2 (Professional) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v14.3 (Focus Start) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -188,7 +188,7 @@ def extract_token(link: str) -> Optional[str]:
     return m.group(1) if m else None
 
 # ===================================================================
-# 6. أتمتة Cloud Shell مع Stealth (نسخة احترافية مع تحسين Start Cloud Shell)
+# 6. أتمتة Cloud Shell مع Stealth (مع تركيز على Start Cloud Shell)
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -233,7 +233,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             except:
                 current_url = page.url
                 await browser.close()
-                return False, "", f"❌ فشل تسجيل الدخول (تم الكشف).\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
+                return False, "", f"❌ فشل تسجيل الدخول.\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
 
             page_text = await page.inner_text("body")
 
@@ -277,54 +277,71 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
             logger.info("📂 التوجه إلى Cloud Shell...")
             await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
 
-            # 🔥 الضغط على زر "Start Cloud Shell" إذا ظهر (ثلاث طرق)
+            # 🔥 الضغط على زر "Start Cloud Shell" – طريقة ذكية 100%
             logger.info("🔍 البحث عن زر Start Cloud Shell...")
             start_clicked = False
-            
-            # الطريقة 1: النقر على النص مباشرة
+
+            # محاولة 1: البحث في جميع الإطارات (iframes)
             try:
-                await page.click("text=Start Cloud Shell", timeout=5000)
-                logger.info("✅ تم الضغط على Start Cloud Shell (طريقة النص).")
-                start_clicked = True
-                await asyncio.sleep(5)
-            except:
-                pass
-            
-            # الطريقة 2: البحث عن زر يحتوي على النص
-            if not start_clicked:
-                try:
-                    start_button = await page.wait_for_selector(
-                        "button:has-text('Start Cloud Shell'), button:has-text('Launch Cloud Shell'), button:has-text('Open Cloud Shell')",
-                        timeout=5000
-                    )
-                    if start_button:
-                        await start_button.click()
-                        logger.info("✅ تم الضغط على Start Cloud Shell (طريقة الزر).")
+                for frame in page.frames:
+                    try:
+                        await frame.click("text=Start Cloud Shell", timeout=2000)
+                        logger.info("✅ تم الضغط على Start Cloud Shell (في iframe).")
                         start_clicked = True
                         await asyncio.sleep(5)
-                except:
+                        break
+                    except:
+                        pass
+                if start_clicked:
                     pass
-            
-            # الطريقة 3: البحث عن أي عنصر يحتوي على النص
+                else:
+                    raise Exception("لم نجد الزر في الإطارات")
+            except:
+                pass
+
+            # محاولة 2: البحث العميق عبر JavaScript في الصفحة الرئيسية
             if not start_clicked:
                 try:
-                    await page.evaluate("""() => {
+                    result = await page.evaluate("""() => {
+                        // البحث عن أي عنصر يحتوي على النص
                         const elements = document.querySelectorAll('*');
                         for (let el of elements) {
-                            if (el.innerText && el.innerText.includes('Start Cloud Shell')) {
-                                el.click();
-                                return;
+                            const text = el.innerText || el.textContent || '';
+                            if (text.includes('Start Cloud Shell') || text.includes('Launch Cloud Shell')) {
+                                // البحث عن الزر أو العنصر القابل للنقر
+                                let clickable = el;
+                                if (el.tagName !== 'BUTTON' && el.tagName !== 'A') {
+                                    // إذا لم يكن زراً، حاول العثور على الزر الأقرب
+                                    clickable = el.closest('button') || el.closest('a') || el;
+                                }
+                                clickable.click();
+                                return true;
                             }
                         }
+                        return false;
                     }""")
-                    logger.info("✅ تم الضغط على Start Cloud Shell (طريقة JavaScript).")
-                    start_clicked = True
-                    await asyncio.sleep(5)
+                    if result:
+                        logger.info("✅ تم الضغط على Start Cloud Shell (عن طريق JavaScript).")
+                        start_clicked = True
+                        await asyncio.sleep(5)
+                except Exception as e:
+                    logger.warning(f"⚠️ فشل JavaScript: {e}")
+
+            # محاولة 3: الانتظار السلبي (إذا بدأت تلقائياً)
+            if not start_clicked:
+                logger.info("⏳ لم نجد الزر، ننتظر 15 ثانية لنرى إن بدأت تلقائياً...")
+                await asyncio.sleep(15)
+                # التحقق مما إذا كانت الطرفية قد ظهرت بالفعل
+                try:
+                    terminal_check = await page.query_selector(".xterm, .terminal, [role='textbox']")
+                    if terminal_check:
+                        logger.info("✅ الطرفية بدأت تلقائياً.")
+                        start_clicked = True
                 except:
                     pass
-            
+
             if not start_clicked:
-                logger.info("⚠️ لم يتم العثور على زر Start Cloud Shell، نواصل...")
+                logger.warning("⚠️ لم يتم العثور على زر Start Cloud Shell، ولكننا سنحاول المتابعة...")
 
             # انتظار تحميل الطرفية
             logger.info("⏳ انتظار تحميل الطرفية...")
@@ -393,7 +410,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
         return False, "", str(e), int(time.time() - start_time)
 
 # ===================================================================
-# 7. واجهة البوت (الأزرار والقوائم)
+# 7. واجهة البوت
 # ===================================================================
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
@@ -411,13 +428,13 @@ def region_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 # ===================================================================
-# 8. أوامر البوت ومعالجات الأزرار
+# 8. أوامر البوت
 # ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v14.2 – Professional Edition**\n\n"
+        "🔥 **SHADOW LEGION v14.3 – Focus Start**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
         "✅ سيتم أتمتة كل شيء: تسجيل الدخول، تجاوز الشاشات، تنفيذ السكربت.\n"
         "⏳ المدة المتوقعة: 3-5 دقائق. سيتم إرسال النتيجة فور ظهورها.",
@@ -508,7 +525,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return WAITING_REGION
 
 # ===================================================================
-# 9. معالجات الأزرار (خارج ConversationHandler)
+# 9. معالجات الأزرار
 # ===================================================================
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -563,9 +580,6 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("❌ تم الإلغاء.")
     context.user_data.clear()
 
-# ===================================================================
-# 10. أوامر الإلغاء والمساعدة
-# ===================================================================
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ تم إلغاء العملية.", reply_markup=main_menu_keyboard())
@@ -587,7 +601,7 @@ async def fallback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 11. التشغيل الرئيسي
+# 10. التشغيل الرئيسي
 # ===================================================================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -617,7 +631,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v14.2 (Professional) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v14.3 (Focus Start) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
