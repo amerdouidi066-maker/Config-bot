@@ -7,7 +7,7 @@ SHADOW LEGION v15.6 – FALSE_POSITIVE_FIXED (PRODUCTION)
 - 13 منطقة + اختيار عشوائي
 - محرك تخفي فائق 9.5/10
 - ثلاث طبقات لتنفيذ الأوامر
-- لوحة تحكم ويب (اختيارية)
+- تقارير أخطاء تفصيلية ترسل للمستخدم
 """
 
 import os
@@ -380,12 +380,13 @@ async def execute_command_robust(page, cmd: str) -> bool:
         return False
 
 # ===================================================================
-# 7. قلب الأتمتة – مع كشف انتهاء الصلاحية المحسن V2
+# 7. قلب الأتمتة – مع كشف انتهاء الصلاحية المحسن V2 + تقارير مفصلة
 # ===================================================================
 async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int, str]:
     start_time = time.time()
     screenshot_path = ""
-    
+    last_error = ""
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             logger.info(f"🔄 محاولة {attempt}/{MAX_RETRIES} ...")
@@ -405,27 +406,21 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                 logger.info("📌 فتح الرابط...")
                 await page.goto(lab_url, timeout=60000, wait_until="domcontentloaded")
                 
-                # ================================================================
-                # 🛡️ كشف انتهاء الصلاحية – النسخة المحسّنة V2 (تقليل النتائج الخاطئة)
-                # ================================================================
+                # ============================================================
+                # كشف الصلاحية المحسن V2
+                # ============================================================
                 try:
-                    # انتظار إضافي للسماح بإعادة التوجيه
                     await asyncio.sleep(5)
-                    
                     current_url = page.url
                     page_text = await page.inner_text("body")
                     
-                    # 1. تحقق مما إذا كنا في Cloud Shell أو Console بالفعل (نجاح)
                     if "shell.cloud.google.com" in current_url or "console.cloud.google.com" in current_url:
                         logger.info("✅ تم الوصول إلى Cloud Shell/Console – الرابط صالح.")
                     else:
-                        # 2. فحص أكثر دقة للكلمات المفتاحية (مع استثناءات)
                         expired_keywords = ["expired", "invalid session", "access denied", "not found", "404"]
                         login_keywords = ["sign in", "choose an account", "accounts.google.com"]
-                        
                         is_expired = any(kw in page_text.lower() for kw in expired_keywords)
                         
-                        # 3. إذا كان هناك كلمات تسجيل دخول، نتحقق من وجود عناصر Cloud Shell أيضاً
                         if any(kw in page_text.lower() for kw in login_keywords):
                             has_shell_element = await page.query_selector(".xterm, .terminal, button:has-text('Start Cloud Shell')")
                             if has_shell_element:
@@ -435,23 +430,27 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                                 is_expired = True
                         
                         if is_expired:
-                            logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية (بعد الفحص المحسّن).")
+                            logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية.")
                             await browser.close()
                             return False, "", "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
                 except Exception as e:
                     logger.warning(f"⚠️ فشل التحقق من الصلاحية: {e}")
 
+                # معالج تسجيل الدخول
                 await handle_login_screen(page)
 
+                # انتظار وصولنا إلى Console/Shell
                 try:
                     await page.wait_for_url(
                         lambda u: "console.cloud.google.com" in u or "shell.cloud.google.com" in u,
                         timeout=30000
                     )
                 except:
+                    last_error = "❌ لم يتم الوصول إلى Console أو Shell – ربما الرابط غير صحيح."
                     await browser.close()
                     continue
 
+                # تجاوز الشاشات الأولية
                 for btn in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض"]:
                     try:
                         await page.click(f"button:has-text('{btn}')", timeout=2000)
@@ -459,11 +458,16 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                     except:
                         pass
 
+                # التوجه إلى Cloud Shell
                 await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
                 await asyncio.sleep(random.uniform(3, 5))
 
-                await click_start_ultimate(page)
+                # الضغط على Start
+                start_clicked = await click_start_ultimate(page)
+                if not start_clicked:
+                    last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell – قد تكون الواجهة تغيرت."
 
+                # انتظار الطرفية
                 terminal_ready = False
                 for _ in range(35):
                     try:
@@ -473,11 +477,15 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                     except:
                         await asyncio.sleep(2)
                 if not terminal_ready:
+                    last_error = "❌ لم تظهر الطرفية خلال المهلة المحددة (قد يكون Cloud Shell بطيئاً أو معطلاً)."
                     await browser.close()
                     continue
 
                 await asyncio.sleep(random.uniform(2, 4))
 
+                # ============================================================
+                # بناء سكريبت النشر
+                # ============================================================
                 deploy_script = f'''
 import os, time, requests, subprocess, sys
 PROJECT_ID = "{project_id}"
@@ -502,10 +510,15 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
                     "python3 deploy.py"
                 ]
 
-                for cmd in commands:
-                    await execute_command_robust(page, cmd)
+                for idx, cmd in enumerate(commands):
+                    success_cmd = await execute_command_robust(page, cmd)
+                    if not success_cmd:
+                        last_error = f"⚠️ فشل تنفيذ الأمر رقم {idx+1}: {cmd[:30]}..."
                     await asyncio.sleep(random.uniform(2, 3))
 
+                # ============================================================
+                # قراءة النتيجة
+                # ============================================================
                 logger.info("📖 محاولة قراءة /tmp/result.txt...")
                 result_content = ""
                 
@@ -529,8 +542,8 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
                         lines = terminal_text.split('\n')
                         relevant = '\n'.join(lines[-30:])
                         result_content = relevant
-                    except:
-                        pass
+                    except Exception as e:
+                        last_error = f"⚠️ فشل قراءة الملف أو الطرفية: {str(e)[:100]}"
 
                 os.makedirs("screenshots", exist_ok=True)
                 screenshot_path = f"screenshots/{int(time.time())}_{attempt}.png"
@@ -543,16 +556,20 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
                 if service_match and vless_match:
                     return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time), screenshot_path
                 else:
-                    error = f"⚠️ لم يتم العثور على النتيجة.\nالمحتوى المسترجع:\n{result_content[-500:]}"
-                    return False, "", error, int(time.time() - start_time), screenshot_path
+                    error_detail = f"⚠️ لم يتم العثور على النتيجة.\nالمحتوى المسترجع:\n{result_content[-500:]}"
+                    if not result_content:
+                        error_detail = "❌ لم يتم الحصول على أي مخرجات من الطرفية. قد يكون السكريبت لم ينفذ."
+                    return False, "", error_detail, int(time.time() - start_time), screenshot_path
 
         except Exception as e:
             logger.exception(f"❌ فشل المحاولة {attempt}")
+            last_error = f"❌ خطأ تقني: {str(e)[:200]}"
             if attempt == MAX_RETRIES:
-                return False, "", f"❌ خطأ تقني: {str(e)}", int(time.time() - start_time), screenshot_path
+                return False, "", last_error, int(time.time() - start_time), screenshot_path
             await asyncio.sleep(2 ** attempt)
 
-    return False, "", "❌ انتهت جميع المحاولات. قد يكون الرابط غير صحيح أو هناك مشكلة في الشبكة.", int(time.time() - start_time), screenshot_path
+    final_msg = last_error if last_error else "❌ انتهت جميع المحاولات. قد يكون الرابط غير صحيح أو هناك مشكلة في الشبكة."
+    return False, "", final_msg, int(time.time() - start_time), screenshot_path
 
 # ===================================================================
 # 8. واجهة البوت
