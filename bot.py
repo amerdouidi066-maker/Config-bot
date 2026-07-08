@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v15.2 – ULTIMATE STEALTH (FIXED HEADLESS)
-أقوى أدوات التخفي (مع headless=True)
+SHADOW LEGION v15.3 – ULTIMATE STEALTH (FIXED CONFIG)
+أقوى أدوات التخفي (بدون StealthConfig)
 """
 
 import os
@@ -30,7 +30,7 @@ from telegram.ext import (
 )
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
-from playwright_stealth import stealth_async, StealthConfig
+from playwright_stealth import stealth_async
 from fake_useragent import UserAgent
 
 # ===================================================================
@@ -48,7 +48,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v15.2 (Ultimate Stealth) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v15.3 (Ultimate Stealth) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -62,10 +62,8 @@ KNOWN_REGIONS = {
     "asia-southeast1": "🇸🇬 سنغافورة",
 }
 
-# وكيل مستخدم عشوائي
 ua = UserAgent()
 
-# بصمات WebGL عشوائية
 WEBGL_VENDORS = ["Google Inc.", "Intel Inc.", "NVIDIA Corporation", "AMD", "Apple Inc."]
 WEBGL_RENDERERS = [
     "ANGLE (Intel, Intel(R) UHD Graphics 620, Direct3D11 vs_5_0 ps_5_0)",
@@ -74,7 +72,6 @@ WEBGL_RENDERERS = [
     "ANGLE (Apple, Apple M1, OpenGL 4.1)",
 ]
 
-# مواقع جغرافية عشوائية
 LOCATIONS = [
     {"latitude": 40.7128, "longitude": -74.0060},
     {"latitude": 51.5074, "longitude": -0.1278},
@@ -212,15 +209,12 @@ def random_delay(min_sec: float = 0.5, max_sec: float = 2.0) -> float:
     return random.uniform(min_sec, max_sec)
 
 # ===================================================================
-# 5. أتمتة Cloud Shell – النسخة الخارقة (مع headless=True)
+# 5. أتمتة Cloud Shell – النسخة الخارقة (بدون StealthConfig)
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
     
-    # إعدادات التخفي العشوائية
     user_agent = ua.random
-    webgl_vendor = random.choice(WEBGL_VENDORS)
-    webgl_renderer = random.choice(WEBGL_RENDERERS)
     location = random.choice(LOCATIONS)
     viewport_width = random.choice([1366, 1440, 1536, 1600, 1920, 2560])
     viewport_height = random.choice([768, 900, 960, 1050, 1080, 1440])
@@ -237,7 +231,6 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
         
         try:
             async with async_playwright() as p:
-                # 🔥 التصحيح: استخدم headless=True مع إضافة وسيط --headless=new
                 browser = await p.chromium.launch(
                     headless=True,
                     args=[
@@ -275,7 +268,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                         "--disable-features=GlobalMediaControls",
                         "--disable-features=TabGroups",
                         "--disable-features=PrivacySandboxAdsAPIsOverride",
-                        "--headless=new",  # 🔥 استخدام الوضع الجديد
+                        "--headless=new",
                     ]
                 )
                 context = await browser.new_context(
@@ -303,26 +296,8 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 )
                 page = await context.new_page()
 
-                # تطبيق Stealth (بدون playwright-extra)
-                await stealth_async(page, config=StealthConfig(
-                    webgl_vendor=True,
-                    renderer_webgl=True,
-                    canvas=True,
-                    webgl=True,
-                    audio_context=True,
-                    languages=True,
-                    navigator_plugins=True,
-                    navigator_permissions=True,
-                    navigator_webdriver=True,
-                    chrome_app=True,
-                    chrome_runtime=True,
-                    iframe=True,
-                    media_codecs=True,
-                    out_media=True,
-                    shared_array_buffer=True,
-                    speech_synthesis=True,
-                    user_agent=True,
-                ))
+                # 🔥 تطبيق Stealth افتراضي (بدون أي معاملات إضافية)
+                await stealth_async(page)
 
                 # 1. فتح الرابط
                 logger.info("🌐 فتح الرابط (بصمة جديدة)...")
@@ -517,7 +492,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v15.2 – ULTIMATE STEALTH (FIXED HEADLESS)**\n\n"
+        "🔥 **SHADOW LEGION v15.3 – ULTIMATE STEALTH (FIXED)**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
         "🕵️ أقوى أدوات التخفي:\n"
         "   • بصمة متصفح عشوائية (WebGL, Canvas, AudioContext)\n"
@@ -718,7 +693,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v15.2 (Ultimate Stealth) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v15.3 (Ultimate Stealth) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
