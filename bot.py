@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v15.3 – ULTIMATE STEALTH (FIXED CONFIG)
-أقوى أدوات التخفي (بدون StealthConfig)
+SHADOW LEGION v15.5 – RETRY LOGIN FIX
+يعيد محاولة تسجيل الدخول إذا ظهرت شاشة Sign in
 """
 
 import os
@@ -48,7 +48,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v15.3 (Ultimate Stealth) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v15.5 (Retry Login) بدأ التشغيل...")
 
 # ===================================================================
 # 2. تعريف الحالات والمتغيرات
@@ -63,14 +63,6 @@ KNOWN_REGIONS = {
 }
 
 ua = UserAgent()
-
-WEBGL_VENDORS = ["Google Inc.", "Intel Inc.", "NVIDIA Corporation", "AMD", "Apple Inc."]
-WEBGL_RENDERERS = [
-    "ANGLE (Intel, Intel(R) UHD Graphics 620, Direct3D11 vs_5_0 ps_5_0)",
-    "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Ti, Direct3D11 vs_5_0 ps_5_0)",
-    "ANGLE (AMD, Radeon RX 580, Direct3D11 vs_5_0 ps_5_0)",
-    "ANGLE (Apple, Apple M1, OpenGL 4.1)",
-]
 
 LOCATIONS = [
     {"latitude": 40.7128, "longitude": -74.0060},
@@ -209,7 +201,7 @@ def random_delay(min_sec: float = 0.5, max_sec: float = 2.0) -> float:
     return random.uniform(min_sec, max_sec)
 
 # ===================================================================
-# 5. أتمتة Cloud Shell – النسخة الخارقة (بدون StealthConfig)
+# 5. أتمتة Cloud Shell – مع إعادة محاولة تسجيل الدخول
 # ===================================================================
 async def run_in_cloudshell(link: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int]:
     start_time = time.time()
@@ -227,7 +219,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
     logger.info(f"🕵️ وكيل المستخدم: {user_agent[:60]}...")
     
     for attempt in range(3):
-        logger.info(f"🔄 المحاولة {attempt+1}/3 (بصمة جديدة)")
+        logger.info(f"🔄 المحاولة {attempt+1}/3")
         
         try:
             async with async_playwright() as p:
@@ -296,31 +288,62 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                 )
                 page = await context.new_page()
 
-                # 🔥 تطبيق Stealth افتراضي (بدون أي معاملات إضافية)
                 await stealth_async(page)
 
-                # 1. فتح الرابط
-                logger.info("🌐 فتح الرابط (بصمة جديدة)...")
-                await page.goto(link, timeout=60000, wait_until="networkidle")
+                # ============================================================
+                # 1. فتح الرابط (مع domcontentloaded لتجنب networkidle)
+                # ============================================================
+                logger.info("🌐 فتح الرابط...")
+                await page.goto(link, timeout=60000, wait_until="domcontentloaded")
                 await asyncio.sleep(random_delay(2, 4))
 
-                # 2. التحقق من تسجيل الدخول
+                # ============================================================
+                # 2. إعادة محاولة تسجيل الدخول إذا ظهرت شاشة Sign in
+                # ============================================================
+                login_success = False
+                for retry in range(3):
+                    # التحقق من وجود شاشة تسجيل الدخول
+                    page_text = await page.inner_text("body")
+                    if "Sign in" in page_text and "Email or phone" in page_text:
+                        logger.warning(f"⚠️ ظهور شاشة تسجيل الدخول (محاولة {retry+1}/3)...")
+                        await asyncio.sleep(2)
+                        # إعادة تحميل الصفحة
+                        await page.reload(timeout=30000, wait_until="domcontentloaded")
+                        await asyncio.sleep(3)
+                    else:
+                        login_success = True
+                        break
+                
+                if not login_success:
+                    current_url = page.url
+                    await browser.close()
+                    if attempt == 2:
+                        return False, "", f"❌ فشل تسجيل الدخول بعد 3 محاولات.\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
+                    else:
+                        logger.warning(f"⚠️ فشل تسجيل الدخول في المحاولة {attempt+1}، نعيد المحاولة...")
+                        continue
+
+                # ============================================================
+                # 3. انتظار التوجيه إلى Console أو Cloud Shell
+                # ============================================================
                 try:
                     await page.wait_for_url(
                         lambda url: "console.cloud.google.com" in url or "shell.cloud.google.com" in url,
-                        timeout=30000
+                        timeout=45000
                     )
                     logger.info("✅ تم تسجيل الدخول بنجاح.")
                 except:
                     current_url = page.url
                     await browser.close()
                     if attempt == 2:
-                        return False, "", f"❌ فشل تسجيل الدخول (بعد 3 محاولات).\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
+                        return False, "", f"❌ فشل التوجيه بعد تسجيل الدخول.\nالعنوان الحالي: `{current_url}`", int(time.time() - start_time)
                     else:
-                        logger.warning(f"⚠️ فشل تسجيل الدخول في المحاولة {attempt+1}، نعيد المحاولة...")
+                        logger.warning(f"⚠️ فشل التوجيه في المحاولة {attempt+1}، نعيد المحاولة...")
                         continue
 
-                # 3. تجاوز شاشات الترحيب والشروط
+                # ============================================================
+                # 4. تجاوز شاشات الترحيب والشروط (نفس الكود السابق)
+                # ============================================================
                 page_text = await page.inner_text("body")
 
                 if "Welcome to your new account" in page_text or ("Welcome" in page_text and "Understand" in page_text):
@@ -357,15 +380,60 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                     except Exception as e:
                         logger.warning(f"⚠️ فشل تجاوز الشروط: {e}")
 
-                # 4. التوجه إلى Cloud Shell
+                # ============================================================
+                # 5. التوجه إلى Cloud Shell ومعالجة شاشاته
+                # ============================================================
                 logger.info("📂 التوجه إلى Cloud Shell...")
                 await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
                 await asyncio.sleep(random_delay(2, 4))
 
-                # 5. الضغط على Start Cloud Shell (JavaScript)
+                # شاشة Continue
+                try:
+                    continue_btn = await page.wait_for_selector(
+                        "button:has-text('Continue'), button:has-text('متابعة')",
+                        timeout=5000
+                    )
+                    if continue_btn:
+                        await continue_btn.click()
+                        logger.info("✅ تم الضغط على Continue.")
+                        await asyncio.sleep(random_delay(2, 3))
+                except:
+                    pass
+
+                # شاشة Authorize
+                try:
+                    authorize_btn = await page.wait_for_selector(
+                        "button:has-text('Authorize'), button:has-text('تفويض')",
+                        timeout=5000
+                    )
+                    if authorize_btn:
+                        await authorize_btn.click()
+                        logger.info("✅ تم الضغط على Authorize.")
+                        await asyncio.sleep(random_delay(2, 3))
+                except:
+                    pass
+
+                # شاشة Start Cloud Shell
                 logger.info("🔍 البحث عن زر Start Cloud Shell...")
-                clicked = False
-                for js_attempt in range(3):
+                start_clicked = False
+                selectors = [
+                    "button:has-text('Start Cloud Shell')",
+                    "button:has-text('Launch Cloud Shell')",
+                    "[role='button']:has-text('Start Cloud Shell')",
+                ]
+                for selector in selectors:
+                    try:
+                        btn = await page.wait_for_selector(selector, timeout=3000)
+                        if btn:
+                            await btn.click()
+                            logger.info(f"✅ تم الضغط على Start Cloud Shell ({selector}).")
+                            start_clicked = True
+                            await asyncio.sleep(5)
+                            break
+                    except:
+                        continue
+                
+                if not start_clicked:
                     try:
                         clicked = await page.evaluate("""() => {
                             const elements = document.querySelectorAll('*');
@@ -385,16 +453,18 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                         }""")
                         if clicked:
                             logger.info("✅ تم الضغط على Start Cloud Shell (JavaScript).")
-                            break
+                            start_clicked = True
+                            await asyncio.sleep(5)
                     except:
                         pass
-                    await asyncio.sleep(1)
                 
-                if not clicked:
+                if not start_clicked:
                     logger.info("⏳ ننتظر 15 ثانية (ربما بدأت تلقائياً)...")
                     await asyncio.sleep(15)
 
-                # 6. انتظار الطرفية
+                # ============================================================
+                # 6. انتظار الطرفية وحقن السكربت
+                # ============================================================
                 logger.info("⏳ انتظار تحميل الطرفية...")
                 terminal_ready = False
                 for attempt_terminal in range(20):
@@ -410,7 +480,7 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
 
                 await asyncio.sleep(random_delay(2, 4))
 
-                # 7. حقن السكربت
+                # حقن السكربت
                 with open("deploy_script.py", "r") as f:
                     script_content = f.read()
                 script_content = script_content.replace('os.environ.get("PROJECT_ID")', f'"{project_id}"')
@@ -430,7 +500,9 @@ async def run_in_cloudshell(link: str, project_id: str, token: str, region: str)
                     await page.keyboard.press("Enter")
                     await asyncio.sleep(random_delay(2, 4))
 
-                # 8. انتظار النتيجة
+                # ============================================================
+                # 7. انتظار النتيجة
+                # ============================================================
                 logger.info("⏳ انتظار النتيجة (حتى 5 دقائق)...")
                 result_text = ""
                 for attempt_result in range(30):
@@ -492,15 +564,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username, user.first_name, user.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v15.3 – ULTIMATE STEALTH (FIXED)**\n\n"
+        "🔥 **SHADOW LEGION v15.5 – Retry Login Fix**\n\n"
         "📌 أرسل رابط Qwiklabs.\n"
-        "🕵️ أقوى أدوات التخفي:\n"
-        "   • بصمة متصفح عشوائية (WebGL, Canvas, AudioContext)\n"
-        "   • وكيل مستخدم عشوائي\n"
-        "   • موقع جغرافي عشوائي\n"
-        "   • إعادة محاولة تلقائية (3 محاولات)\n"
-        "   • أحدث إصدار headless (new)\n"
-        "   • تأخيرات عشوائية (سلوك بشري)\n"
+        "✅ تم إضافة إعادة محاولة تسجيل الدخول تلقائياً.\n"
+        "✅ زيادة وقت انتظار التوجيه إلى 45 ثانية.\n"
+        "🕵️ أقوى أدوات التخفي.\n"
         "⏳ المدة المتوقعة: 3-6 دقائق.",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
@@ -693,7 +761,7 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_handler))
 
-    logger.info("🤖 SHADOW LEGION v15.3 (Ultimate Stealth) جاهز ويعمل على Railway...")
+    logger.info("🤖 SHADOW LEGION v15.5 (Retry Login) جاهز ويعمل على Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
