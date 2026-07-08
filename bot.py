@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v15.4-PRO – EXTENDED REGIONS & RANDOM PICKER
-- 13 منطقة حول العالم + اختيار عشوائي
-- Smart Extractor V3 (يتعامل مع # والترميز الرباعي)
-- كشف فوري للروابط المنتهية
+SHADOW LEGION v15.6 – FALSE_POSITIVE_FIXED (PRODUCTION)
+- Expiry Detection V2 (يقلل النتائج الخاطئة بشكل كبير)
+- Smart Extractor V4 (5x unquote + deep regex)
+- 13 منطقة + اختيار عشوائي
 - محرك تخفي فائق 9.5/10
+- ثلاث طبقات لتنفيذ الأوامر
+- لوحة تحكم ويب (اختيارية)
 """
 
 import os
@@ -52,7 +54,7 @@ logging.basicConfig(
     handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v15.4-PRO (Extended Regions) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v15.6 (False_Positive_Fixed) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -168,37 +170,25 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for r in rows]
 
 # ===================================================================
-# 4. المستخرج الذكي V3 (يتعامل مع # والترميز الرباعي)
+# 4. المستخرج الذكي النهائي V4
 # ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
+    """
+    المستخرج النهائي V4 – 5x unquote + deep regex + تنظيف تام.
+    """
+    link = link.strip()
     decoded = link
-    for _ in range(4):
+    for _ in range(5):
         decoded = urllib.parse.unquote(decoded)
     
     project = None
     token = None
     
-    if '#' in decoded:
-        main_part = decoded.split('#')[0]
-    else:
-        main_part = decoded
-    
-    parsed = urllib.parse.urlparse(main_part)
+    parsed = urllib.parse.urlparse(decoded)
     params = urllib.parse.parse_qs(parsed.query)
     
-    if 'project' in params:
-        project = params['project'][0]
-    elif 'projectId' in params:
-        project = params['projectId'][0]
-    elif 'id' in params:
-        project = params['id'][0]
-    
-    if 'token' in params:
-        token = params['token'][0]
-    elif 'display_token' in params:
-        token = params['display_token'][0]
-    elif 'auth_token' in params:
-        token = params['auth_token'][0]
+    project = params.get('project', [None])[0] or params.get('projectId', [None])[0] or params.get('id', [None])[0]
+    token = params.get('token', [None])[0] or params.get('display_token', [None])[0] or params.get('auth_token', [None])[0]
     
     if not project:
         match = re.search(r'[?&]project=([^&]+)', decoded)
@@ -219,14 +209,14 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
                 token = match.group(1)
     
     if project:
-        project = project.strip('/').strip('"').strip("'")
+        project = project.strip('/"\'')
     if token:
-        token = token.strip('/').strip('"').strip("'")
+        token = token.strip('/"\'')
     
     return {"project_id": project, "token": token}
 
 # ===================================================================
-# 5. محرك التخفي المتطور
+# 5. محرك التخفي
 # ===================================================================
 async def create_ultra_stealth_context(browser):
     ua = random.choice(USER_AGENTS)
@@ -285,7 +275,7 @@ async def create_ultra_stealth_context(browser):
     return context, page
 
 # ===================================================================
-# 6. دوال التفاعل القوية مع Cloud Shell
+# 6. دوال التفاعل
 # ===================================================================
 async def handle_login_screen(page):
     try:
@@ -326,7 +316,6 @@ async def click_start_ultimate(page) -> bool:
                 return True
         except:
             continue
-    
     result = await page.evaluate("""
         () => {
             const keywords = ['Start', 'Launch', 'Activate', 'بدء', 'تفعيل', 'شغّل'];
@@ -347,7 +336,6 @@ async def click_start_ultimate(page) -> bool:
     if result:
         logger.info("✅ نقر Start عبر JavaScript الشامل.")
         return True
-    
     logger.warning("⚠️ لم نجد زر Start، لكننا نواصل...")
     return False
 
@@ -392,7 +380,7 @@ async def execute_command_robust(page, cmd: str) -> bool:
         return False
 
 # ===================================================================
-# 7. قلب الأتمتة (مع كشف انتهاء الصلاحية)
+# 7. قلب الأتمتة – مع كشف انتهاء الصلاحية المحسن V2
 # ===================================================================
 async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int, str]:
     start_time = time.time()
@@ -416,25 +404,40 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
 
                 logger.info("📌 فتح الرابط...")
                 await page.goto(lab_url, timeout=60000, wait_until="domcontentloaded")
-                await asyncio.sleep(random.uniform(3, 5))
-
-                # كشف انتهاء الصلاحية
+                
+                # ================================================================
+                # 🛡️ كشف انتهاء الصلاحية – النسخة المحسّنة V2 (تقليل النتائج الخاطئة)
+                # ================================================================
                 try:
+                    # انتظار إضافي للسماح بإعادة التوجيه
+                    await asyncio.sleep(5)
+                    
                     current_url = page.url
                     page_text = await page.inner_text("body")
-                    expired_keywords = [
-                        "expired", "invalid", "session", "sign in", "choose an account", 
-                        "access denied", "not found", "404", "forbidden", "unauthorized",
-                        "انتهت", "غير صالح", "تسجيل الدخول", "signin"
-                    ]
-                    is_expired = any(kw in current_url.lower() for kw in ["accounts.google.com", "signin", "expired", "error"])
-                    if not is_expired:
-                        is_expired = any(kw in page_text.lower() for kw in expired_keywords)
                     
-                    if is_expired:
-                        logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية.")
-                        await browser.close()
-                        return False, "", "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
+                    # 1. تحقق مما إذا كنا في Cloud Shell أو Console بالفعل (نجاح)
+                    if "shell.cloud.google.com" in current_url or "console.cloud.google.com" in current_url:
+                        logger.info("✅ تم الوصول إلى Cloud Shell/Console – الرابط صالح.")
+                    else:
+                        # 2. فحص أكثر دقة للكلمات المفتاحية (مع استثناءات)
+                        expired_keywords = ["expired", "invalid session", "access denied", "not found", "404"]
+                        login_keywords = ["sign in", "choose an account", "accounts.google.com"]
+                        
+                        is_expired = any(kw in page_text.lower() for kw in expired_keywords)
+                        
+                        # 3. إذا كان هناك كلمات تسجيل دخول، نتحقق من وجود عناصر Cloud Shell أيضاً
+                        if any(kw in page_text.lower() for kw in login_keywords):
+                            has_shell_element = await page.query_selector(".xterm, .terminal, button:has-text('Start Cloud Shell')")
+                            if has_shell_element:
+                                logger.info("✅ تم العثور على عناصر Cloud Shell – الرابط صالح رغم كلمات تسجيل الدخول.")
+                                is_expired = False
+                            else:
+                                is_expired = True
+                        
+                        if is_expired:
+                            logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية (بعد الفحص المحسّن).")
+                            await browser.close()
+                            return False, "", "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
                 except Exception as e:
                     logger.warning(f"⚠️ فشل التحقق من الصلاحية: {e}")
 
@@ -552,27 +555,22 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
     return False, "", "❌ انتهت جميع المحاولات. قد يكون الرابط غير صحيح أو هناك مشكلة في الشبكة.", int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 8. واجهة البوت (مع المناطق الممتدة)
+# 8. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
-# 🌍 قائمة المناطق الممتدة (13 منطقة)
 KNOWN_REGIONS = {
-    # أمريكا الشمالية
     "us-central1": "🇺🇸 أيوا (Iowa)",
     "us-east1": "🇺🇸 ساوث كارولينا (S. Carolina)",
     "us-east4": "🇺🇸 شمال فيرجينيا (N. Virginia)",
     "us-west1": "🇺🇸 أوريغون (Oregon)",
-    # أوروبا
     "europe-west1": "🇧🇪 بلجيكا (Belgium)",
     "europe-west2": "🇬🇧 لندن (London)",
     "europe-west3": "🇩🇪 فرانكفورت (Frankfurt)",
     "europe-west4": "🇳🇱 هولندا (Netherlands)",
-    # آسيا والمحيط الهادئ
     "asia-east1": "🇹🇼 تايوان (Taiwan)",
     "asia-northeast1": "🇯🇵 طوكيو (Tokyo)",
     "asia-southeast1": "🇸🇬 سنغافورة (Singapore)",
-    # أستراليا وأمريكا الجنوبية
     "australia-southeast1": "🇦🇺 سيدني (Sydney)",
     "southamerica-east1": "🇧🇷 ساو باولو (Sao Paulo)",
 }
@@ -585,11 +583,9 @@ def main_menu():
     ], resize_keyboard=True)
 
 def region_menu():
-    """قائمة مناطق منظمة مع زر عشوائي"""
     kb = []
     row = []
     for code, name in KNOWN_REGIONS.items():
-        # نأخذ العلم والاسم المختصر للزر (حتى لا يطول)
         short_name = name.split(" ")[0] + " " + name.split("(")[-1].replace(")", "")
         row.append(InlineKeyboardButton(short_name, callback_data=f"region_{code}"))
         if len(row) == 3:
@@ -597,7 +593,6 @@ def region_menu():
             row = []
     if row:
         kb.append(row)
-    # أزرار خاصة
     kb.append([InlineKeyboardButton("🎲 اختيار عشوائي", callback_data="region_random")])
     kb.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
     return InlineKeyboardMarkup(kb)
@@ -606,10 +601,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v15.4-PRO – Extended Regions**\n"
-        "🌍 13 منطقة حول العالم + اختيار عشوائي.\n"
-        "✅ يدعم جميع روابط Qwiklabs و Google SSO.\n"
-        "✅ كشف تلقائي للروابط المنتهية.\n\n"
+        "🔥 **SHADOW LEGION v15.6 – False_Positive_Fixed**\n"
+        "✅ تحسين كشف انتهاء الصلاحية (تجنب النتائج الخاطئة).\n"
+        "✅ يدعم روابط Google SSO الجديدة.\n"
+        "✅ 13 منطقة + اختيار عشوائي.\n\n"
         "📌 أرسل رابط Qwiklabs أو Google SSO.",
         parse_mode="Markdown", reply_markup=main_menu()
     )
@@ -628,10 +623,22 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     project = extracted.get("project_id")
     token = extracted.get("token")
     
-    if not project or not token:
+    if not project and not token:
         await update.message.reply_text(
-            "❌ لم أتمكن من استخراج البيانات من الرابط.\n"
-            "تأكد من نسخ الرابط كاملاً (يحتوي على project و token)."
+            "❌ لم أتمكن من استخراج **project** أو **token** من الرابط.\n"
+            "تأكد من نسخ الرابط كاملاً (بدون اختصار) وأنه يحتوي على معاملات `project` و `token`."
+        )
+        return WAITING_LINK
+    if not project:
+        await update.message.reply_text(
+            "❌ تم استخراج **token** لكن **project** مفقود.\n"
+            "تأكد من أن الرابط يحتوي على معامل `project` أو `projectId`."
+        )
+        return WAITING_LINK
+    if not token:
+        await update.message.reply_text(
+            "❌ تم استخراج **project** لكن **token** مفقود.\n"
+            "تأكد من أن الرابط يحتوي على معامل `token` أو `display_token`."
         )
         return WAITING_LINK
     
@@ -648,7 +655,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     raw_region = q.data.replace("region_", "")
     
-    # معالجة الاختيار العشوائي
     if raw_region == "random":
         region = random.choice(list(KNOWN_REGIONS.keys()))
         logger.info(f"🎲 تم اختيار منطقة عشوائية: {region}")
@@ -774,7 +780,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v15.4-PRO (Extended Regions) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v15.6 (False_Positive_Fixed) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
