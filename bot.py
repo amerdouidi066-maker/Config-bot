@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v15.3 – PROFESSIONAL ERROR HANDLING
-- كشف فوري للروابط المنتهية (Expired/Invalid)
-- رسائل احترافية تفصيلية
-- Smart URL extractor V2
+SHADOW LEGION v15.4-PRO – EXTENDED REGIONS & RANDOM PICKER
+- 13 منطقة حول العالم + اختيار عشوائي
+- Smart Extractor V3 (يتعامل مع # والترميز الرباعي)
+- كشف فوري للروابط المنتهية
 - محرك تخفي فائق 9.5/10
-- تنفيذ أوامر بثلاث طبقات
 """
 
 import os
@@ -53,7 +52,7 @@ logging.basicConfig(
     handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v15.3 (Professional Error Handling) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v15.4-PRO (Extended Regions) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -169,21 +168,22 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for r in rows]
 
 # ===================================================================
-# 4. المستخرج الذكي V2
+# 4. المستخرج الذكي V3 (يتعامل مع # والترميز الرباعي)
 # ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
-    """
-    يستخرج project_id و token من أي رابط Qwiklabs أو Google SSO معقد.
-    يقوم بفك الترميز حتى 3 مرات والبحث في جميع المعاملات المتداخلة.
-    """
     decoded = link
-    for _ in range(3):
+    for _ in range(4):
         decoded = urllib.parse.unquote(decoded)
     
     project = None
     token = None
     
-    parsed = urllib.parse.urlparse(decoded)
+    if '#' in decoded:
+        main_part = decoded.split('#')[0]
+    else:
+        main_part = decoded
+    
+    parsed = urllib.parse.urlparse(main_part)
     params = urllib.parse.parse_qs(parsed.query)
     
     if 'project' in params:
@@ -219,9 +219,9 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
                 token = match.group(1)
     
     if project:
-        project = project.strip('/')
+        project = project.strip('/').strip('"').strip("'")
     if token:
-        token = token.strip('/')
+        token = token.strip('/').strip('"').strip("'")
     
     return {"project_id": project, "token": token}
 
@@ -418,40 +418,28 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                 await page.goto(lab_url, timeout=60000, wait_until="domcontentloaded")
                 await asyncio.sleep(random.uniform(3, 5))
 
-                # ================================================================
-                # 🛡️ كشف انتهاء الصلاحية أو التوكن غير الصالح (Professional Check)
-                # ================================================================
+                # كشف انتهاء الصلاحية
                 try:
                     current_url = page.url
                     page_text = await page.inner_text("body")
-                    
-                    # قائمة الكلمات المفتاحية الدالة على انتهاء الصلاحية أو عدم الصلاحية
                     expired_keywords = [
                         "expired", "invalid", "session", "sign in", "choose an account", 
                         "access denied", "not found", "404", "forbidden", "unauthorized",
-                        "انتهت", "غير صالح", "تسجيل الدخول"
+                        "انتهت", "غير صالح", "تسجيل الدخول", "signin"
                     ]
-                    
-                    # التحقق من عنوان URL (أسهل طريقة لاكتشاف إعادة التوجيه إلى تسجيل الدخول)
                     is_expired = any(kw in current_url.lower() for kw in ["accounts.google.com", "signin", "expired", "error"])
-                    
-                    # التحقق من النص الداخلي للصفحة
                     if not is_expired:
                         is_expired = any(kw in page_text.lower() for kw in expired_keywords)
                     
                     if is_expired:
-                        logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية أو غير صالح.")
+                        logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية.")
                         await browser.close()
-                        # رسالة احترافية محددة للمستخدم
                         return False, "", "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
                 except Exception as e:
                     logger.warning(f"⚠️ فشل التحقق من الصلاحية: {e}")
-                    # نواصل التنفيذ في حالة حدوث خطأ في الكشف نفسه
 
-                # معالج تسجيل الدخول
                 await handle_login_screen(page)
 
-                # التأكد من الوصول إلى Console/Shell
                 try:
                     await page.wait_for_url(
                         lambda u: "console.cloud.google.com" in u or "shell.cloud.google.com" in u,
@@ -461,7 +449,6 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                     await browser.close()
                     continue
 
-                # تجاوز الشاشات الأولية
                 for btn in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض"]:
                     try:
                         await page.click(f"button:has-text('{btn}')", timeout=2000)
@@ -469,14 +456,11 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                     except:
                         pass
 
-                # الذهاب إلى Cloud Shell
                 await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="domcontentloaded")
                 await asyncio.sleep(random.uniform(3, 5))
 
-                # قناص Start
                 await click_start_ultimate(page)
 
-                # انتظار الطرفية
                 terminal_ready = False
                 for _ in range(35):
                     try:
@@ -491,9 +475,6 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
 
                 await asyncio.sleep(random.uniform(2, 4))
 
-                # ================================================================
-                # بناء سكريبت النشر
-                # ================================================================
                 deploy_script = f'''
 import os, time, requests, subprocess, sys
 PROJECT_ID = "{project_id}"
@@ -522,9 +503,6 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
                     await execute_command_robust(page, cmd)
                     await asyncio.sleep(random.uniform(2, 3))
 
-                # ================================================================
-                # قراءة النتيجة من الملف
-                # ================================================================
                 logger.info("📖 محاولة قراءة /tmp/result.txt...")
                 result_content = ""
                 
@@ -574,14 +552,29 @@ print("✅ تمت الكتابة إلى /tmp/result.txt")
     return False, "", "❌ انتهت جميع المحاولات. قد يكون الرابط غير صحيح أو هناك مشكلة في الشبكة.", int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 8. واجهة البوت
+# 8. واجهة البوت (مع المناطق الممتدة)
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
+
+# 🌍 قائمة المناطق الممتدة (13 منطقة)
 KNOWN_REGIONS = {
-    "us-central1": "🇺🇸 أيوا",
-    "us-east1": "🇺🇸 ساوث كارولينا",
-    "europe-west4": "🇳🇱 هولندا",
-    "asia-southeast1": "🇸🇬 سنغافورة",
+    # أمريكا الشمالية
+    "us-central1": "🇺🇸 أيوا (Iowa)",
+    "us-east1": "🇺🇸 ساوث كارولينا (S. Carolina)",
+    "us-east4": "🇺🇸 شمال فيرجينيا (N. Virginia)",
+    "us-west1": "🇺🇸 أوريغون (Oregon)",
+    # أوروبا
+    "europe-west1": "🇧🇪 بلجيكا (Belgium)",
+    "europe-west2": "🇬🇧 لندن (London)",
+    "europe-west3": "🇩🇪 فرانكفورت (Frankfurt)",
+    "europe-west4": "🇳🇱 هولندا (Netherlands)",
+    # آسيا والمحيط الهادئ
+    "asia-east1": "🇹🇼 تايوان (Taiwan)",
+    "asia-northeast1": "🇯🇵 طوكيو (Tokyo)",
+    "asia-southeast1": "🇸🇬 سنغافورة (Singapore)",
+    # أستراليا وأمريكا الجنوبية
+    "australia-southeast1": "🇦🇺 سيدني (Sydney)",
+    "southamerica-east1": "🇧🇷 ساو باولو (Sao Paulo)",
 }
 
 def main_menu():
@@ -592,7 +585,20 @@ def main_menu():
     ], resize_keyboard=True)
 
 def region_menu():
-    kb = [[InlineKeyboardButton(f"🌍 {name}", callback_data=f"region_{code}")] for code, name in KNOWN_REGIONS.items()]
+    """قائمة مناطق منظمة مع زر عشوائي"""
+    kb = []
+    row = []
+    for code, name in KNOWN_REGIONS.items():
+        # نأخذ العلم والاسم المختصر للزر (حتى لا يطول)
+        short_name = name.split(" ")[0] + " " + name.split("(")[-1].replace(")", "")
+        row.append(InlineKeyboardButton(short_name, callback_data=f"region_{code}"))
+        if len(row) == 3:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    # أزرار خاصة
+    kb.append([InlineKeyboardButton("🎲 اختيار عشوائي", callback_data="region_random")])
     kb.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
     return InlineKeyboardMarkup(kb)
 
@@ -600,10 +606,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v15.3 – Professional**\n"
-        "✅ كشف تلقائي للروابط المنتهية.\n"
+        "🔥 **SHADOW LEGION v15.4-PRO – Extended Regions**\n"
+        "🌍 13 منطقة حول العالم + اختيار عشوائي.\n"
         "✅ يدعم جميع روابط Qwiklabs و Google SSO.\n"
-        "✅ محرك تخفي فائق + أوامر قوية.\n\n"
+        "✅ كشف تلقائي للروابط المنتهية.\n\n"
         "📌 أرسل رابط Qwiklabs أو Google SSO.",
         parse_mode="Markdown", reply_markup=main_menu()
     )
@@ -639,11 +645,19 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    region = q.data.replace("region_", "")
-    if region == "cancel":
+    
+    raw_region = q.data.replace("region_", "")
+    
+    # معالجة الاختيار العشوائي
+    if raw_region == "random":
+        region = random.choice(list(KNOWN_REGIONS.keys()))
+        logger.info(f"🎲 تم اختيار منطقة عشوائية: {region}")
+    elif raw_region == "cancel":
         await q.edit_message_text("❌ أُلغي.")
         context.user_data.clear()
         return
+    else:
+        region = raw_region
     
     user_id = q.from_user.id
     lab = context.user_data.get("lab_url")
@@ -760,7 +774,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v15.3 جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v15.4-PRO (Extended Regions) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
