@@ -1,4 +1,1 @@
 python-telegram-bot==20.7
-playwright==1.44.0
-playwright-stealth==1.0.6
-fake-useragent==1.5.1
