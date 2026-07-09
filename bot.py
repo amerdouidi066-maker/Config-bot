@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v21.8 – STABLE_EXECUTION_FINAL
-- إصلاح نهائي لـ execute_command_robust (بدون page.evaluate)
+SHADOW LEGION v21.9 – EVALUATE_ASYNC_FIXED
+- إصلاح نهائي لـ page.evaluate (إزالة async/await)
 - رسالة /start احترافية (إضافة رابط مختبر GCP)
 - إزالة شريط الأزرار السفلي بالكامل
 - محرك تخفي 10/10 مع playwright-stealth
@@ -64,7 +64,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v21.8 (Stable Execution Final) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v21.9 (Evaluate Async Fixed) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية
@@ -623,7 +623,7 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 11. تنفيذ الأوامر (نسخة معدلة - بدون evaluate)
+# 11. تنفيذ الأوامر (بدون page.evaluate)
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     """ينفذ الأمر باستخدام keyboard.type فقط (بدون page.evaluate)"""
@@ -762,7 +762,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 14. قلب الأتمتة
+# 14. قلب الأتمتة (مع إصلاح evaluate)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -897,14 +897,17 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             logger.info("📖 محاولة قراءة /tmp/result.txt...")
             result_content = ""
             
+            # 🔥 تم إصلاح: استخدام .then بدلاً من async/await في evaluate
             try:
                 result_content = await page.evaluate("""
-                    async () => {
-                        const resp = await fetch('/tmp/result.txt');
-                        return await resp.text();
-                    }
+                    fetch('/tmp/result.txt')
+                        .then(res => res.text())
+                        .catch(() => '')
                 """)
-                logger.info("✅ تم قراءة الملف عبر fetch.")
+                if result_content:
+                    logger.info("✅ تم قراءة الملف عبر fetch.")
+                else:
+                    raise Exception("fetch failed")
             except:
                 pass
 
@@ -1257,7 +1260,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v21.8 (Stable Execution Final) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v21.9 (Evaluate Async Fixed) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
