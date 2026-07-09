@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v23.1 – LOGGING_ENHANCED
-- إضافة سجلات تفصيلية بعد التوجه إلى Cloud Shell
-- معالجة أفضل لغياب الكوكيز والـ token
-- Z3R0-STEALTH v2
-- ترويسات HTTP احترافية
-- التحقق من صحة الكوكيز بعد التحميل
-- دعم الروابط التي لا تحتوي على token (AddSession)
-- لقطات شاشة دائمة
+SHADOW LEGION v23.2 – COOKIES_FIX
+- تحسين تحميل الكوكيز وقراءة الملف
+- طباعة مسار الملف الحالي للتشخيص
+- محاولة تحميل الملف مرتين عند الفشل
+- إضافة كوكيز احتياطية من التوكن إن وجد
+- Z3R0-STEALTH v2 مع سجلات تفصيلية
 """
 
 import os
@@ -63,7 +61,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v23.1 (Logging Enhanced) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v23.2 (Cookies Fix) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -313,19 +311,20 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 6. محرك التخفي Z3R0-STEALTH v2 (مع التحقق من الكوكيز)
+# 6. محرك التخفي Z3R0-STEALTH v2 (مع تحسين تحميل الكوكيز)
 # ===================================================================
 async def fallback_cookies(context, token):
     """يضيف كوكيز احتياطية في حال عدم وجود ملف cookies.json"""
-    if os.path.exists("cookies.json"):
+    cookies_file = "cookies.json"
+    if os.path.exists(cookies_file):
         try:
-            with open("cookies.json", "r") as f:
+            with open(cookies_file, "r") as f:
                 cookies = json.load(f)
             await context.add_cookies(cookies)
             logger.info("✅ تم تحميل الكوكيز من الملف (fallback).")
             return
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"⚠️ فشل تحميل الكوكيز في fallback: {e}")
     if token:
         await context.add_cookies([
             {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
@@ -402,12 +401,17 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     context = await browser.new_context(**context_options)
 
     # ================================================================
-    # 🔥 تحميل الكوكيز مع التحقق من الصحة
+    # 🔥 تحميل الكوكيز مع تحسينات (محاولة متعددة)
     # ================================================================
     cookies_loaded_count = 0
-    if os.path.exists("cookies.json"):
+    cookies_file = "cookies.json"
+    current_dir = os.getcwd()
+    logger.info(f"📂 المسار الحالي: {current_dir}")
+    
+    # المحاولة الأولى: تحميل من الملف
+    if os.path.exists(cookies_file):
         try:
-            with open("cookies.json", "r") as f:
+            with open(cookies_file, "r") as f:
                 cookies = json.load(f)
             await context.add_cookies(cookies)
             cookies_loaded = await context.cookies()
@@ -421,10 +425,31 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             else:
                 logger.warning(f"⚠️ الكوكيز الأساسية مفقودة! الموجودة: {[c['name'] for c in found_essential]}")
         except Exception as e:
-            logger.warning(f"⚠️ فشل تحميل الكوكيز: {e}")
+            logger.warning(f"⚠️ فشل تحميل الكوكيز من الملف: {e}")
+            # محاولة ثانية عبر fallback
             await fallback_cookies(context, token)
+            # إعادة التحقق
+            cookies_loaded = await context.cookies()
+            cookies_loaded_count = len(cookies_loaded)
     else:
+        logger.warning(f"⚠️ ملف {cookies_file} غير موجود في المسار الحالي.")
         await fallback_cookies(context, token)
+        cookies_loaded = await context.cookies()
+        cookies_loaded_count = len(cookies_loaded)
+
+    # إذا كان العدد لا يزال 0، نحاول تحميل الملف مرة أخرى باستخدام مسار مطلق (محاولة أخيرة)
+    if cookies_loaded_count == 0:
+        logger.warning("⚠️ لم يتم تحميل أي كوكيز. محاولة تحميل الملف مرة أخرى...")
+        try:
+            if os.path.exists(cookies_file):
+                with open(cookies_file, "r") as f:
+                    cookies = json.load(f)
+                await context.add_cookies(cookies)
+                cookies_loaded = await context.cookies()
+                cookies_loaded_count = len(cookies_loaded)
+                logger.info(f"✅ تم تحميل {cookies_loaded_count} كوكي بعد المحاولة الثانية.")
+        except Exception as e:
+            logger.error(f"❌ فشلت المحاولة الثانية لتحميل الكوكيز: {e}")
 
     # ================================================================
     # 🔥 Z3R0-STEALTH v2 – سكريبت التخفي الشامل
@@ -518,7 +543,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
 
     page = await context.new_page()
     await simulate_mouse_movement(page)
-    logger.info("✅ سياق Z3R0-STEALTH v2 جاهز مع {} كوكي.".format(cookies_loaded_count))
+    logger.info(f"✅ سياق Z3R0-STEALTH v2 جاهز مع {cookies_loaded_count} كوكي.")
 
     return context, page
 
@@ -812,7 +837,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة (مع لقطات شاشة دائمة وسجلات تفصيلية)
+# 12. قلب الأتمتة (مع لقطات شاشة دائمة)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -1365,7 +1390,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v23.1 (Logging Enhanced) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v23.2 (Cookies Fix) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
