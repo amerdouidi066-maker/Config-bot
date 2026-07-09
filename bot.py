@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v21.9 – EVALUATE_ASYNC_FIXED
-- إصلاح نهائي لـ page.evaluate (إزالة async/await)
-- رسالة /start احترافية (إضافة رابط مختبر GCP)
-- إزالة شريط الأزرار السفلي بالكامل
-- محرك تخفي 10/10 مع playwright-stealth
-- دعم Proxies و 2Captcha
-- متوافق مع Playwright v1.40.0
+SHADOW LEGION v22.1 – NO_EVALUATE_AT_ALL
+- إزالة جميع page.evaluate نهائياً
+- الاعتماد على دوال Playwright المباشرة
+- رسالة /start احترافية
+- محرك تخفي 10/10
 """
 
 import os
@@ -64,7 +62,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v21.9 (Evaluate Async Fixed) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v22.1 (No Evaluate At All) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية
@@ -81,7 +79,7 @@ TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydne
 LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8", "fr-FR,fr;q=0.9,en;q=0.8"]
 
 # ===================================================================
-# 3. دوال مساعدة متقدمة
+# 3. دوال مساعدة
 # ===================================================================
 def get_random_proxy() -> Optional[str]:
     return random.choice(PROXY_LIST) if PROXY_LIST else None
@@ -124,17 +122,6 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
         return None
     except:
         return None
-
-async def retry_with_backoff(func, max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            return await func()
-        except Exception as e:
-            if attempt == max_retries - 1:
-                raise
-            wait_time = 2 ** attempt + random.uniform(0, 2)
-            logger.info(f"⚠️ فشلت المحاولة {attempt+1}، إعادة المحاولة بعد {wait_time:.1f} ثانية...")
-            await asyncio.sleep(wait_time)
 
 # ===================================================================
 # 4. قاعدة البيانات
@@ -483,14 +470,17 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     return context, page
 
 # ===================================================================
-# 8. كشف ديناميكي للأزرار
+# 8. كشف ديناميكي للأزرار (بدون evaluate)
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
+    """يضغط على زر باستخدام محددات متعددة، بدون page.evaluate"""
     if aria_labels is None:
         aria_labels = text_keywords
     
+    # 1. محاولة النقر عبر النص
     for text in text_keywords:
         try:
+            # استخدام has-text مع button و div
             btn = await page.query_selector(f"button:has-text('{text}'), div[role='button']:has-text('{text}')")
             if btn and await btn.is_visible():
                 await btn.click()
@@ -499,6 +489,7 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
         except:
             pass
     
+    # 2. محاولة النقر عبر aria-label
     for label in aria_labels:
         try:
             btn = await page.query_selector(f"button[aria-label*='{label}'], div[role='button'][aria-label*='{label}']")
@@ -509,34 +500,46 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
         except:
             pass
     
+    # 3. محاولة البحث عن أي زر يحتوي على النص (بطريقة أوسع)
     try:
-        result = await page.evaluate(f"""
-            (texts) => {{
-                const keywords = {text_keywords};
-                const elements = document.querySelectorAll('button, div[role="button"], a[role="button"]');
-                for (let el of elements) {{
-                    const text = el.innerText || el.getAttribute('aria-label') || '';
-                    for (let kw of keywords) {{
-                        if (text.toLowerCase().includes(kw.toLowerCase())) {{
-                            el.scrollIntoView({{block: 'center'}});
-                            el.click();
-                            return true;
-                        }}
-                    }}
-                }}
-                return false;
-            }}
-        """, text_keywords)
-        if result:
-            logger.info("✅ نقر على الزر عبر JavaScript الشامل.")
-            return True
+        # نبحث عن جميع الأزرار ونقرأ نصوصها
+        buttons = await page.query_selector_all("button, div[role='button'], a[role='button']")
+        for btn in buttons:
+            text = await btn.inner_text()
+            aria = await btn.get_attribute("aria-label") or ""
+            combined = (text + " " + aria).lower()
+            for kw in text_keywords:
+                if kw.lower() in combined:
+                    if await btn.is_visible():
+                        await btn.scroll_into_view_if_needed()
+                        await btn.click()
+                        logger.info(f"✅ نقر على الزر عبر البحث الشامل: {kw}")
+                        return True
     except:
         pass
     
     return False
 
 # ===================================================================
-# 9. معالج الانتظار الذكي
+# 9. استخراج sitekey من الصفحة (بدون evaluate)
+# ===================================================================
+async def extract_sitekey(page) -> Optional[str]:
+    """يستخرج sitekey من iframe reCAPTCHA بدون use evaluate"""
+    try:
+        # الحصول على جميع iframes
+        iframes = await page.query_selector_all("iframe[src*='recaptcha']")
+        for iframe in iframes:
+            src = await iframe.get_attribute("src")
+            if src:
+                match = re.search(r'k=([^&]+)', src)
+                if match:
+                    return match.group(1)
+        return None
+    except:
+        return None
+
+# ===================================================================
+# 10. معالج الانتظار الذكي (بدون evaluate)
 # ===================================================================
 EXPIRED_KEYWORDS = [
     "expired", "invalid", "session", "access denied", "not found", "404", "410",
@@ -567,25 +570,19 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
         
         if "recaptcha" in page_text.lower() or "captcha" in page_text.lower():
             logger.info("🛡️ تم اكتشاف CAPTCHA، جاري الحل عبر 2Captcha...")
-            sitekey = await page.evaluate("""
-                () => {
-                    const iframe = document.querySelector('iframe[src*="recaptcha"]');
-                    if (!iframe) return null;
-                    const src = iframe.src;
-                    const match = src.match(/k=([^&]+)/);
-                    return match ? match[1] : null;
-                }
-            """)
+            sitekey = await extract_sitekey(page)
             if sitekey:
                 solution = await solve_captcha_2captcha(page, sitekey)
                 if solution:
-                    await page.evaluate(f"""
-                        document.querySelector('#g-recaptcha-response').innerHTML = '{solution}';
-                        document.querySelector('form').dispatchEvent(new Event('submit'));
-                    """)
-                    logger.info("✅ تم حل CAPTCHA بنجاح.")
-                    await asyncio.sleep(2)
-                    continue
+                    # حقن الحل عبر fill في الحقل المخفي
+                    try:
+                        await page.fill("#g-recaptcha-response", solution)
+                        await page.click("form button[type='submit'], form input[type='submit']")
+                        logger.info("✅ تم حل CAPTCHA بنجاح.")
+                        await asyncio.sleep(2)
+                        continue
+                    except:
+                        pass
         
         if "sign in" in page_text.lower() or "accounts.google.com" in current_url:
             logger.info("⚠️ شاشة تسجيل دخول غير متوقعة – محاولة إدخال البريد...")
@@ -612,7 +609,7 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 10. الضغط على Start
+# 11. الضغط على Start
 # ===================================================================
 async def click_start_ultimate(page) -> bool:
     return await smart_click_button(
@@ -623,10 +620,9 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 11. تنفيذ الأوامر (بدون page.evaluate)
+# 12. تنفيذ الأوامر (بدون evaluate)
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
-    """ينفذ الأمر باستخدام keyboard.type فقط (بدون page.evaluate)"""
     for attempt in range(max_retries):
         logger.info(f"▶️ تنفيذ: {cmd[:60]}... (محاولة {attempt+1}/{max_retries})")
         try:
@@ -641,14 +637,11 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
             
             await asyncio.sleep(0.3)
             
-            # كتابة الأمر حرفاً حرفاً مع تأخير عشوائي
             for ch in cmd:
                 await page.keyboard.type(ch, delay=random.randint(10, 25))
             
-            # الضغط على Enter
             await page.keyboard.press("Enter")
             await asyncio.sleep(random.uniform(1.5, 3))
-            
             return True
             
         except Exception as e:
@@ -659,7 +652,7 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     return False
 
 # ===================================================================
-# 12. انتظار الطرفية
+# 13. انتظار الطرفية
 # ===================================================================
 async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, str]:
     logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
@@ -705,7 +698,7 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 13. سكريبت النشر
+# 14. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
@@ -762,7 +755,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 14. قلب الأتمتة (مع إصلاح evaluate)
+# 15. قلب الأتمتة (بدون أي evaluate)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -894,42 +887,31 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     logger.warning(last_error)
                 await asyncio.sleep(random.uniform(2, 3))
 
+            # ================================================================
+            # قراءة النتيجة (بدون evaluate)
+            # ================================================================
             logger.info("📖 محاولة قراءة /tmp/result.txt...")
             result_content = ""
             
-            # 🔥 تم إصلاح: استخدام .then بدلاً من async/await في evaluate
+            # تنفيذ cat وقراءة مخرجات الطرفية
+            await execute_command_robust(page, "cat /tmp/result.txt", max_retries=2)
+            await asyncio.sleep(2)
             try:
-                result_content = await page.evaluate("""
-                    fetch('/tmp/result.txt')
-                        .then(res => res.text())
-                        .catch(() => '')
-                """)
-                if result_content:
-                    logger.info("✅ تم قراءة الملف عبر fetch.")
+                term = await page.query_selector(".xterm, .terminal, [role='textbox']")
+                if term:
+                    terminal_text = await term.inner_text()
                 else:
-                    raise Exception("fetch failed")
-            except:
-                pass
+                    terminal_text = await page.inner_text("body")
+                lines = terminal_text.split('\n')
+                relevant = '\n'.join(lines[-30:])
+                result_content = relevant
+                logger.info("✅ تم قراءة الطرفية.")
+            except Exception as e:
+                last_error = f"⚠️ فشل قراءة الطرفية: {str(e)[:100]}"
 
+            # محاولة grep إذا لم تظهر النتيجة كاملة
             if not result_content or "SERVICE_URL" not in result_content:
-                logger.info("📖 استخدام cat كبديل...")
-                await execute_command_robust(page, "cat /tmp/result.txt", max_retries=2)
-                await asyncio.sleep(2)
-                try:
-                    term = await page.query_selector(".xterm, .terminal, [role='textbox']")
-                    if term:
-                        terminal_text = await term.inner_text()
-                    else:
-                        terminal_text = await page.inner_text("body")
-                    lines = terminal_text.split('\n')
-                    relevant = '\n'.join(lines[-30:])
-                    result_content = relevant
-                    logger.info("✅ تم قراءة الطرفية.")
-                except Exception as e:
-                    last_error = f"⚠️ فشل قراءة الملف أو الطرفية: {str(e)[:100]}"
-
-            if not result_content or "SERVICE_URL" not in result_content:
-                logger.info("📖 محاولة قراءة stdout...")
+                logger.info("📖 محاولة grep...")
                 await execute_command_robust(page, "cat /tmp/result.txt | grep SERVICE_URL", max_retries=2)
                 await asyncio.sleep(2)
                 try:
@@ -937,6 +919,20 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     if term:
                         terminal_text = await term.inner_text()
                         if "SERVICE_URL" in terminal_text:
+                            result_content = terminal_text
+                except:
+                    pass
+
+            # محاولة echo (آخر أمل)
+            if not result_content or "SERVICE_URL" not in result_content:
+                logger.info("📖 محاولة echo...")
+                await execute_command_robust(page, "cat /tmp/result.txt | grep VLESS", max_retries=2)
+                await asyncio.sleep(2)
+                try:
+                    term = await page.query_selector(".xterm, .terminal, [role='textbox']")
+                    if term:
+                        terminal_text = await term.inner_text()
+                        if "VLESS" in terminal_text:
                             result_content = terminal_text
                 except:
                     pass
@@ -975,7 +971,7 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return False, "", last_error, int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 15. دوال مساعدة للصور
+# 16. دوال مساعدة للصور
 # ===================================================================
 async def save_screenshot(page) -> str:
     os.makedirs("screenshots", exist_ok=True)
@@ -1015,7 +1011,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 16. واجهة البوت (بدون أزرار)
+# 17. واجهة البوت (بدون أزرار)
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1222,7 +1218,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 17. التشغيل الرئيسي
+# 18. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1260,7 +1256,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v21.9 (Evaluate Async Fixed) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v22.1 (No Evaluate At All) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
