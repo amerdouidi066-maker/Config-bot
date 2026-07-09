@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v21.1 – FIXED_VALIDITY
-- إزالة اختبار صلاحية الرابط المسبق (كان يسبب نتائج خاطئة)
-- الكشف يتم أثناء فتح الرابط في Playwright
-- محرك تخفي 10/10 مع playwright-stealth
-- دعم Proxies و 2Captcha
-- رسائل احترافية
+SHADOW LEGION v21.4 – CUSTOM_START (FIXED)
+- إصلاح خطأ async/await في execute_command_robust
+- ثلاث خيارات لرسالة /start احترافية
+- محرك تخفي 10/10
 """
 
 import os
@@ -63,7 +61,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v21.1 (Fixed Validity) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v21.4 (Custom Start) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية
@@ -622,19 +620,22 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 11. تنفيذ الأوامر
+# 11. تنفيذ الأوامر (مع إصلاح الخطأ)
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     for attempt in range(max_retries):
         logger.info(f"▶️ تنفيذ: {cmd[:60]}... (محاولة {attempt+1}/{max_retries})")
         try:
+            # إصلاح: استخدام دالة متزامنة داخل evaluate بدلاً من async
             result = await page.evaluate(f"""
-                async (cmd) => {{
+                (cmd) => {{
                     const term = document.activeElement || document.querySelector('.xterm-helper-textarea, .xterm, .terminal, [role="textbox"]');
                     if (term) {{
                         term.focus();
-                        await navigator.clipboard.writeText(cmd + '\\n');
-                        document.execCommand('paste');
+                        // محاكاة الكتابة عبر clipboard
+                        navigator.clipboard.writeText(cmd + '\\n').then(() => {{
+                            document.execCommand('paste');
+                        }});
                         return true;
                     }}
                     return false;
@@ -806,7 +807,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 14. قلب الأتمتة (المعدل)
+# 14. قلب الأتمتة
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -849,7 +850,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 ]
             )
             
-            # التحقق من صلاحية التوكن
             logger.info("🔍 جاري التحقق من صلاحية التوكن...")
             token_valid = await check_token_validity(browser, token)
             if not token_valid:
@@ -862,7 +862,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             logger.info("📌 فتح الرابط...")
             await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
 
-            # 🔥 كشف فوري لإعادة التوجيه إلى تسجيل الدخول (بدون اختبار مسبق)
             current_url = page.url
             if "accounts.google.com" in current_url or "signin" in current_url.lower():
                 logger.warning("⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية).")
@@ -1058,7 +1057,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 16. واجهة البوت
+# 16. واجهة البوت (مع رسالة /start قابلة للتخصيص)
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1100,21 +1099,39 @@ def region_menu():
     kb.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
     return InlineKeyboardMarkup(kb)
 
+# ===================================================================
+# 🔥 اختر رسالة /start التي تفضلها (علّق على الخيارين الآخرين)
+# ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
+    
+    # ============================================================
+    # الخيار 1 – الأكثر احترافية وبساطة
+    # ============================================================
     await update.message.reply_text(
-        "🔥 **Shadow Legion – Enterprise Platform**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "⚡ نظام متطور لإدارة وتشغيل الخدمات السحابية.\n"
-        "📌 استخدم الأمر `/deploy` لبدء عملية النشر.\n"
-        "📊 يمكنك متابعة إحصائياتك عبر `/stats`.\n"
-        "📜 عرض سجل النشرات عبر `/history`.\n"
-        "❓ للمساعدة: `/help`\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "© 2026 Shadow Legion – All Rights Reserved.",
-        parse_mode="Markdown", reply_markup=main_menu()
+        "مرحباً.\n"
+        "يرجى إرسال الرابط المطلوب لبدء العملية.",
+        reply_markup=main_menu()
     )
+    
+    # ============================================================
+    # الخيار 2 – رسمي ومختصر (علّق على الخيار 1 وافتح هذا)
+    # ============================================================
+    # await update.message.reply_text(
+    #     "🔹 النظام جاهز.\n"
+    #     "🔸 أرسل الرابط لبدء التنفيذ.",
+    #     reply_markup=main_menu()
+    # )
+    
+    # ============================================================
+    # الخيار 3 – أنيق ومؤسسي (علّق على الخيار 1 وافتح هذا)
+    # ============================================================
+    # await update.message.reply_text(
+    #     "⚡ النظام متاح.\n"
+    #     "📎 يرجى توفير الرابط المطلوب.",
+    #     reply_markup=main_menu()
+    # )
 
 async def deploy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🚀 أرسل رابط Qwiklabs أو Google SSO:", reply_markup=main_menu())
@@ -1315,7 +1332,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v21.1 (Fixed Validity) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v21.4 (Custom Start) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
