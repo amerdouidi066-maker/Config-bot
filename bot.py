@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v16.6 – ULTIMATE_10_10_FIXED
-- إصلاح خطأ RotatingFileHandler
-- محرك تخفي 10/10
-- دعم 2Captcha
-- انتظار ذكي للطرفية
-- إعادة محاولة لكل أمر
-- أمر /retry
-- تنظيف تلقائي للقطات
+SHADOW LEGION v16.8 – ULTIMATE_WITH_SCREENSHOTS
+- محرك تخفي 10/10 (WebGL/Canvas/Audio)
+- مستخرج ذكي V5 (يدعم # والترميز الخماسي)
+- انتظار الطرفية 360 ثانية مع wait_for_selector + iframes
+- إرسال لقطة شاشة إلى تيليجرام عند الفشل
+- دعم 2Captcha لتجاوز reCAPTCHA
+- أمر /retry لإعادة استخدام آخر رابط
+- تنظيف تلقائي للقطات القديمة
+- 13 منطقة + اختيار عشوائي
+- تقارير أخطاء دقيقة
 """
 
 import os
@@ -40,7 +42,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from playwright_stealth import stealth_async
 
 # ===================================================================
-# 1. الإعدادات الأساسية مع متغيرات البيئة المتقدمة
+# 1. الإعدادات الأساسية
 # ===================================================================
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
@@ -55,7 +57,7 @@ PROXY = os.environ.get("PROXY")
 TWOCAPTCHA_API_KEY = os.environ.get("TWOCAPTCHA_API_KEY", "")
 CAPTCHA_TIMEOUT = int(os.environ.get("CAPTCHA_TIMEOUT", "120"))
 
-# ✅ الإصلاح: استخدام RotatingFileHandler بدلاً من FileHandler
+# إعداد التسجيل المتقدم
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -65,7 +67,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v16.6 (10/10 Fixed) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v16.8 (Ultimate with Screenshots) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية متطورة للتمويه
@@ -498,10 +500,20 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     logger.error(f"❌ فشل تنفيذ الأمر بعد {max_retries} محاولات: {cmd[:60]}")
     return False
 
-async def wait_for_terminal(page, timeout_seconds=240) -> bool:
+# ===================================================================
+# 7. انتظار الطرفية المحسّن (مع wait_for_selector وإطارات داخلية)
+# ===================================================================
+async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> bool:
     logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
     start_time = time.time()
-    terminal_selectors = [
+
+    try:
+        await page.wait_for_selector(".loading-spinner, .loader, .spinner, .waiting", timeout=10000, state="hidden")
+        logger.info("✅ اختفى مؤشر التحميل.")
+    except:
+        pass
+
+    selectors = [
         ".xterm",
         ".xterm-helper-textarea",
         ".xterm-screen",
@@ -512,42 +524,47 @@ async def wait_for_terminal(page, timeout_seconds=240) -> bool:
         ".xterm-viewport",
         ".terminal-wrapper"
     ]
-    
+
+    for selector in selectors:
+        try:
+            await page.wait_for_selector(selector, timeout=20000, state="visible")
+            logger.info(f"✅ تم العثور على الطرفية باستخدام المحدد: {selector}")
+            return True
+        except:
+            continue
+
     try:
-        await page.wait_for_selector(".loading-spinner, .loader, .spinner", timeout=10000, state="hidden")
-        logger.info("✅ اختفى مؤشر التحميل.")
-    except:
-        pass
-    
+        frames = page.frames
+        for frame in frames:
+            for selector in selectors:
+                try:
+                    elem = await frame.wait_for_selector(selector, timeout=5000, state="visible")
+                    if elem:
+                        logger.info(f"✅ تم العثور على الطرفية داخل iframe باستخدام: {selector}")
+                        return True
+                except:
+                    continue
+    except Exception as e:
+        logger.warning(f"⚠️ فشل البحث في iframes: {e}")
+
     while time.time() - start_time < timeout_seconds:
-        for selector in terminal_selectors:
+        for selector in selectors:
             try:
                 element = await page.query_selector(selector)
                 if element:
-                    is_focused = await page.evaluate(f"""
-                        (sel) => {{
-                            const el = document.querySelector(sel);
-                            if (el) {{
-                                el.focus();
-                                el.dispatchEvent(new Event('focus', {{ bubbles: true }}));
-                                return document.activeElement === el || 
-                                       document.activeElement?.closest(sel) !== null;
-                            }}
-                            return false;
-                        }}
-                    """, selector)
-                    if is_focused:
-                        logger.info(f"✅ الطرفية جاهزة (خرجنا فوراً) – المحدد: {selector}")
+                    is_visible = await element.is_visible()
+                    if is_visible:
+                        logger.info(f"✅ الطرفية ظهرت (حلقة احتياطية) – المحدد: {selector}")
                         return True
             except:
                 pass
         await asyncio.sleep(1)
-    
-    logger.warning("⏰ انتهت مهلة انتظار الطرفية.")
+
+    logger.warning(f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية).")
     return False
 
 # ===================================================================
-# 7. دمج 2Captcha
+# 8. دمج 2Captcha (اختياري)
 # ===================================================================
 async def solve_captcha_if_needed(page) -> bool:
     if not TWOCAPTCHA_API_KEY:
@@ -615,9 +632,10 @@ async def solve_captcha_if_needed(page) -> bool:
         return False
 
 # ===================================================================
-# 8. قلب الأتمتة
+# 9. قلب الأتمتة – مع إرسال الصور عند الفشل
 # ===================================================================
-async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int, str]:
+async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                            lab_url: str, project_id: str, token: str, region: str) -> Tuple[bool, str, str, int, str]:
     start_time = time.time()
     screenshot_path = ""
     last_error = ""
@@ -669,8 +687,10 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                     
                     if is_expired:
                         logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية.")
+                        screenshot_path = await save_screenshot(page)
+                        await send_screenshot(update, screenshot_path, "⛔ رابط منتهي الصلاحية")
                         await browser.close()
-                        return False, "", "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
+                        return False, "", "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), screenshot_path
             except Exception as e:
                 logger.warning(f"⚠️ فشل التحقق من الصلاحية: {e}")
 
@@ -684,8 +704,10 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
                 logger.info("✅ تم الوصول إلى Console/Shell بنجاح.")
             except:
                 last_error = "❌ لم يتم الوصول إلى Console أو Shell – ربما الرابط غير صحيح."
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, last_error)
                 await browser.close()
-                return False, "", last_error, int(time.time() - start_time), ""
+                return False, "", last_error, int(time.time() - start_time), screenshot_path
 
             for btn in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض", "Got it"]:
                 try:
@@ -703,14 +725,27 @@ async def run_in_cloudshell(lab_url: str, project_id: str, token: str, region: s
             if not start_clicked:
                 last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell – قد تكون الواجهة تغيرت."
 
-            terminal_ready = await wait_for_terminal(page, timeout_seconds=240)
+            for btn in ["Authorize", "تفويض", "Continue", "متابعة", "I understand"]:
+                try:
+                    await page.click(f"button:has-text('{btn}')", timeout=5000)
+                    logger.info(f"✅ تم الضغط على زر إضافي بعد Start: {btn}")
+                    await asyncio.sleep(2)
+                except:
+                    pass
+
+            terminal_ready = await wait_for_terminal_enhanced(page, timeout_seconds=360)
             if not terminal_ready:
-                last_error = "❌ لم تظهر الطرفية خلال 240 ثانية. قد يكون Cloud Shell بطيئاً أو معطلاً."
+                last_error = "❌ لم تظهر الطرفية خلال 360 ثانية. قد يكون Cloud Shell بطيئاً أو معطلاً."
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, last_error)
                 await browser.close()
-                return False, "", last_error, int(time.time() - start_time), ""
+                return False, "", last_error, int(time.time() - start_time), screenshot_path
 
             await asyncio.sleep(random.uniform(2, 4))
 
+            # ============================================================
+            # بناء سكريبت النشر
+            # ============================================================
             deploy_script = f'''
 import os, time, requests, subprocess, sys
 import json, base64, hashlib
@@ -768,6 +803,7 @@ print(f"🔗 VLESS: {{vless_link}}")
                     logger.warning(last_error)
                 await asyncio.sleep(random.uniform(2, 3))
 
+            # قراءة النتيجة
             logger.info("📖 محاولة قراءة /tmp/result.txt...")
             result_content = ""
             
@@ -828,17 +864,51 @@ print(f"🔗 VLESS: {{vless_link}}")
                 error_detail = f"⚠️ لم يتم العثور على النتيجة.\nالمحتوى المسترجع:\n{result_content[-500:]}"
                 if not result_content:
                     error_detail = "❌ لم يتم الحصول على أي مخرجات من الطرفية. قد يكون السكريبت لم ينفذ."
+                # إرسال الصورة عند فشل النتيجة
+                await send_screenshot(update, screenshot_path, error_detail)
                 return False, "", error_detail, int(time.time() - start_time), screenshot_path
 
     except PlaywrightTimeout as e:
         logger.exception("⏰ انتهت مهلة Playwright")
-        return False, "", f"⏰ انتهت المهلة: {str(e)[:200]}", int(time.time() - start_time), screenshot_path
+        last_error = f"⏰ انتهت المهلة: {str(e)[:200]}"
+        if screenshot_path:
+            await send_screenshot(update, screenshot_path, last_error)
+        return False, "", last_error, int(time.time() - start_time), screenshot_path
     except Exception as e:
         logger.exception(f"❌ فشل المحاولة")
-        return False, "", f"❌ خطأ تقني: {str(e)[:200]}", int(time.time() - start_time), screenshot_path
+        last_error = f"❌ خطأ تقني: {str(e)[:200]}"
+        if screenshot_path:
+            await send_screenshot(update, screenshot_path, last_error)
+        return False, "", last_error, int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 9. تنظيف لقطات الشاشة القديمة
+# 10. دوال مساعدة لإرسال الصور
+# ===================================================================
+async def save_screenshot(page) -> str:
+    """يحفظ لقطة للشاشة ويعيد المسار"""
+    os.makedirs("screenshots", exist_ok=True)
+    path = f"screenshots/{int(time.time())}.png"
+    try:
+        await page.screenshot(path=path, full_page=True)
+        logger.info(f"📸 تم حفظ اللقطة: {path}")
+        return path
+    except Exception as e:
+        logger.warning(f"⚠️ فشل حفظ اللقطة: {e}")
+        return ""
+
+async def send_screenshot(update: Update, path: str, caption: str = "📸 لقطة للفحص"):
+    """يرسل الصورة إلى المستخدم عبر تيليجرام"""
+    if not path or not os.path.exists(path):
+        return
+    try:
+        with open(path, 'rb') as photo:
+            await update.effective_message.reply_photo(photo, caption=f"{caption}\n\n🔄 يمكنك استخدام زر 'إعادة المحاولة' لتجربة الرابط نفسه مرة أخرى.")
+        logger.info(f"📤 تم إرسال الصورة: {path}")
+    except Exception as e:
+        logger.warning(f"⚠️ فشل إرسال الصورة: {e}")
+
+# ===================================================================
+# 11. تنظيف لقطات الشاشة القديمة
 # ===================================================================
 def cleanup_old_screenshots():
     try:
@@ -857,7 +927,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 10. واجهة البوت الاحترافية مع أمر /retry
+# 12. واجهة البوت الاحترافية
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -903,11 +973,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v16.6 – Ultimate 10/10 Fixed**\n"
-        "✅ جميع الأخطاء تم إصلاحها (بما فيها logging).\n"
-        "✅ محرك تخفي 10/10 (يعجز عن كشفه حتى Google).\n"
+        "🔥 **SHADOW LEGION v16.8 – Ultimate with Screenshots**\n"
+        "✅ مهلة انتظار الطرفية 360 ثانية (6 دقائق).\n"
+        "✅ إرسال لقطة شاشة عند الفشل لتشخيص المشكلة.\n"
+        "✅ محرك تخفي 10/10.\n"
         "✅ 13 منطقة + اختيار عشوائي.\n"
-        "✅ دعم كامل لروابط Google SSO و Qwiklabs.\n"
         "✅ أمر /retry لإعادة المحاولة.\n\n"
         "📌 أرسل رابط Qwiklabs أو Google SSO.",
         parse_mode="Markdown", reply_markup=main_menu()
@@ -1012,9 +1082,11 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     region_name = KNOWN_REGIONS.get(region, region)
-    await q.edit_message_text(f"🚀 جاري النشر على {region_name} ... (قد يستغرق 3-5 دقائق)")
+    await q.edit_message_text(f"🚀 جاري النشر على {region_name} ... (قد يستغرق 3-6 دقائق)")
 
-    success, service, vless, duration, screenshot = await run_in_cloudshell(lab, proj, tok, region)
+    success, service, vless, duration, screenshot = await run_in_cloudshell(
+        update, context, lab, proj, tok, region
+    )
 
     if success:
         increment_deploy_count(user_id)
@@ -1025,8 +1097,9 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         add_history(user_id, lab, "", "", region, success=0, error_msg=vless[:200], duration=duration, screenshot=screenshot)
+        # سيتم إرسال الصورة تلقائياً داخل الدالة، لذا نرسل فقط الرسالة النصية
         await q.message.reply_text(
-            f"❌ **فشل النشر**\n\n```\n{vless}\n```\n\n🔄 يمكنك استخدام زر 'إعادة المحاولة' لتجربة الرابط نفسه مرة أخرى.",
+            f"❌ **فشل النشر**\n\n```\n{vless}\n```",
             parse_mode="Markdown", reply_markup=main_menu()
         )
 
@@ -1089,7 +1162,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 11. التشغيل الرئيسي + خادم الويب
+# 13. التشغيل الرئيسي + خادم الويب
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1127,7 +1200,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v16.6 (Ultimate 10/10 Fixed) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v16.8 (Ultimate with Screenshots) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
