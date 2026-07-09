@@ -1,5 +1,4 @@
-rebrowser-playwright==1.40.0
-tf-playwright-stealth
+playwright==1.40.0
 playwright-stealth==1.0.6
 Flask==3.0.2
 aiohttp==3.9.3
