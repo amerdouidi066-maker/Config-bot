@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v22.7 – TOKEN_OPTIONAL
-- دعم روابط AddSession التي لا تحتوي على token
+SHADOW LEGION v22.8 – NONE_TOKEN_FIXED
+- إصلاح خطأ NoneType عند غياب token
+- دعم روابط AddSession بالكامل
 - استخدام cookies.json (إن وجد) لتسجيل الدخول التلقائي
-- استخراج متقدم للبريد الإلكتروني من الروابط المعقدة
-- محاولة تجاوز شاشة تسجيل الدخول تلقائياً
 - محرك تخفي 14 نقطة
-- لقطات شاشة دائمة (نجاح وفشل)
+- لقطات شاشة دائمة
 """
 
 import os
@@ -63,7 +62,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v22.7 (Token Optional) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v22.8 (None Token Fixed) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -197,6 +196,10 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
 # 5. محرك التخفي (مع دعم cookies.json)
 # ===================================================================
 async def fallback_cookies(context, token):
+    """يضيف كوكيز مزيفة في حالة عدم وجود ملف cookies.json (فقط إذا كان token موجوداً)"""
+    if not token:
+        logger.info("ℹ️ لا يوجد token ولا cookies.json، سيتم تخطي إضافة الكوكيز.")
+        return
     await context.add_cookies([
         {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
         {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
@@ -205,6 +208,29 @@ async def fallback_cookies(context, token):
         {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
     ])
     logger.info("⚠️ تم استخدام الكوكيز المزيفة (قد لا تعمل).")
+
+async def check_token_validity(browser, token: str) -> bool:
+    """يتحقق من صحة التوكن (يعيد False إذا كان None أو فارغاً)"""
+    if not token:
+        return False
+    try:
+        context = await browser.new_context()
+        await context.add_cookies([
+            {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
+            {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
+            {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
+            {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
+            {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
+        ])
+        page = await context.new_page()
+        await page.goto("https://myaccount.google.com/", timeout=10000, wait_until="domcontentloaded")
+        current_url = page.url
+        await context.close()
+        if "accounts.google.com" in current_url:
+            return False
+        return True
+    except:
+        return False
 
 async def create_authenticated_context(browser, token: str, email: str, project: str):
     fingerprint = generate_random_fingerprint()
@@ -255,7 +281,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             logger.warning(f"⚠️ فشل تحميل الكوكيز: {e}")
             await fallback_cookies(context, token)
     else:
-        logger.info("ℹ️ ملف cookies.json غير موجود، سيتم استخدام الكوكيز المزيفة.")
+        logger.info("ℹ️ ملف cookies.json غير موجود، سيتم استخدام الكوكيز المزيفة (إن وجد token).")
         await fallback_cookies(context, token)
 
     # سكريبت تدمير البصمة (14 نقطة)
@@ -631,7 +657,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 11. قلب الأتمتة (مع لقطات شاشة دائمة)
+# 11. قلب الأتمتة (مع لقطات شاشة دائمة ومعالجة None token)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -676,6 +702,17 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     "--no-first-run"
                 ]
             )
+            
+            # التحقق من صلاحية التوكن (فقط إذا كان موجوداً)
+            if token:
+                logger.info("🔍 جاري التحقق من صلاحية التوكن...")
+                token_valid = await check_token_validity(browser, token)
+                if not token_valid:
+                    await browser.close()
+                    return False, "", "⛔ التوكن غير صالح أو منتهي الصلاحية. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
+                logger.info("✅ التوكن صالح.")
+            else:
+                logger.info("ℹ️ لا يوجد token، سيتم تجاوز التحقق (الاعتماد على cookies.json).")
             
             context_browser, page = await create_authenticated_context(browser, token, email, project_id)
 
@@ -1263,7 +1300,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v22.7 (Token Optional) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v22.8 (None Token Fixed) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
