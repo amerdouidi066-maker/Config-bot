@@ -3,9 +3,11 @@
 """
 SHADOW LEGION v21.8 – STABLE_EXECUTION_FINAL
 - إصلاح نهائي لـ execute_command_robust (بدون page.evaluate)
-- رسالة /start احترافية
+- رسالة /start احترافية (إضافة رابط مختبر GCP)
 - إزالة شريط الأزرار السفلي بالكامل
-- محرك تخفي 10/10
+- محرك تخفي 10/10 مع playwright-stealth
+- دعم Proxies و 2Captcha
+- متوافق مع Playwright v1.40.0
 """
 
 import os
@@ -621,7 +623,7 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 11. تنفيذ الأوامر (نسخة مبسطة للغاية – بدون evaluate)
+# 11. تنفيذ الأوامر (نسخة معدلة - بدون evaluate)
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     """ينفذ الأمر باستخدام keyboard.type فقط (بدون page.evaluate)"""
