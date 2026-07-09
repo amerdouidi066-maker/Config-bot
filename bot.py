@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v23.0 – Z3R0-STEALTH_ULTIMATE
-- محرك تخفي Z3R0-STEALTH v2 (بدون playwright-stealth)
-- ترويسات HTTP احترافية (Referer, Origin, Sec-Ch-Ua)
+SHADOW LEGION v23.1 – LOGGING_ENHANCED
+- إضافة سجلات تفصيلية بعد التوجه إلى Cloud Shell
+- معالجة أفضل لغياب الكوكيز والـ token
+- Z3R0-STEALTH v2
+- ترويسات HTTP احترافية
 - التحقق من صحة الكوكيز بعد التحميل
 - دعم الروابط التي لا تحتوي على token (AddSession)
-- لقطات شاشة دائمة (نجاح وفشل)
-- محاكاة حركة الماوس البشرية
+- لقطات شاشة دائمة
 """
 
 import os
@@ -62,7 +63,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v23.0 (Z3R0-STEALTH Ultimate) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v23.1 (Logging Enhanced) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -413,7 +414,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             cookies_loaded_count = len(cookies_loaded)
             logger.info(f"✅ تم تحميل {cookies_loaded_count} كوكي بنجاح.")
             
-            # التحقق من وجود الكوكيز الأساسية
             essential = ['SID', 'HSID', 'SSID', '__Secure-3PSID']
             found_essential = [c for c in cookies_loaded if c.get('name') in essential]
             if len(found_essential) >= 3:
@@ -427,7 +427,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
         await fallback_cookies(context, token)
 
     # ================================================================
-    # 🔥 Z3R0-STEALTH v2 – سكريبت التخفي الشامل (بدون playwright-stealth)
+    # 🔥 Z3R0-STEALTH v2 – سكريبت التخفي الشامل
     # ================================================================
     await context.add_init_script(f"""
         (() => {{
@@ -812,7 +812,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة (مع لقطات شاشة دائمة)
+# 12. قلب الأتمتة (مع لقطات شاشة دائمة وسجلات تفصيلية)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -909,37 +909,57 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     logger.info(f"✅ تم تجاوز زر: {btn_text}")
                     await asyncio.sleep(random.uniform(1, 2))
 
+            # ================================================================
+            # 🚀 التوجه إلى Cloud Shell (مع سجلات تفصيلية)
+            # ================================================================
             logger.info("🔄 التوجه إلى Cloud Shell...")
             await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
+            logger.info("✅ تم تحميل صفحة Cloud Shell بنجاح.")
             await asyncio.sleep(random.uniform(3, 5))
 
+            logger.info("🔍 جاري البحث عن زر 'Start Cloud Shell'...")
             start_clicked = False
             for attempt in range(3):
                 logger.info(f"🔄 محاولة الضغط على Start (محاولة {attempt+1}/3)...")
                 start_clicked = await click_start_ultimate(page)
                 if start_clicked:
+                    logger.info(f"✅ تم الضغط على زر Start في المحاولة {attempt+1}.")
                     break
+                logger.warning(f"⚠️ فشلت المحاولة {attempt+1}، الانتظار 5 ثوانٍ وإعادة المحاولة...")
                 await asyncio.sleep(5)
 
             if not start_clicked:
                 last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell بعد 3 محاولات."
                 logger.warning(last_error)
+            else:
+                logger.info("✅ تم الضغط على Start Cloud Shell بنجاح.")
 
+            # أزرار إضافية بعد Start
+            logger.info("🔍 جاري البحث عن أزرار إضافية (Authorize, Continue, etc.)...")
             for btn_text in ["Authorize", "تفويض", "Continue", "متابعة", "I understand", "Got it"]:
                 if await smart_click_button(page, [btn_text], [btn_text]):
                     logger.info(f"✅ تم الضغط على زر إضافي: {btn_text}")
                     await asyncio.sleep(2)
 
+            # ================================================================
+            # انتظار الطرفية
+            # ================================================================
+            logger.info("⏳ في انتظار ظهور الطرفية (قد يستغرق 6 دقائق)...")
             terminal_ready, terminal_msg = await wait_for_terminal_enhanced(page, timeout_seconds=360)
             if not terminal_ready:
                 last_error = terminal_msg
+                logger.warning(f"⏰ {last_error}")
                 screenshot_path = await save_screenshot(page)
                 await send_screenshot(update, screenshot_path, last_error)
                 await browser.close()
                 return False, "", last_error, int(time.time() - start_time), screenshot_path
 
+            logger.info("✅ الطرفية ظهرت بنجاح.")
             await asyncio.sleep(random.uniform(2, 4))
 
+            # ================================================================
+            # بناء سكريبت النشر وتنفيذه
+            # ================================================================
             deploy_script = generate_deploy_script(project_id, token, region, email)
             b64_script = base64.b64encode(deploy_script.encode()).decode()
             
@@ -949,13 +969,16 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             ]
 
             for idx, cmd in enumerate(commands):
+                logger.info(f"📝 تنفيذ الأمر {idx+1}/{len(commands)}...")
                 success_cmd = await execute_command_robust(page, cmd, max_retries=3)
                 if not success_cmd:
                     last_error = f"⚠️ فشل تنفيذ الأمر رقم {idx+1} (بعد 3 محاولات): {cmd[:30]}..."
                     logger.warning(last_error)
                 await asyncio.sleep(random.uniform(2, 3))
 
+            # ================================================================
             # قراءة النتيجة
+            # ================================================================
             logger.info("📖 محاولة قراءة /tmp/result.txt...")
             result_content = ""
             
@@ -970,12 +993,13 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 lines = terminal_text.split('\n')
                 relevant = '\n'.join(lines[-30:])
                 result_content = relevant
-                logger.info("✅ تم قراءة الطرفية.")
+                logger.info("✅ تم قراءة الطرفية بنجاح.")
             except Exception as e:
                 last_error = f"⚠️ فشل قراءة الطرفية: {str(e)[:100]}"
+                logger.warning(last_error)
 
             if not result_content or "SERVICE_URL" not in result_content:
-                logger.info("📖 محاولة grep...")
+                logger.info("📖 محاولة grep SERVICE_URL...")
                 await execute_command_robust(page, "cat /tmp/result.txt | grep SERVICE_URL", max_retries=2)
                 await asyncio.sleep(2)
                 try:
@@ -1000,7 +1024,9 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 except:
                     pass
 
-            # التقاط صورة نهائية
+            # ================================================================
+            # التقاط صورة نهائية وإغلاق المتصفح
+            # ================================================================
             os.makedirs("screenshots", exist_ok=True)
             screenshot_path = f"screenshots/{int(time.time())}.png"
             await page.screenshot(path=screenshot_path, full_page=True)
@@ -1339,7 +1365,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v23.0 (Z3R0-STEALTH Ultimate) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v23.1 (Logging Enhanced) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
