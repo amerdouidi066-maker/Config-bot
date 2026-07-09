@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v22.6 – AUTO_LOGIN_BYPASS
-- استخراج متقدم للبريد الإلكتروني من روابط AddSession
+SHADOW LEGION v22.7 – TOKEN_OPTIONAL
+- دعم روابط AddSession التي لا تحتوي على token
+- استخدام cookies.json (إن وجد) لتسجيل الدخول التلقائي
+- استخراج متقدم للبريد الإلكتروني من الروابط المعقدة
 - محاولة تجاوز شاشة تسجيل الدخول تلقائياً
-- دعم cookies.json إن وجد (للجلسة الكاملة)
 - محرك تخفي 14 نقطة
+- لقطات شاشة دائمة (نجاح وفشل)
 """
 
 import os
@@ -61,7 +63,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v22.6 (Auto Login Bypass) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v22.7 (Token Optional) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -144,7 +146,7 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 4. دوال مساعدة (اختصار)
+# 4. دوال مساعدة
 # ===================================================================
 def get_random_proxy() -> Optional[str]:
     return random.choice(PROXY_LIST) if PROXY_LIST else None
@@ -336,7 +338,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     except Exception as e:
         logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
 
-    # محاكاة حركة الماوس
     await simulate_mouse_movement(page)
 
     return context, page
@@ -432,24 +433,20 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
         current_url = page.url
         page_text = await page.inner_text("body")
         
-        # 1. نجاح: الوصول إلى Console أو Shell
         if "console.cloud.google.com" in current_url or "shell.cloud.google.com" in current_url:
             logger.info("✅ تم الوصول إلى Console/Shell بنجاح.")
             return True, ""
         
-        # 2. فشل: رابط منتهي
         if any(kw in page_text.lower() for kw in EXPIRED_KEYWORDS):
             logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية أو غير صالح.")
             return False, "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs."
         
-        # 3. شاشة "Welcome"
         if "Welcome to your new account" in page_text:
             if await smart_click_button(page, ["Understand", "I understand"]):
                 logger.info("✅ تم الضغط على Understand.")
                 await asyncio.sleep(2)
                 continue
         
-        # 4. شاشة CAPTCHA
         if "recaptcha" in page_text.lower() or "captcha" in page_text.lower():
             logger.info("🛡️ تم اكتشاف CAPTCHA، جاري الحل عبر 2Captcha...")
             sitekey = await extract_sitekey(page)
@@ -465,27 +462,22 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
                     except:
                         pass
         
-        # 5. شاشة تسجيل الدخول (نحاول تجاوزها)
         if "sign in" in page_text.lower() or "accounts.google.com" in current_url:
             logger.info("🔐 شاشة تسجيل دخول – محاولة التجاوز...")
             
-            # إذا كان لدينا بريد إلكتروني ولم نحاول من قبل
             if email and not login_attempted:
                 try:
-                    # البحث عن حقل البريد الإلكتروني
                     email_input = await page.query_selector("input[type='email'], input[type='text'][name='identifier']")
                     if email_input:
                         await email_input.fill(email)
                         logger.info(f"✅ تم إدخال البريد الإلكتروني: {email}")
                         await asyncio.sleep(1)
                         
-                        # الضغط على "Next"
                         if await smart_click_button(page, ["Next", "التالي"], ["Next", "Continue"]):
                             logger.info("✅ تم الضغط على Next.")
                             await asyncio.sleep(3)
                             login_attempted = True
                             
-                            # التحقق مما إذا ظهرت شاشة كلمة المرور
                             if "password" in await page.inner_text("body").lower():
                                 logger.warning("⚠️ ظهرت شاشة كلمة المرور – لا يمكن التجاوز.")
                                 return False, "⛔ الرابط يتطلب كلمة مرور (تسجيل دخول يدوي). يرجى استخدام رابط ضيف أو رفع ملف cookies.json."
@@ -493,7 +485,6 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
                 except Exception as e:
                     logger.warning(f"⚠️ فشل إدخال البريد الإلكتروني: {e}")
             
-            # إذا لم نتمكن من التجاوز
             return False, "⛔ فشل تسجيل الدخول إلى Google. يرجى الحصول على رابط جديد أو رفع ملف cookies.json."
         
         await asyncio.sleep(2)
@@ -501,7 +492,7 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 9. دوال إضافية (اختصار)
+# 9. دوال إضافية
 # ===================================================================
 async def click_start_ultimate(page) -> bool:
     return await smart_click_button(
@@ -651,7 +642,10 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
     try:
         logger.info(f"🔄 بدء محاولة وحيدة (مهلة {SHELL_TIMEOUT} ثانية)...")
         logger.info(f"📧 البريد الإلكتروني المستخرج: {email}")
-        logger.info(f"🔑 التوكن: {token[:10]}...{token[-10:]}")
+        if token:
+            logger.info(f"🔑 التوكن: {token[:10]}...{token[-10:]}")
+        else:
+            logger.info("ℹ️ الرابط لا يحتوي على token، سيتم استخدام cookies.json (إن وجد).")
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
@@ -691,7 +685,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             # كشف فوري مع التقاط صورة
             current_url = page.url
             if "accounts.google.com" in current_url or "signin" in current_url.lower():
-                # محاولة تجاوز تسجيل الدخول
                 redirect_success, redirect_msg = await wait_for_redirect_auto(page, email, max_wait=30)
                 if not redirect_success:
                     screenshot_path = await save_screenshot(page)
@@ -891,7 +884,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 13. قاعدة البيانات (اختصار)
+# 13. قاعدة البيانات
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -1002,7 +995,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for r in rows]
 
 # ===================================================================
-# 14. واجهة البوت
+# 14. واجهة البوت (مع دعم غياب token)
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1065,21 +1058,35 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     token = extracted.get("token")
     email = extracted.get("email")
     
-    if not project and not token:
-        await update.message.reply_text("❌ لم أتمكن من استخراج **project** أو **token** من الرابط.")
-        return WAITING_LINK
+    # 🔥 التحقق من وجود cookies.json
+    cookies_exists = os.path.exists("cookies.json")
+    
+    # إذا كان الرابط من نوع AddSession أو يوجد cookies.json، نسمح بغياب token
+    is_add_session = "AddSession" in text or "accounts.google.com" in text
+    
     if not project:
-        await update.message.reply_text("❌ تم استخراج **token** لكن **project** مفقود.")
+        await update.message.reply_text("❌ لم أتمكن من استخراج **project** من الرابط.")
         return WAITING_LINK
+    
+    # إذا لم يكن هناك token، نتحقق من وجود حل بديل
+    if not token and not cookies_exists and not is_add_session:
+        await update.message.reply_text(
+            "❌ لم أتمكن من استخراج **token** من الرابط.\n"
+            "تأكد من أن الرابط صحيح، أو قم برفع ملف `cookies.json` لتجاوز الحاجة إلى token."
+        )
+        return WAITING_LINK
+    
+    # إذا لم يكن هناك token ولكن يوجد cookies.json، نستمر (سنستخدم الجلسة)
     if not token:
-        await update.message.reply_text("❌ تم استخراج **project** لكن **token** مفقود.")
-        return WAITING_LINK
+        logger.info("ℹ️ الرابط لا يحتوي على token، سيتم استخدام cookies.json (إن وجد) للجلسة.")
     
     user_id = update.effective_user.id
     update_last_link(user_id, text)
     context.user_data.update({"lab_url": text, "project_id": project, "token": token, "email": email})
+    
+    token_display = token[:15] if token else "سيتم استخدام الجلسة"
     await update.message.reply_text(
-        f"✅ **تم استخراج البيانات بنجاح**\n🆔 Project: `{project}`\n📧 Email: `{email if email else 'غير موجود'}`\n\n🌍 اختر المنطقة:",
+        f"✅ **تم استخراج البيانات بنجاح**\n🆔 Project: `{project}`\n📧 Email: `{email if email else 'غير موجود'}`\n🔑 Token: `{token_display}`\n\n🌍 اختر المنطقة:",
         parse_mode="Markdown", reply_markup=region_menu()
     )
     return WAITING_REGION
@@ -1096,12 +1103,21 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     project = extracted.get("project_id")
     token = extracted.get("token")
     email = extracted.get("email")
-    if not project or not token:
-        await update.message.reply_text("❌ الرابط المخزن غير صالح.", reply_markup=ReplyKeyboardRemove())
+    
+    cookies_exists = os.path.exists("cookies.json")
+    is_add_session = "AddSession" in last_link or "accounts.google.com" in last_link
+    
+    if not project:
+        await update.message.reply_text("❌ الرابط المخزن لا يحتوي على project.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
+    if not token and not cookies_exists and not is_add_session:
+        await update.message.reply_text("❌ الرابط المخزن لا يحتوي على token ولا يوجد cookies.json.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    
     context.user_data.update({"lab_url": last_link, "project_id": project, "token": token, "email": email})
+    token_display = token[:15] if token else "سيتم استخدام الجلسة"
     await update.message.reply_text(
-        f"✅ **تم استخراج البيانات بنجاح**\n🆔 Project: `{project}`\n📧 Email: `{email if email else 'غير موجود'}`\n\n🌍 اختر المنطقة:",
+        f"✅ **تم استخراج البيانات بنجاح**\n🆔 Project: `{project}`\n📧 Email: `{email if email else 'غير موجود'}`\n🔑 Token: `{token_display}`\n\n🌍 اختر المنطقة:",
         parse_mode="Markdown", reply_markup=region_menu()
     )
     return WAITING_REGION
@@ -1125,7 +1141,7 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     proj = context.user_data.get("project_id")
     tok = context.user_data.get("token")
     email = context.user_data.get("email")
-    if not proj or not tok:
+    if not proj:
         await q.edit_message_text("❌ انتهت الجلسة. أعد الإرسال.")
         return
 
@@ -1247,7 +1263,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v22.6 (Auto Login Bypass) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v22.7 (Token Optional) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
