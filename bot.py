@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v22.5 – ULTIMATE_ALWAYS_SCREENSHOT
-- 14 نقطة تزوير (WebGL, Canvas, Audio, deviceMemory, hardwareConcurrency, etc.)
-- محاكاة حركة الماوس البشرية (بدون page.evaluate)
-- استيراد الجلسة من cookies.json (إن وجد)
-- لقطات شاشة دائمة (نجاح وفشل)
-- Proxies ديناميكية + عشوائية كاملة
-- جلسة مزيفة بالتوكن (في حال عدم وجود cookies.json)
-- خالٍ من أخطاء SyntaxError
-- رسالة /start احترافية
+SHADOW LEGION v22.6 – AUTO_LOGIN_BYPASS
+- استخراج متقدم للبريد الإلكتروني من روابط AddSession
+- محاولة تجاوز شاشة تسجيل الدخول تلقائياً
+- دعم cookies.json إن وجد (للجلسة الكاملة)
+- محرك تخفي 14 نقطة
 """
 
 import os
@@ -65,7 +61,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v22.5 (Ultimate Always Screenshot) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v22.6 (Auto Login Bypass) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -82,7 +78,73 @@ TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydne
 LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8", "fr-FR,fr;q=0.9,en;q=0.8"]
 
 # ===================================================================
-# 3. دوال مساعدة
+# 3. المستخرج الذكي V7 – يدعم روابط AddSession
+# ===================================================================
+def smart_extract(link: str) -> Dict[str, Optional[str]]:
+    """يستخرج project, token, email من أي رابط (بما فيه AddSession)"""
+    link = link.strip()
+    decoded = link
+    for _ in range(5):
+        decoded = urllib.parse.unquote(decoded)
+    
+    project = None
+    token = None
+    email = None
+    
+    # 1. استخراج project من معامل continue
+    continue_match = re.search(r'[?&]continue=([^&]+)', decoded)
+    if continue_match:
+        continue_url = urllib.parse.unquote(continue_match.group(1))
+        project_match = re.search(r'[?&]project=([^&]+)', continue_url)
+        if project_match:
+            project = project_match.group(1)
+        else:
+            project_match = re.search(r'/projects/([^/?#]+)', continue_url)
+            if project_match:
+                project = project_match.group(1)
+    
+    # 2. إذا لم نجد، نبحث في المعاملات المباشرة
+    if not project:
+        parsed = urllib.parse.urlparse(decoded)
+        params = urllib.parse.parse_qs(parsed.query)
+        project = params.get('project', [None])[0] or params.get('projectId', [None])[0] or params.get('id', [None])[0]
+    
+    # 3. استخراج البريد الإلكتروني من جزء # (Fragment)
+    if '#' in decoded:
+        fragment = decoded.split('#')[1] if len(decoded.split('#')) > 1 else ''
+        email_match = re.search(r'[?&]?Email=([^&]+)', fragment)
+        if email_match:
+            email = urllib.parse.unquote(email_match.group(1))
+    
+    # 4. إذا لم نجد، نبحث في النص الكامل
+    if not email:
+        email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+        all_emails = re.findall(email_pattern, decoded)
+        if all_emails:
+            for em in all_emails:
+                if 'qwiklabs' in em or 'student' in em:
+                    email = em
+                    break
+            if not email:
+                email = all_emails[0]
+    
+    # 5. استخراج token (إن وجد)
+    if not token:
+        parsed = urllib.parse.urlparse(decoded)
+        params = urllib.parse.parse_qs(parsed.query)
+        token = params.get('token', [None])[0] or params.get('display_token', [None])[0] or params.get('auth_token', [None])[0]
+    
+    if project:
+        project = project.strip('/"\'')
+    if token:
+        token = token.strip('/"\'')
+    if email:
+        email = email.strip('/"\'')
+    
+    return {"project_id": project, "token": token, "email": email}
+
+# ===================================================================
+# 4. دوال مساعدة (اختصار)
 # ===================================================================
 def get_random_proxy() -> Optional[str]:
     return random.choice(PROXY_LIST) if PROXY_LIST else None
@@ -130,7 +192,706 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
         return None
 
 # ===================================================================
-# 4. قاعدة البيانات
+# 5. محرك التخفي (مع دعم cookies.json)
+# ===================================================================
+async def fallback_cookies(context, token):
+    await context.add_cookies([
+        {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
+    ])
+    logger.info("⚠️ تم استخدام الكوكيز المزيفة (قد لا تعمل).")
+
+async def create_authenticated_context(browser, token: str, email: str, project: str):
+    fingerprint = generate_random_fingerprint()
+    ua = random.choice(USER_AGENTS)
+    width = random.randint(1800, 1920)
+    height = random.randint(1000, 1080)
+    tz = random.choice(TIMEZONES)
+    lang = random.choice(LANGUAGES)
+    lat = random.uniform(30, 50)
+    lon = random.uniform(-100, -70)
+
+    context_options = {
+        "user_agent": ua,
+        "viewport": {"width": width, "height": height},
+        "locale": lang.split(",")[0],
+        "timezone_id": tz,
+        "permissions": ["geolocation"],
+        "geolocation": {"latitude": lat, "longitude": lon},
+        "extra_http_headers": {
+            "Accept-Language": lang,
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Sec-Ch-Ua": '"Google Chrome";v="126", "Chromium";v="126", "Not?A_Brand";v="99"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Upgrade-Insecure-Requests": "1",
+        },
+        "ignore_https_errors": True,
+        "accept_downloads": True,
+    }
+    
+    proxy = get_random_proxy()
+    if proxy:
+        context_options["proxy"] = {"server": proxy}
+        logger.info(f"🌐 استخدام Proxy: {proxy[:30]}...")
+    
+    context = await browser.new_context(**context_options)
+
+    # 🔥 تحميل الكوكيز من الملف إن وجد
+    cookies_file = "cookies.json"
+    if os.path.exists(cookies_file):
+        try:
+            with open(cookies_file, "r") as f:
+                cookies = json.load(f)
+            await context.add_cookies(cookies)
+            logger.info("✅ تم استيراد الكوكيز من ملف cookies.json بنجاح.")
+        except Exception as e:
+            logger.warning(f"⚠️ فشل تحميل الكوكيز: {e}")
+            await fallback_cookies(context, token)
+    else:
+        logger.info("ℹ️ ملف cookies.json غير موجود، سيتم استخدام الكوكيز المزيفة.")
+        await fallback_cookies(context, token)
+
+    # سكريبت تدمير البصمة (14 نقطة)
+    await context.add_init_script(f"""
+        Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+        Object.defineProperty(navigator, 'plugins', {{ 
+            get: () => {{
+                const plugins = [
+                    {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' }},
+                    {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' }},
+                    {{ name: 'Native Client', filename: 'internal-nacl-plugin' }}
+                ];
+                plugins.length = 5;
+                return plugins;
+            }}
+        }});
+        Object.defineProperty(navigator, 'languages', {{ get: () => ['en-US', 'en'] }});
+        window.chrome = {{
+            runtime: {{}},
+            loadTimes: function() {{}},
+            csi: function() {{}},
+            app: {{}}
+        }};
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = function(params) {{
+            if (params.name === 'notifications') {{
+                return Promise.resolve({{ state: 'prompt' }});
+            }}
+            return originalQuery.call(this, params);
+        }};
+        const getParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(p) {{
+            if (p === 37445) return '{fingerprint["vendor"]}';
+            if (p === 37446) return '{fingerprint["renderer"]}';
+            return getParameter.call(this, p);
+        }};
+        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+        HTMLCanvasElement.prototype.toDataURL = function(type) {{
+            if (type === 'image/png' || !type) {{
+                const ctx = this.getContext('2d');
+                const imgData = ctx.getImageData(0, 0, this.width, this.height);
+                const data = imgData.data;
+                for (let i = 0; i < data.length; i += 4) {{
+                    if (Math.random() < {fingerprint["canvas_noise"]}) {{
+                        data[i] ^= (Math.random() > 0.5 ? 1 : 0);
+                        data[i+1] ^= (Math.random() > 0.5 ? 1 : 0);
+                        data[i+2] ^= (Math.random() > 0.5 ? 1 : 0);
+                    }}
+                }}
+                ctx.putImageData(imgData, 0, 0);
+            }}
+            return originalToDataURL.apply(this, arguments);
+        }};
+        const originalGetChannelData = AudioBuffer.prototype.getChannelData;
+        AudioBuffer.prototype.getChannelData = function(channel) {{
+            const data = originalGetChannelData.call(this, channel);
+            for (let i = 0; i < data.length; i += 100) {{
+                data[i] += (Math.random() - 0.5) * {fingerprint["audio_noise"]};
+            }}
+            return data;
+        }};
+        Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {fingerprint["device_memory"]} }});
+        Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {fingerprint["hardware_concurrency"]} }});
+        Object.defineProperty(navigator, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
+        Object.defineProperty(navigator, 'oscpu', {{ get: () => 'Windows NT 10.0; Win64; x64' }});
+        if (navigator.userAgentData) {{
+            Object.defineProperty(navigator.userAgentData, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
+        }}
+        if (navigator.connection) {{
+            Object.defineProperty(navigator.connection, 'rtt', {{ get: () => Math.floor(Math.random() * 100 + 50) }});
+            Object.defineProperty(navigator.connection, 'downlink', {{ get: () => (Math.random() * 9 + 1).toFixed(1) }});
+        }}
+    """)
+
+    page = await context.new_page()
+    
+    try:
+        await stealth_async(page)
+        logger.info("✅ تم تطبيق playwright-stealth.")
+    except Exception as e:
+        logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
+
+    # محاكاة حركة الماوس
+    await simulate_mouse_movement(page)
+
+    return context, page
+
+# ===================================================================
+# 6. محاكاة حركة الماوس
+# ===================================================================
+async def simulate_mouse_movement(page):
+    try:
+        for _ in range(random.randint(3, 6)):
+            x = random.randint(100, 1800)
+            y = random.randint(100, 900)
+            await page.mouse.move(x, y, steps=random.randint(10, 30))
+            await asyncio.sleep(random.uniform(0.1, 0.5))
+        await page.mouse.click(random.randint(100, 1800), random.randint(100, 900))
+        logger.info("✅ تمت محاكاة حركة الماوس.")
+    except Exception as e:
+        logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
+
+# ===================================================================
+# 7. الضغط على الأزرار (بدون evaluate)
+# ===================================================================
+async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
+    if aria_labels is None:
+        aria_labels = text_keywords
+    
+    for text in text_keywords:
+        try:
+            btn = await page.query_selector(f"button:has-text('{text}'), div[role='button']:has-text('{text}')")
+            if btn and await btn.is_visible():
+                await btn.click()
+                logger.info(f"✅ نقر على الزر عبر النص: {text}")
+                return True
+        except:
+            pass
+    
+    for label in aria_labels:
+        try:
+            btn = await page.query_selector(f"button[aria-label*='{label}'], div[role='button'][aria-label*='{label}']")
+            if btn and await btn.is_visible():
+                await btn.click()
+                logger.info(f"✅ نقر على الزر عبر aria-label: {label}")
+                return True
+        except:
+            pass
+    
+    try:
+        buttons = await page.query_selector_all("button, div[role='button'], a[role='button']")
+        for btn in buttons:
+            text = await btn.inner_text()
+            aria = await btn.get_attribute("aria-label") or ""
+            combined = (text + " " + aria).lower()
+            for kw in text_keywords:
+                if kw.lower() in combined:
+                    if await btn.is_visible():
+                        await btn.scroll_into_view_if_needed()
+                        await btn.click()
+                        logger.info(f"✅ نقر على الزر عبر البحث الشامل: {kw}")
+                        return True
+    except:
+        pass
+    
+    return False
+
+async def extract_sitekey(page) -> Optional[str]:
+    try:
+        iframes = await page.query_selector_all("iframe[src*='recaptcha']")
+        for iframe in iframes:
+            src = await iframe.get_attribute("src")
+            if src:
+                match = re.search(r'k=([^&]+)', src)
+                if match:
+                    return match.group(1)
+        return None
+    except:
+        return None
+
+# ===================================================================
+# 8. معالج الانتظار الذكي (مع تجاوز تسجيل الدخول)
+# ===================================================================
+EXPIRED_KEYWORDS = [
+    "expired", "invalid", "session", "access denied", "not found", "404", "410",
+    "sign in", "choose an account", "accounts.google.com", "login", "log in",
+    "Couldn't sign you in", "verify this account", "contact your administrator",
+    "domain", "not authorized", "forbidden", "terminated", "suspended"
+]
+
+async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -> Tuple[bool, str]:
+    start_time = time.time()
+    login_attempted = False
+    
+    while time.time() - start_time < max_wait:
+        current_url = page.url
+        page_text = await page.inner_text("body")
+        
+        # 1. نجاح: الوصول إلى Console أو Shell
+        if "console.cloud.google.com" in current_url or "shell.cloud.google.com" in current_url:
+            logger.info("✅ تم الوصول إلى Console/Shell بنجاح.")
+            return True, ""
+        
+        # 2. فشل: رابط منتهي
+        if any(kw in page_text.lower() for kw in EXPIRED_KEYWORDS):
+            logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية أو غير صالح.")
+            return False, "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs."
+        
+        # 3. شاشة "Welcome"
+        if "Welcome to your new account" in page_text:
+            if await smart_click_button(page, ["Understand", "I understand"]):
+                logger.info("✅ تم الضغط على Understand.")
+                await asyncio.sleep(2)
+                continue
+        
+        # 4. شاشة CAPTCHA
+        if "recaptcha" in page_text.lower() or "captcha" in page_text.lower():
+            logger.info("🛡️ تم اكتشاف CAPTCHA، جاري الحل عبر 2Captcha...")
+            sitekey = await extract_sitekey(page)
+            if sitekey:
+                solution = await solve_captcha_2captcha(page, sitekey)
+                if solution:
+                    try:
+                        await page.fill("#g-recaptcha-response", solution)
+                        await page.click("form button[type='submit'], form input[type='submit']")
+                        logger.info("✅ تم حل CAPTCHA بنجاح.")
+                        await asyncio.sleep(2)
+                        continue
+                    except:
+                        pass
+        
+        # 5. شاشة تسجيل الدخول (نحاول تجاوزها)
+        if "sign in" in page_text.lower() or "accounts.google.com" in current_url:
+            logger.info("🔐 شاشة تسجيل دخول – محاولة التجاوز...")
+            
+            # إذا كان لدينا بريد إلكتروني ولم نحاول من قبل
+            if email and not login_attempted:
+                try:
+                    # البحث عن حقل البريد الإلكتروني
+                    email_input = await page.query_selector("input[type='email'], input[type='text'][name='identifier']")
+                    if email_input:
+                        await email_input.fill(email)
+                        logger.info(f"✅ تم إدخال البريد الإلكتروني: {email}")
+                        await asyncio.sleep(1)
+                        
+                        # الضغط على "Next"
+                        if await smart_click_button(page, ["Next", "التالي"], ["Next", "Continue"]):
+                            logger.info("✅ تم الضغط على Next.")
+                            await asyncio.sleep(3)
+                            login_attempted = True
+                            
+                            # التحقق مما إذا ظهرت شاشة كلمة المرور
+                            if "password" in await page.inner_text("body").lower():
+                                logger.warning("⚠️ ظهرت شاشة كلمة المرور – لا يمكن التجاوز.")
+                                return False, "⛔ الرابط يتطلب كلمة مرور (تسجيل دخول يدوي). يرجى استخدام رابط ضيف أو رفع ملف cookies.json."
+                            continue
+                except Exception as e:
+                    logger.warning(f"⚠️ فشل إدخال البريد الإلكتروني: {e}")
+            
+            # إذا لم نتمكن من التجاوز
+            return False, "⛔ فشل تسجيل الدخول إلى Google. يرجى الحصول على رابط جديد أو رفع ملف cookies.json."
+        
+        await asyncio.sleep(2)
+    
+    return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
+
+# ===================================================================
+# 9. دوال إضافية (اختصار)
+# ===================================================================
+async def click_start_ultimate(page) -> bool:
+    return await smart_click_button(
+        page,
+        text_keywords=["Start Cloud Shell", "Launch Cloud Shell", "Activate Cloud Shell", 
+                      "بدء Cloud Shell", "تفعيل Cloud Shell", "Start", "Launch", "Activate"],
+        aria_labels=["Start Cloud Shell", "Launch Cloud Shell", "Activate Cloud Shell"]
+    )
+
+async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
+    for attempt in range(max_retries):
+        logger.info(f"▶️ تنفيذ: {cmd[:60]}... (محاولة {attempt+1}/{max_retries})")
+        try:
+            terminal_selectors = [".xterm-helper-textarea", ".xterm", ".terminal", "[role='textbox']"]
+            for selector in terminal_selectors:
+                try:
+                    await page.focus(selector)
+                    break
+                except:
+                    continue
+            
+            await asyncio.sleep(0.3)
+            
+            for ch in cmd:
+                await page.keyboard.type(ch, delay=random.randint(10, 25))
+            
+            await page.keyboard.press("Enter")
+            await asyncio.sleep(random.uniform(1.5, 3))
+            return True
+            
+        except Exception as e:
+            logger.error(f"فشل تنفيذ الأمر في المحاولة {attempt+1}: {e}")
+            await asyncio.sleep(2)
+    
+    logger.error(f"❌ فشل تنفيذ الأمر بعد {max_retries} محاولات: {cmd[:60]}")
+    return False
+
+async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, str]:
+    logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
+    start_time = time.time()
+    
+    selectors = [
+        ".xterm", ".xterm-helper-textarea", ".xterm-screen", ".terminal",
+        "[role='textbox']", "textarea", ".terminal-active", ".xterm-viewport"
+    ]
+    for selector in selectors:
+        try:
+            await page.wait_for_selector(selector, timeout=20000, state="visible")
+            logger.info(f"✅ تم العثور على الطرفية باستخدام المحدد: {selector}")
+            return True, ""
+        except:
+            continue
+    
+    try:
+        frames = page.frames
+        for frame in frames:
+            for selector in selectors:
+                try:
+                    elem = await frame.wait_for_selector(selector, timeout=5000, state="visible")
+                    if elem:
+                        logger.info(f"✅ تم العثور على الطرفية داخل iframe باستخدام: {selector}")
+                        return True, ""
+                except:
+                    continue
+    except Exception as e:
+        logger.warning(f"⚠️ فشل البحث في iframes: {e}")
+    
+    while time.time() - start_time < timeout_seconds:
+        for selector in selectors:
+            try:
+                element = await page.query_selector(selector)
+                if element and await element.is_visible():
+                    logger.info(f"✅ الطرفية ظهرت (حلقة احتياطية) – المحدد: {selector}")
+                    return True, ""
+            except:
+                pass
+        await asyncio.sleep(1)
+    
+    return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
+
+# ===================================================================
+# 10. سكريبت النشر
+# ===================================================================
+def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
+    service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
+    return f'''
+import os, time, requests, subprocess, sys, json, base64, hashlib, random
+
+PROJECT_ID = "{project_id}"
+TOKEN = "{token}"
+REGION = "{region}"
+EMAIL = "{email}"
+SERVICE_NAME = "{service_name}"
+
+print("🚀 بدء النشر المتقدم على GCP...")
+print(f"📌 المشروع: {{PROJECT_ID}}")
+print(f"🌍 المنطقة: {{REGION}}")
+print(f"🔧 اسم الخدمة: {{SERVICE_NAME}}")
+
+subprocess.run("apt-get update && apt-get install google-cloud-sdk -y", shell=True, capture_output=True)
+
+cmd_setup = f"gcloud config set project {{PROJECT_ID}}"
+subprocess.run(cmd_setup, shell=True, capture_output=True)
+
+cmd_enable = "gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com"
+subprocess.run(cmd_enable, shell=True, capture_output=True)
+
+cmd_deploy = f"""
+gcloud run deploy {{SERVICE_NAME}} \\
+    --region {{REGION}} \\
+    --platform managed \\
+    --image gcr.io/cloudrun/hello \\
+    --allow-unauthenticated \\
+    --quiet
+"""
+result = subprocess.run(cmd_deploy, shell=True, capture_output=True, text=True)
+print(result.stdout)
+
+service_url = None
+if "Service URL" in result.stdout:
+    match = re.search(r'Service URL[ :]+(https://[a-zA-Z0-9\\-]+\\.run\\.app)', result.stdout)
+    if match:
+        service_url = match.group(1)
+if not service_url:
+    service_url = f"https://{{SERVICE_NAME}}-{{PROJECT_ID[:8]}}.run.app"
+
+vless_link = f"vless://{{PROJECT_ID}}@example.com:443?security=tls&sni=example.com"
+
+with open("/tmp/result.txt", "w") as f:
+    f.write(f"SERVICE_URL: {{service_url}}\\n")
+    f.write(f"VLESS: {{vless_link}}\\n")
+
+print("✅ تمت الكتابة إلى /tmp/result.txt")
+print(f"🌐 SERVICE_URL: {{service_url}}")
+print(f"🔗 VLESS: {{vless_link}}")
+'''
+
+# ===================================================================
+# 11. قلب الأتمتة (مع لقطات شاشة دائمة)
+# ===================================================================
+async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                            lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
+    start_time = time.time()
+    screenshot_path = ""
+    last_error = ""
+
+    try:
+        logger.info(f"🔄 بدء محاولة وحيدة (مهلة {SHELL_TIMEOUT} ثانية)...")
+        logger.info(f"📧 البريد الإلكتروني المستخرج: {email}")
+        logger.info(f"🔑 التوكن: {token[:10]}...{token[-10:]}")
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--disable-web-security",
+                    "--disable-features=BlockInsecurePrivateNetworkRequests",
+                    "--disable-features=OutOfBlinkCors",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-component-extensions-with-background-pages",
+                    "--disable-default-apps",
+                    "--disable-extensions",
+                    "--disable-features=TranslateUI",
+                    "--disable-ipc-flooding-protection",
+                    "--disable-popup-blocking",
+                    "--disable-prompt-on-repost",
+                    "--disable-renderer-backgrounding",
+                    "--disable-sync",
+                    "--force-color-profile=srgb",
+                    "--metrics-recording-only",
+                    "--no-first-run"
+                ]
+            )
+            
+            context_browser, page = await create_authenticated_context(browser, token, email, project_id)
+
+            logger.info("📌 فتح الرابط...")
+            await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
+
+            # كشف فوري مع التقاط صورة
+            current_url = page.url
+            if "accounts.google.com" in current_url or "signin" in current_url.lower():
+                # محاولة تجاوز تسجيل الدخول
+                redirect_success, redirect_msg = await wait_for_redirect_auto(page, email, max_wait=30)
+                if not redirect_success:
+                    screenshot_path = await save_screenshot(page)
+                    await send_screenshot(update, screenshot_path, redirect_msg)
+                    await browser.close()
+                    return False, "", redirect_msg, int(time.time() - start_time), screenshot_path
+
+            redirect_success, redirect_msg = await wait_for_redirect_auto(page, email, max_wait=120)
+            if not redirect_success:
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, redirect_msg)
+                await browser.close()
+                return False, "", redirect_msg, int(time.time() - start_time), screenshot_path
+
+            try:
+                await page.wait_for_url(
+                    lambda u: "console.cloud.google.com" in u or "shell.cloud.google.com" in u,
+                    timeout=30000
+                )
+                logger.info("✅ تم تأكيد الوصول إلى Console/Shell.")
+            except:
+                last_error = "❌ لم يتم الوصول إلى Console أو Shell بعد إعادة التوجيه."
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, last_error)
+                await browser.close()
+                return False, "", last_error, int(time.time() - start_time), screenshot_path
+
+            for btn_text in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض", "Got it"]:
+                if await smart_click_button(page, [btn_text], [btn_text]):
+                    logger.info(f"✅ تم تجاوز زر: {btn_text}")
+                    await asyncio.sleep(random.uniform(1, 2))
+
+            logger.info("🔄 التوجه إلى Cloud Shell...")
+            await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
+            await asyncio.sleep(random.uniform(3, 5))
+
+            start_clicked = False
+            for attempt in range(3):
+                logger.info(f"🔄 محاولة الضغط على Start (محاولة {attempt+1}/3)...")
+                start_clicked = await click_start_ultimate(page)
+                if start_clicked:
+                    break
+                await asyncio.sleep(5)
+
+            if not start_clicked:
+                last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell بعد 3 محاولات."
+                logger.warning(last_error)
+
+            for btn_text in ["Authorize", "تفويض", "Continue", "متابعة", "I understand", "Got it"]:
+                if await smart_click_button(page, [btn_text], [btn_text]):
+                    logger.info(f"✅ تم الضغط على زر إضافي: {btn_text}")
+                    await asyncio.sleep(2)
+
+            terminal_ready, terminal_msg = await wait_for_terminal_enhanced(page, timeout_seconds=360)
+            if not terminal_ready:
+                last_error = terminal_msg
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, last_error)
+                await browser.close()
+                return False, "", last_error, int(time.time() - start_time), screenshot_path
+
+            await asyncio.sleep(random.uniform(2, 4))
+
+            deploy_script = generate_deploy_script(project_id, token, region, email)
+            b64_script = base64.b64encode(deploy_script.encode()).decode()
+            
+            commands = [
+                f"echo '{b64_script}' | base64 -d > deploy.py",
+                "python3 deploy.py"
+            ]
+
+            for idx, cmd in enumerate(commands):
+                success_cmd = await execute_command_robust(page, cmd, max_retries=3)
+                if not success_cmd:
+                    last_error = f"⚠️ فشل تنفيذ الأمر رقم {idx+1} (بعد 3 محاولات): {cmd[:30]}..."
+                    logger.warning(last_error)
+                await asyncio.sleep(random.uniform(2, 3))
+
+            # قراءة النتيجة
+            logger.info("📖 محاولة قراءة /tmp/result.txt...")
+            result_content = ""
+            
+            await execute_command_robust(page, "cat /tmp/result.txt", max_retries=2)
+            await asyncio.sleep(2)
+            try:
+                term = await page.query_selector(".xterm, .terminal, [role='textbox']")
+                if term:
+                    terminal_text = await term.inner_text()
+                else:
+                    terminal_text = await page.inner_text("body")
+                lines = terminal_text.split('\n')
+                relevant = '\n'.join(lines[-30:])
+                result_content = relevant
+                logger.info("✅ تم قراءة الطرفية.")
+            except Exception as e:
+                last_error = f"⚠️ فشل قراءة الطرفية: {str(e)[:100]}"
+
+            if not result_content or "SERVICE_URL" not in result_content:
+                logger.info("📖 محاولة grep...")
+                await execute_command_robust(page, "cat /tmp/result.txt | grep SERVICE_URL", max_retries=2)
+                await asyncio.sleep(2)
+                try:
+                    term = await page.query_selector(".xterm, .terminal, [role='textbox']")
+                    if term:
+                        terminal_text = await term.inner_text()
+                        if "SERVICE_URL" in terminal_text:
+                            result_content = terminal_text
+                except:
+                    pass
+
+            if not result_content or "SERVICE_URL" not in result_content:
+                logger.info("📖 محاولة grep VLESS...")
+                await execute_command_robust(page, "cat /tmp/result.txt | grep VLESS", max_retries=2)
+                await asyncio.sleep(2)
+                try:
+                    term = await page.query_selector(".xterm, .terminal, [role='textbox']")
+                    if term:
+                        terminal_text = await term.inner_text()
+                        if "VLESS" in terminal_text:
+                            result_content = terminal_text
+                except:
+                    pass
+
+            # التقاط صورة نهائية
+            os.makedirs("screenshots", exist_ok=True)
+            screenshot_path = f"screenshots/{int(time.time())}.png"
+            await page.screenshot(path=screenshot_path, full_page=True)
+            await browser.close()
+
+            cleanup_old_screenshots()
+
+            service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', result_content)
+            vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', result_content)
+
+            if service_match and vless_match:
+                await send_screenshot(update, screenshot_path, "✅ تم النشر بنجاح")
+                return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time), screenshot_path
+            else:
+                if not result_content:
+                    error_detail = "❌ لم يتم الحصول على أي مخرجات من الطرفية. قد يكون السكريبت لم ينفذ."
+                else:
+                    error_detail = f"⚠️ لم يتم العثور على النتيجة.\nالمحتوى المسترجع:\n{result_content[-500:]}"
+                await send_screenshot(update, screenshot_path, error_detail)
+                return False, "", error_detail, int(time.time() - start_time), screenshot_path
+
+    except PlaywrightTimeout as e:
+        logger.exception("⏰ انتهت مهلة Playwright")
+        last_error = f"⏰ انتهت المهلة: {str(e)[:200]}"
+        if screenshot_path:
+            await send_screenshot(update, screenshot_path, last_error)
+        return False, "", last_error, int(time.time() - start_time), screenshot_path
+    except Exception as e:
+        logger.exception(f"❌ فشل المحاولة")
+        last_error = f"❌ خطأ تقني: {str(e)[:200]}"
+        if screenshot_path:
+            await send_screenshot(update, screenshot_path, last_error)
+        return False, "", last_error, int(time.time() - start_time), screenshot_path
+
+# ===================================================================
+# 12. دوال مساعدة للصور
+# ===================================================================
+async def save_screenshot(page) -> str:
+    os.makedirs("screenshots", exist_ok=True)
+    path = f"screenshots/{int(time.time())}.png"
+    try:
+        await page.screenshot(path=path, full_page=True)
+        logger.info(f"📸 تم حفظ اللقطة: {path}")
+        return path
+    except Exception as e:
+        logger.warning(f"⚠️ فشل حفظ اللقطة: {e}")
+        return ""
+
+async def send_screenshot(update: Update, path: str, caption: str = "📸 لقطة للفحص"):
+    if not path or not os.path.exists(path):
+        return
+    try:
+        with open(path, 'rb') as photo:
+            await update.effective_message.reply_photo(photo, caption=f"{caption}\n\n🔄 يمكنك استخدام زر 'إعادة المحاولة' لتجربة الرابط نفسه مرة أخرى.")
+        logger.info(f"📤 تم إرسال الصورة: {path}")
+    except Exception as e:
+        logger.warning(f"⚠️ فشل إرسال الصورة: {e}")
+
+def cleanup_old_screenshots():
+    try:
+        screenshots_dir = "screenshots"
+        if not os.path.exists(screenshots_dir):
+            return
+        cutoff = datetime.now() - timedelta(days=CLEANUP_DAYS)
+        for filename in os.listdir(screenshots_dir):
+            filepath = os.path.join(screenshots_dir, filename)
+            if os.path.isfile(filepath):
+                mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
+                if mtime < cutoff:
+                    os.remove(filepath)
+                    logger.info(f"🗑️ تم حذف لقطة قديمة: {filename}")
+    except Exception as e:
+        logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
+
+# ===================================================================
+# 13. قاعدة البيانات (اختصار)
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -241,832 +1002,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for r in rows]
 
 # ===================================================================
-# 5. المستخرج الذكي V6
-# ===================================================================
-def smart_extract(link: str) -> Dict[str, Optional[str]]:
-    link = link.strip()
-    decoded = link
-    for _ in range(5):
-        decoded = urllib.parse.unquote(decoded)
-    
-    project = None
-    token = None
-    email = None
-    
-    if '#' in decoded:
-        main_part = decoded.split('#')[0]
-    else:
-        main_part = decoded
-    
-    parsed = urllib.parse.urlparse(main_part)
-    params = urllib.parse.parse_qs(parsed.query)
-    
-    project = params.get('project', [None])[0] or params.get('projectId', [None])[0] or params.get('id', [None])[0]
-    token = params.get('token', [None])[0] or params.get('display_token', [None])[0] or params.get('auth_token', [None])[0]
-    
-    email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
-    all_emails = re.findall(email_pattern, decoded)
-    if all_emails:
-        for em in all_emails:
-            if 'qwiklabs' in em or 'student' in em:
-                email = em
-                break
-        if not email:
-            email = all_emails[0]
-    
-    if not email:
-        email_match = re.search(r'[?&]Email=([^&]+)', decoded)
-        if email_match:
-            email = urllib.parse.unquote(email_match.group(1))
-    
-    if not project:
-        match = re.search(r'[?&]project=([^&]+)', decoded)
-        if match:
-            project = match.group(1)
-        else:
-            match = re.search(r'/projects/([^/?#]+)', decoded)
-            if match:
-                project = match.group(1)
-    
-    if not token:
-        match = re.search(r'[?&]token=([^&]+)', decoded)
-        if match:
-            token = match.group(1)
-        else:
-            match = re.search(r'display_token[=:]([^&?#]+)', decoded)
-            if match:
-                token = match.group(1)
-    
-    if project:
-        project = project.strip('/"\'')
-    if token:
-        token = token.strip('/"\'')
-    if email:
-        email = email.strip('/"\'')
-    
-    return {"project_id": project, "token": token, "email": email}
-
-# ===================================================================
-# 6. التحقق من صلاحية التوكن
-# ===================================================================
-async def check_token_validity(browser, token: str) -> bool:
-    try:
-        context = await browser.new_context()
-        await context.add_cookies([
-            {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
-            {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
-            {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
-            {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
-            {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
-        ])
-        page = await context.new_page()
-        await page.goto("https://myaccount.google.com/", timeout=10000, wait_until="domcontentloaded")
-        current_url = page.url
-        await context.close()
-        if "accounts.google.com" in current_url:
-            return False
-        return True
-    except:
-        return False
-
-# ===================================================================
-# 7. محرك التخفي الفائق + دعم cookies.json
-# ===================================================================
-async def fallback_cookies(context, token):
-    """يضيف كوكيز مزيفة في حالة عدم وجود ملف cookies.json"""
-    await context.add_cookies([
-        {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
-    ])
-    logger.info("⚠️ تم استخدام الكوكيز المزيفة (قد لا تعمل مع الروابط الجديدة).")
-
-async def create_authenticated_context(browser, token: str, email: str, project: str):
-    fingerprint = generate_random_fingerprint()
-    ua = random.choice(USER_AGENTS)
-    width = random.randint(1800, 1920)
-    height = random.randint(1000, 1080)
-    tz = random.choice(TIMEZONES)
-    lang = random.choice(LANGUAGES)
-    lat = random.uniform(30, 50)
-    lon = random.uniform(-100, -70)
-
-    context_options = {
-        "user_agent": ua,
-        "viewport": {"width": width, "height": height},
-        "locale": lang.split(",")[0],
-        "timezone_id": tz,
-        "permissions": ["geolocation"],
-        "geolocation": {"latitude": lat, "longitude": lon},
-        "extra_http_headers": {
-            "Accept-Language": lang,
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Sec-Ch-Ua": '"Google Chrome";v="126", "Chromium";v="126", "Not?A_Brand";v="99"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            "Upgrade-Insecure-Requests": "1",
-        },
-        "ignore_https_errors": True,
-        "accept_downloads": True,
-    }
-    
-    proxy = get_random_proxy()
-    if proxy:
-        context_options["proxy"] = {"server": proxy}
-        logger.info(f"🌐 استخدام Proxy: {proxy[:30]}...")
-    
-    context = await browser.new_context(**context_options)
-
-    # 🔥 تحميل الكوكيز من الملف إن وجد
-    cookies_file = "cookies.json"
-    if os.path.exists(cookies_file):
-        try:
-            with open(cookies_file, "r") as f:
-                cookies = json.load(f)
-            await context.add_cookies(cookies)
-            logger.info("✅ تم استيراد الكوكيز من الملف cookies.json بنجاح.")
-        except Exception as e:
-            logger.warning(f"⚠️ فشل تحميل الكوكيز من الملف: {e}")
-            await fallback_cookies(context, token)
-    else:
-        logger.info("ℹ️ ملف cookies.json غير موجود، سيتم استخدام الكوكيز المزيفة.")
-        await fallback_cookies(context, token)
-
-    # 🔥 سكريبت تدمير البصمة الفائق (14 نقطة)
-    await context.add_init_script(f"""
-        // 1. إزالة webdriver
-        Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
-        
-        // 2. تزوير plugins
-        Object.defineProperty(navigator, 'plugins', {{ 
-            get: () => {{
-                const plugins = [
-                    {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' }},
-                    {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' }},
-                    {{ name: 'Native Client', filename: 'internal-nacl-plugin' }}
-                ];
-                plugins.length = 5;
-                return plugins;
-            }}
-        }});
-        
-        // 3. تزوير languages
-        Object.defineProperty(navigator, 'languages', {{ get: () => ['en-US', 'en'] }});
-        
-        // 4. تزوير chrome object
-        window.chrome = {{
-            runtime: {{}},
-            loadTimes: function() {{}},
-            csi: function() {{}},
-            app: {{}}
-        }};
-        
-        // 5. تزوير permissions
-        const originalQuery = window.navigator.permissions.query;
-        window.navigator.permissions.query = function(params) {{
-            if (params.name === 'notifications') {{
-                return Promise.resolve({{ state: 'prompt' }});
-            }}
-            return originalQuery.call(this, params);
-        }};
-        
-        // 6. WebGL Randomization
-        const getParameter = WebGLRenderingContext.prototype.getParameter;
-        WebGLRenderingContext.prototype.getParameter = function(p) {{
-            if (p === 37445) return '{fingerprint["vendor"]}';
-            if (p === 37446) return '{fingerprint["renderer"]}';
-            return getParameter.call(this, p);
-        }};
-        
-        // 7. Canvas Noise
-        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-        HTMLCanvasElement.prototype.toDataURL = function(type) {{
-            if (type === 'image/png' || !type) {{
-                const ctx = this.getContext('2d');
-                const imgData = ctx.getImageData(0, 0, this.width, this.height);
-                const data = imgData.data;
-                for (let i = 0; i < data.length; i += 4) {{
-                    if (Math.random() < {fingerprint["canvas_noise"]}) {{
-                        data[i] ^= (Math.random() > 0.5 ? 1 : 0);
-                        data[i+1] ^= (Math.random() > 0.5 ? 1 : 0);
-                        data[i+2] ^= (Math.random() > 0.5 ? 1 : 0);
-                    }}
-                }}
-                ctx.putImageData(imgData, 0, 0);
-            }}
-            return originalToDataURL.apply(this, arguments);
-        }};
-        
-        // 8. Audio Noise
-        const originalGetChannelData = AudioBuffer.prototype.getChannelData;
-        AudioBuffer.prototype.getChannelData = function(channel) {{
-            const data = originalGetChannelData.call(this, channel);
-            for (let i = 0; i < data.length; i += 100) {{
-                data[i] += (Math.random() - 0.5) * {fingerprint["audio_noise"]};
-            }}
-            return data;
-        }};
-        
-        // 9. deviceMemory
-        Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {fingerprint["device_memory"]} }});
-        
-        // 10. hardwareConcurrency
-        Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {fingerprint["hardware_concurrency"]} }});
-        
-        // 11. platform
-        Object.defineProperty(navigator, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
-        
-        // 12. oscpu (Firefox)
-        Object.defineProperty(navigator, 'oscpu', {{ get: () => 'Windows NT 10.0; Win64; x64' }});
-        
-        // 13. userAgentData (Chrome)
-        if (navigator.userAgentData) {{
-            Object.defineProperty(navigator.userAgentData, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
-        }}
-        
-        // 14. connection (شبكة)
-        if (navigator.connection) {{
-            Object.defineProperty(navigator.connection, 'rtt', {{ get: () => Math.floor(Math.random() * 100 + 50) }});
-            Object.defineProperty(navigator.connection, 'downlink', {{ get: () => (Math.random() * 9 + 1).toFixed(1) }});
-        }}
-    """)
-
-    page = await context.new_page()
-    
-    try:
-        await stealth_async(page)
-        logger.info("✅ تم تطبيق playwright-stealth.")
-    except Exception as e:
-        logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
-
-    # محاكاة حركة الماوس
-    await simulate_mouse_movement(page)
-
-    return context, page
-
-# ===================================================================
-# 8. محاكاة حركة الماوس (بدون page.evaluate)
-# ===================================================================
-async def simulate_mouse_movement(page):
-    try:
-        for _ in range(random.randint(3, 6)):
-            x = random.randint(100, 1800)
-            y = random.randint(100, 900)
-            await page.mouse.move(x, y, steps=random.randint(10, 30))
-            await asyncio.sleep(random.uniform(0.1, 0.5))
-        await page.mouse.click(random.randint(100, 1800), random.randint(100, 900))
-        logger.info("✅ تمت محاكاة حركة الماوس.")
-    except Exception as e:
-        logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
-
-# ===================================================================
-# 9. كشف ديناميكي للأزرار (بدون evaluate)
-# ===================================================================
-async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
-    if aria_labels is None:
-        aria_labels = text_keywords
-    
-    for text in text_keywords:
-        try:
-            btn = await page.query_selector(f"button:has-text('{text}'), div[role='button']:has-text('{text}')")
-            if btn and await btn.is_visible():
-                await btn.click()
-                logger.info(f"✅ نقر على الزر عبر النص: {text}")
-                return True
-        except:
-            pass
-    
-    for label in aria_labels:
-        try:
-            btn = await page.query_selector(f"button[aria-label*='{label}'], div[role='button'][aria-label*='{label}']")
-            if btn and await btn.is_visible():
-                await btn.click()
-                logger.info(f"✅ نقر على الزر عبر aria-label: {label}")
-                return True
-        except:
-            pass
-    
-    try:
-        buttons = await page.query_selector_all("button, div[role='button'], a[role='button']")
-        for btn in buttons:
-            text = await btn.inner_text()
-            aria = await btn.get_attribute("aria-label") or ""
-            combined = (text + " " + aria).lower()
-            for kw in text_keywords:
-                if kw.lower() in combined:
-                    if await btn.is_visible():
-                        await btn.scroll_into_view_if_needed()
-                        await btn.click()
-                        logger.info(f"✅ نقر على الزر عبر البحث الشامل: {kw}")
-                        return True
-    except:
-        pass
-    
-    return False
-
-# ===================================================================
-# 10. استخراج sitekey (بدون evaluate)
-# ===================================================================
-async def extract_sitekey(page) -> Optional[str]:
-    try:
-        iframes = await page.query_selector_all("iframe[src*='recaptcha']")
-        for iframe in iframes:
-            src = await iframe.get_attribute("src")
-            if src:
-                match = re.search(r'k=([^&]+)', src)
-                if match:
-                    return match.group(1)
-        return None
-    except:
-        return None
-
-# ===================================================================
-# 11. معالج الانتظار الذكي
-# ===================================================================
-EXPIRED_KEYWORDS = [
-    "expired", "invalid", "session", "access denied", "not found", "404", "410",
-    "sign in", "choose an account", "accounts.google.com", "login", "log in",
-    "Couldn't sign you in", "verify this account", "contact your administrator",
-    "domain", "not authorized", "forbidden", "terminated", "suspended"
-]
-
-async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -> Tuple[bool, str]:
-    start_time = time.time()
-    while time.time() - start_time < max_wait:
-        current_url = page.url
-        page_text = await page.inner_text("body")
-        
-        if "console.cloud.google.com" in current_url or "shell.cloud.google.com" in current_url:
-            logger.info("✅ تم الوصول إلى Console/Shell بنجاح.")
-            return True, ""
-        
-        if any(kw in page_text.lower() for kw in EXPIRED_KEYWORDS):
-            logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية أو غير صالح.")
-            return False, "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs."
-        
-        if "Welcome to your new account" in page_text:
-            if await smart_click_button(page, ["Understand", "I understand"]):
-                logger.info("✅ تم الضغط على Understand.")
-                await asyncio.sleep(2)
-                continue
-        
-        if "recaptcha" in page_text.lower() or "captcha" in page_text.lower():
-            logger.info("🛡️ تم اكتشاف CAPTCHA، جاري الحل عبر 2Captcha...")
-            sitekey = await extract_sitekey(page)
-            if sitekey:
-                solution = await solve_captcha_2captcha(page, sitekey)
-                if solution:
-                    try:
-                        await page.fill("#g-recaptcha-response", solution)
-                        await page.click("form button[type='submit'], form input[type='submit']")
-                        logger.info("✅ تم حل CAPTCHA بنجاح.")
-                        await asyncio.sleep(2)
-                        continue
-                    except:
-                        pass
-        
-        if "sign in" in page_text.lower() or "accounts.google.com" in current_url:
-            logger.info("⚠️ شاشة تسجيل دخول غير متوقعة – محاولة إدخال البريد...")
-            if email:
-                try:
-                    email_input = await page.query_selector("input[type='email'], input[type='text'][name='identifier']")
-                    if email_input:
-                        await email_input.fill(email)
-                        logger.info(f"✅ تم إدخال البريد: {email}")
-                        await asyncio.sleep(1)
-                        if await smart_click_button(page, ["Next", "التالي"], ["Next", "Continue"]):
-                            logger.info("✅ تم الضغط على Next.")
-                            await asyncio.sleep(3)
-                            if "password" in await page.inner_text("body").lower():
-                                logger.warning("⚠️ ظهرت شاشة كلمة المرور – البوت لا يستطيع إدخالها.")
-                                return False, "⛔ الرابط يتطلب كلمة مرور (تسجيل دخول يدوي). يرجى استخدام رابط ضيف من Qwiklabs."
-                            continue
-                except Exception as e:
-                    logger.warning(f"⚠️ فشل إدخال البريد: {e}")
-            return False, "⛔ فشل تسجيل الدخول إلى Google. يرجى الحصول على رابط جديد من Qwiklabs."
-        
-        await asyncio.sleep(2)
-    
-    return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
-
-# ===================================================================
-# 12. الضغط على Start
-# ===================================================================
-async def click_start_ultimate(page) -> bool:
-    return await smart_click_button(
-        page,
-        text_keywords=["Start Cloud Shell", "Launch Cloud Shell", "Activate Cloud Shell", 
-                      "بدء Cloud Shell", "تفعيل Cloud Shell", "Start", "Launch", "Activate"],
-        aria_labels=["Start Cloud Shell", "Launch Cloud Shell", "Activate Cloud Shell"]
-    )
-
-# ===================================================================
-# 13. تنفيذ الأوامر
-# ===================================================================
-async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
-    for attempt in range(max_retries):
-        logger.info(f"▶️ تنفيذ: {cmd[:60]}... (محاولة {attempt+1}/{max_retries})")
-        try:
-            terminal_selectors = [".xterm-helper-textarea", ".xterm", ".terminal", "[role='textbox']"]
-            for selector in terminal_selectors:
-                try:
-                    await page.focus(selector)
-                    break
-                except:
-                    continue
-            
-            await asyncio.sleep(0.3)
-            
-            for ch in cmd:
-                await page.keyboard.type(ch, delay=random.randint(10, 25))
-            
-            await page.keyboard.press("Enter")
-            await asyncio.sleep(random.uniform(1.5, 3))
-            return True
-            
-        except Exception as e:
-            logger.error(f"فشل تنفيذ الأمر في المحاولة {attempt+1}: {e}")
-            await asyncio.sleep(2)
-    
-    logger.error(f"❌ فشل تنفيذ الأمر بعد {max_retries} محاولات: {cmd[:60]}")
-    return False
-
-# ===================================================================
-# 14. انتظار الطرفية
-# ===================================================================
-async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, str]:
-    logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
-    start_time = time.time()
-    
-    selectors = [
-        ".xterm", ".xterm-helper-textarea", ".xterm-screen", ".terminal",
-        "[role='textbox']", "textarea", ".terminal-active", ".xterm-viewport"
-    ]
-    for selector in selectors:
-        try:
-            await page.wait_for_selector(selector, timeout=20000, state="visible")
-            logger.info(f"✅ تم العثور على الطرفية باستخدام المحدد: {selector}")
-            return True, ""
-        except:
-            continue
-    
-    try:
-        frames = page.frames
-        for frame in frames:
-            for selector in selectors:
-                try:
-                    elem = await frame.wait_for_selector(selector, timeout=5000, state="visible")
-                    if elem:
-                        logger.info(f"✅ تم العثور على الطرفية داخل iframe باستخدام: {selector}")
-                        return True, ""
-                except:
-                    continue
-    except Exception as e:
-        logger.warning(f"⚠️ فشل البحث في iframes: {e}")
-    
-    while time.time() - start_time < timeout_seconds:
-        for selector in selectors:
-            try:
-                element = await page.query_selector(selector)
-                if element and await element.is_visible():
-                    logger.info(f"✅ الطرفية ظهرت (حلقة احتياطية) – المحدد: {selector}")
-                    return True, ""
-            except:
-                pass
-        await asyncio.sleep(1)
-    
-    return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
-
-# ===================================================================
-# 15. سكريبت النشر
-# ===================================================================
-def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
-    service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
-    return f'''
-import os, time, requests, subprocess, sys, json, base64, hashlib, random
-
-PROJECT_ID = "{project_id}"
-TOKEN = "{token}"
-REGION = "{region}"
-EMAIL = "{email}"
-SERVICE_NAME = "{service_name}"
-
-print("🚀 بدء النشر المتقدم على GCP...")
-print(f"📌 المشروع: {{PROJECT_ID}}")
-print(f"🌍 المنطقة: {{REGION}}")
-print(f"🔧 اسم الخدمة: {{SERVICE_NAME}}")
-
-subprocess.run("apt-get update && apt-get install google-cloud-sdk -y", shell=True, capture_output=True)
-
-cmd_setup = f"gcloud config set project {{PROJECT_ID}}"
-subprocess.run(cmd_setup, shell=True, capture_output=True)
-
-cmd_enable = "gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com"
-subprocess.run(cmd_enable, shell=True, capture_output=True)
-
-cmd_deploy = f"""
-gcloud run deploy {{SERVICE_NAME}} \\
-    --region {{REGION}} \\
-    --platform managed \\
-    --image gcr.io/cloudrun/hello \\
-    --allow-unauthenticated \\
-    --quiet
-"""
-result = subprocess.run(cmd_deploy, shell=True, capture_output=True, text=True)
-print(result.stdout)
-
-service_url = None
-if "Service URL" in result.stdout:
-    match = re.search(r'Service URL[ :]+(https://[a-zA-Z0-9\\-]+\\.run\\.app)', result.stdout)
-    if match:
-        service_url = match.group(1)
-if not service_url:
-    service_url = f"https://{{SERVICE_NAME}}-{{PROJECT_ID[:8]}}.run.app"
-
-vless_link = f"vless://{{PROJECT_ID}}@example.com:443?security=tls&sni=example.com"
-
-with open("/tmp/result.txt", "w") as f:
-    f.write(f"SERVICE_URL: {{service_url}}\\n")
-    f.write(f"VLESS: {{vless_link}}\\n")
-
-print("✅ تمت الكتابة إلى /tmp/result.txt")
-print(f"🌐 SERVICE_URL: {{service_url}}")
-print(f"🔗 VLESS: {{vless_link}}")
-'''
-
-# ===================================================================
-# 16. قلب الأتمتة (مع لقطات شاشة دائمة)
-# ===================================================================
-async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                            lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
-    start_time = time.time()
-    screenshot_path = ""
-    last_error = ""
-
-    try:
-        logger.info(f"🔄 بدء محاولة وحيدة (مهلة {SHELL_TIMEOUT} ثانية)...")
-        logger.info(f"📧 البريد الإلكتروني المستخرج: {email}")
-        logger.info(f"🔑 التوكن: {token[:10]}...{token[-10:]}")
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-gpu",
-                    "--disable-software-rasterizer",
-                    "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-web-security",
-                    "--disable-features=BlockInsecurePrivateNetworkRequests",
-                    "--disable-features=OutOfBlinkCors",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-component-extensions-with-background-pages",
-                    "--disable-default-apps",
-                    "--disable-extensions",
-                    "--disable-features=TranslateUI",
-                    "--disable-ipc-flooding-protection",
-                    "--disable-popup-blocking",
-                    "--disable-prompt-on-repost",
-                    "--disable-renderer-backgrounding",
-                    "--disable-sync",
-                    "--force-color-profile=srgb",
-                    "--metrics-recording-only",
-                    "--no-first-run"
-                ]
-            )
-            
-            logger.info("🔍 جاري التحقق من صلاحية التوكن...")
-            token_valid = await check_token_validity(browser, token)
-            if not token_valid:
-                # 🔥 التقاط صورة حتى عند فشل التحقق من التوكن
-                try:
-                    screenshot_path = await save_screenshot(page) if 'page' in locals() else ""
-                except:
-                    screenshot_path = ""
-                await send_screenshot(update, screenshot_path, "⛔ التوكن غير صالح أو منتهي الصلاحية. يرجى الحصول على رابط جديد.")
-                await browser.close()
-                return False, "", "⛔ التوكن غير صالح أو منتهي الصلاحية. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), screenshot_path
-            logger.info("✅ التوكن صالح.")
-
-            context_browser, page = await create_authenticated_context(browser, token, email, project_id)
-
-            logger.info("📌 فتح الرابط...")
-            await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
-
-            # 🔥 كشف فوري مع التقاط صورة
-            current_url = page.url
-            if "accounts.google.com" in current_url or "signin" in current_url.lower():
-                logger.warning("⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية).")
-                await asyncio.sleep(1)
-                screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, "⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية). يرجى الحصول على رابط جديد.")
-                await browser.close()
-                return False, "", "⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية). يرجى الحصول على رابط جديد.", int(time.time() - start_time), screenshot_path
-
-            redirect_success, redirect_msg = await wait_for_redirect_auto(page, email, max_wait=120)
-            if not redirect_success:
-                screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, redirect_msg)
-                await browser.close()
-                return False, "", redirect_msg, int(time.time() - start_time), screenshot_path
-
-            try:
-                await page.wait_for_url(
-                    lambda u: "console.cloud.google.com" in u or "shell.cloud.google.com" in u,
-                    timeout=30000
-                )
-                logger.info("✅ تم تأكيد الوصول إلى Console/Shell.")
-            except:
-                last_error = "❌ لم يتم الوصول إلى Console أو Shell بعد إعادة التوجيه."
-                screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, last_error)
-                await browser.close()
-                return False, "", last_error, int(time.time() - start_time), screenshot_path
-
-            for btn_text in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض", "Got it"]:
-                if await smart_click_button(page, [btn_text], [btn_text]):
-                    logger.info(f"✅ تم تجاوز زر: {btn_text}")
-                    await asyncio.sleep(random.uniform(1, 2))
-
-            logger.info("🔄 التوجه إلى Cloud Shell...")
-            await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
-            await asyncio.sleep(random.uniform(3, 5))
-
-            start_clicked = False
-            for attempt in range(3):
-                logger.info(f"🔄 محاولة الضغط على Start (محاولة {attempt+1}/3)...")
-                start_clicked = await click_start_ultimate(page)
-                if start_clicked:
-                    break
-                await asyncio.sleep(5)
-
-            if not start_clicked:
-                last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell بعد 3 محاولات."
-                logger.warning(last_error)
-
-            for btn_text in ["Authorize", "تفويض", "Continue", "متابعة", "I understand", "Got it"]:
-                if await smart_click_button(page, [btn_text], [btn_text]):
-                    logger.info(f"✅ تم الضغط على زر إضافي: {btn_text}")
-                    await asyncio.sleep(2)
-
-            terminal_ready, terminal_msg = await wait_for_terminal_enhanced(page, timeout_seconds=360)
-            if not terminal_ready:
-                last_error = terminal_msg
-                screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, last_error)
-                await browser.close()
-                return False, "", last_error, int(time.time() - start_time), screenshot_path
-
-            await asyncio.sleep(random.uniform(2, 4))
-
-            deploy_script = generate_deploy_script(project_id, token, region, email)
-            b64_script = base64.b64encode(deploy_script.encode()).decode()
-            
-            commands = [
-                f"echo '{b64_script}' | base64 -d > deploy.py",
-                "python3 deploy.py"
-            ]
-
-            for idx, cmd in enumerate(commands):
-                success_cmd = await execute_command_robust(page, cmd, max_retries=3)
-                if not success_cmd:
-                    last_error = f"⚠️ فشل تنفيذ الأمر رقم {idx+1} (بعد 3 محاولات): {cmd[:30]}..."
-                    logger.warning(last_error)
-                await asyncio.sleep(random.uniform(2, 3))
-
-            # ================================================================
-            # قراءة النتيجة (بدون evaluate)
-            # ================================================================
-            logger.info("📖 محاولة قراءة /tmp/result.txt...")
-            result_content = ""
-            
-            await execute_command_robust(page, "cat /tmp/result.txt", max_retries=2)
-            await asyncio.sleep(2)
-            try:
-                term = await page.query_selector(".xterm, .terminal, [role='textbox']")
-                if term:
-                    terminal_text = await term.inner_text()
-                else:
-                    terminal_text = await page.inner_text("body")
-                lines = terminal_text.split('\n')
-                relevant = '\n'.join(lines[-30:])
-                result_content = relevant
-                logger.info("✅ تم قراءة الطرفية.")
-            except Exception as e:
-                last_error = f"⚠️ فشل قراءة الطرفية: {str(e)[:100]}"
-
-            if not result_content or "SERVICE_URL" not in result_content:
-                logger.info("📖 محاولة grep...")
-                await execute_command_robust(page, "cat /tmp/result.txt | grep SERVICE_URL", max_retries=2)
-                await asyncio.sleep(2)
-                try:
-                    term = await page.query_selector(".xterm, .terminal, [role='textbox']")
-                    if term:
-                        terminal_text = await term.inner_text()
-                        if "SERVICE_URL" in terminal_text:
-                            result_content = terminal_text
-                except:
-                    pass
-
-            if not result_content or "SERVICE_URL" not in result_content:
-                logger.info("📖 محاولة grep VLESS...")
-                await execute_command_robust(page, "cat /tmp/result.txt | grep VLESS", max_retries=2)
-                await asyncio.sleep(2)
-                try:
-                    term = await page.query_selector(".xterm, .terminal, [role='textbox']")
-                    if term:
-                        terminal_text = await term.inner_text()
-                        if "VLESS" in terminal_text:
-                            result_content = terminal_text
-                except:
-                    pass
-
-            # ================================================================
-            # التقاط صورة نهائية (دائماً)
-            # ================================================================
-            os.makedirs("screenshots", exist_ok=True)
-            screenshot_path = f"screenshots/{int(time.time())}.png"
-            await page.screenshot(path=screenshot_path, full_page=True)
-            await browser.close()
-
-            cleanup_old_screenshots()
-
-            service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', result_content)
-            vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', result_content)
-
-            if service_match and vless_match:
-                # 🔥 إرسال صورة النجاح
-                await send_screenshot(update, screenshot_path, "✅ تم النشر بنجاح")
-                return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time), screenshot_path
-            else:
-                if not result_content:
-                    error_detail = "❌ لم يتم الحصول على أي مخرجات من الطرفية. قد يكون السكريبت لم ينفذ."
-                else:
-                    error_detail = f"⚠️ لم يتم العثور على النتيجة.\nالمحتوى المسترجع:\n{result_content[-500:]}"
-                await send_screenshot(update, screenshot_path, error_detail)
-                return False, "", error_detail, int(time.time() - start_time), screenshot_path
-
-    except PlaywrightTimeout as e:
-        logger.exception("⏰ انتهت مهلة Playwright")
-        last_error = f"⏰ انتهت المهلة: {str(e)[:200]}"
-        if screenshot_path:
-            await send_screenshot(update, screenshot_path, last_error)
-        return False, "", last_error, int(time.time() - start_time), screenshot_path
-    except Exception as e:
-        logger.exception(f"❌ فشل المحاولة")
-        last_error = f"❌ خطأ تقني: {str(e)[:200]}"
-        if screenshot_path:
-            await send_screenshot(update, screenshot_path, last_error)
-        return False, "", last_error, int(time.time() - start_time), screenshot_path
-
-# ===================================================================
-# 17. دوال مساعدة للصور
-# ===================================================================
-async def save_screenshot(page) -> str:
-    os.makedirs("screenshots", exist_ok=True)
-    path = f"screenshots/{int(time.time())}.png"
-    try:
-        await page.screenshot(path=path, full_page=True)
-        logger.info(f"📸 تم حفظ اللقطة: {path}")
-        return path
-    except Exception as e:
-        logger.warning(f"⚠️ فشل حفظ اللقطة: {e}")
-        return ""
-
-async def send_screenshot(update: Update, path: str, caption: str = "📸 لقطة للفحص"):
-    if not path or not os.path.exists(path):
-        return
-    try:
-        with open(path, 'rb') as photo:
-            await update.effective_message.reply_photo(photo, caption=f"{caption}\n\n🔄 يمكنك استخدام زر 'إعادة المحاولة' لتجربة الرابط نفسه مرة أخرى.")
-        logger.info(f"📤 تم إرسال الصورة: {path}")
-    except Exception as e:
-        logger.warning(f"⚠️ فشل إرسال الصورة: {e}")
-
-def cleanup_old_screenshots():
-    try:
-        screenshots_dir = "screenshots"
-        if not os.path.exists(screenshots_dir):
-            return
-        cutoff = datetime.now() - timedelta(days=CLEANUP_DAYS)
-        for filename in os.listdir(screenshots_dir):
-            filepath = os.path.join(screenshots_dir, filename)
-            if os.path.isfile(filepath):
-                mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
-                if mtime < cutoff:
-                    os.remove(filepath)
-                    logger.info(f"🗑️ تم حذف لقطة قديمة: {filename}")
-    except Exception as e:
-        logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
-
-# ===================================================================
-# 18. واجهة البوت (بدون أزرار)
+# 14. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1273,7 +1209,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 19. التشغيل الرئيسي + خادم الويب
+# 15. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1311,7 +1247,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v22.5 (Ultimate Always Screenshot) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v22.6 (Auto Login Bypass) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
