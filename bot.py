@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v21.6 – NO_BUTTONS
+SHADOW LEGION v21.8 – STABLE_EXECUTION_FINAL
+- إصلاح نهائي لـ execute_command_robust (بدون page.evaluate)
+- رسالة /start احترافية
 - إزالة شريط الأزرار السفلي بالكامل
 - محرك تخفي 10/10
-- دعم Proxies و 2Captcha
-- رسالة /start احترافية
 """
 
 import os
@@ -25,7 +25,7 @@ import math
 import requests
 import aiohttp
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -62,7 +62,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v21.6 (No Buttons) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v21.8 (Stable Execution Final) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية
@@ -621,23 +621,38 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 11. تنفيذ الأوامر (مبسط)
+# 11. تنفيذ الأوامر (نسخة مبسطة للغاية – بدون evaluate)
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
-    """ينفذ الأمر باستخدام keyboard.type (الأكثر استقراراً) مع إعادة محاولة."""
+    """ينفذ الأمر باستخدام keyboard.type فقط (بدون page.evaluate)"""
     for attempt in range(max_retries):
         logger.info(f"▶️ تنفيذ: {cmd[:60]}... (محاولة {attempt+1}/{max_retries})")
         try:
-            await page.focus(".xterm-helper-textarea, .xterm, .terminal, [role='textbox']")
-            await asyncio.sleep(0.5)
+            # التركيز على الطرفية
+            terminal_selectors = [".xterm-helper-textarea", ".xterm", ".terminal", "[role='textbox']"]
+            for selector in terminal_selectors:
+                try:
+                    await page.focus(selector)
+                    break
+                except:
+                    continue
+            
+            await asyncio.sleep(0.3)
+            
+            # كتابة الأمر حرفاً حرفاً مع تأخير عشوائي
             for ch in cmd:
-                await page.keyboard.type(ch, delay=random.randint(10, 30))
+                await page.keyboard.type(ch, delay=random.randint(10, 25))
+            
+            # الضغط على Enter
             await page.keyboard.press("Enter")
-            await asyncio.sleep(2)
+            await asyncio.sleep(random.uniform(1.5, 3))
+            
             return True
+            
         except Exception as e:
             logger.error(f"فشل تنفيذ الأمر في المحاولة {attempt+1}: {e}")
             await asyncio.sleep(2)
+    
     logger.error(f"❌ فشل تنفيذ الأمر بعد {max_retries} محاولات: {cmd[:60]}")
     return False
 
@@ -1034,9 +1049,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "مرحباً بك في النظام المتقدم.\n\n"
-        "يرجى إرسال الرابط المطلوب لبدء العملية.\n"
-        "يمكنك استخدام الأزرار أدناه للتنقل بين الخدمات.",
+        "📌 **إضافة رابط مختبر GCP**\n"
+        "أرسل رابط Google Skills.\n"
+        "مثال: `https://www.cloudskillsboost.google.com/.../`",
+        parse_mode="Markdown",
         reply_markup=ReplyKeyboardRemove()
     )
 
@@ -1239,7 +1255,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v21.6 (No Buttons) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v21.8 (Stable Execution Final) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
