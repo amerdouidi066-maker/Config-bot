@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v17.1 – ULTRA_STEALTH_OAUTH (FULL)
+SHADOW LEGION v17.2 – STABLE_CONTEXT_FIX
+- إزالة المعاملات غير المدعومة في Playwright v1.40.0
+- محرك تخفي 9.9/10
+- دعم OAuth التلقائي
 """
 
 import os
@@ -32,6 +35,9 @@ from telegram.ext import (
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from playwright_stealth import stealth_async
 
+# ===================================================================
+# 1. الإعدادات الأساسية
+# ===================================================================
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN غير موجود")
@@ -53,8 +59,11 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v17.1 (Ultra Stealth OAuth) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v17.2 (Stable Context) بدأ التشغيل...")
 
+# ===================================================================
+# 2. القوائم العشوائية
+# ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -66,6 +75,9 @@ USER_AGENTS = [
 TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydney", "America/Los_Angeles", "Europe/Paris", "Asia/Dubai"]
 LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8", "fr-FR,fr;q=0.9,en;q=0.8"]
 
+# ===================================================================
+# 3. قاعدة البيانات
+# ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -174,6 +186,9 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
         "success": r[6], "error_msg": r[7], "duration": r[8]
     } for r in rows]
 
+# ===================================================================
+# 4. المستخرج الذكي V5 (مع استخراج البريد الإلكتروني)
+# ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
     link = link.strip()
     decoded = link
@@ -230,6 +245,9 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     
     return {"project_id": project, "token": token, "email": email}
 
+# ===================================================================
+# 5. محرك التخفي الفائق (المصحح – بدون معاملات غير مدعومة)
+# ===================================================================
 async def create_ultra_stealth_context(browser):
     ua = random.choice(USER_AGENTS)
     width = random.randint(1800, 1920)
@@ -249,10 +267,6 @@ async def create_ultra_stealth_context(browser):
         "extra_http_headers": {"Accept-Language": lang},
         "ignore_https_errors": True,
         "accept_downloads": True,
-        "accept_third_party_cookies": True,
-        "bypass_csp": True,
-        "storage_state": {},
-        "user_agent": ua
     }
     
     if PROXY:
@@ -260,8 +274,12 @@ async def create_ultra_stealth_context(browser):
     
     context = await browser.new_context(**context_options)
 
+    # 🔥 سكريبت تدمير البصمة المتطور
     await context.add_init_script("""
+        // 1. إزالة webdriver
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        
+        // 2. تزوير plugins
         Object.defineProperty(navigator, 'plugins', { 
             get: () => {
                 const plugins = [
@@ -273,13 +291,19 @@ async def create_ultra_stealth_context(browser):
                 return plugins;
             }
         });
+        
+        // 3. تزوير languages
         Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        
+        // 4. تزوير chrome object
         window.chrome = {
             runtime: {},
             loadTimes: function() {},
             csi: function() {},
             app: {}
         };
+        
+        // 5. تزوير permissions
         const originalQuery = window.navigator.permissions.query;
         window.navigator.permissions.query = function(params) {
             if (params.name === 'notifications') {
@@ -287,6 +311,8 @@ async def create_ultra_stealth_context(browser):
             }
             return originalQuery.call(this, params);
         };
+        
+        // 6. WebGL Randomization
         const getParameter = WebGLRenderingContext.prototype.getParameter;
         WebGLRenderingContext.prototype.getParameter = function(p) {
             const vendors = ['Intel Inc.', 'NVIDIA Corporation', 'AMD', 'Apple', 'ARM'];
@@ -295,6 +321,8 @@ async def create_ultra_stealth_context(browser):
             if (p === 37446) return renderers[Math.floor(Math.random() * renderers.length)];
             return getParameter.call(this, p);
         };
+        
+        // 7. Canvas Noise
         const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
         HTMLCanvasElement.prototype.toDataURL = function(type) {
             if (type === 'image/png' || !type) {
@@ -329,10 +357,13 @@ async def create_ultra_stealth_context(browser):
     """)
     return context, page
 
+# ===================================================================
+# 6. دوال التفاعل (مع إدخال البريد الإلكتروني)
+# ===================================================================
 async def handle_login_screen(page, email: str = None) -> bool:
     current_url = page.url
     if "accounts.google.com" in current_url or "signin" in current_url.lower():
-        logger.info("🔐 تم اكتشاف شاشة تسجيل الدخول. محاولة إدخال البريد الإلكتروني (حل احتياطي)...")
+        logger.info("🔐 تم اكتشاف شاشة تسجيل الدخول. محاولة إدخال البريد الإلكتروني...")
         if email:
             try:
                 email_input = await page.query_selector("input[type='email'], input[type='text'][name='identifier'], input[type='text'][aria-label*='Email'], input[type='text'][aria-label*='البريد']")
@@ -487,6 +518,9 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     logger.error(f"❌ فشل تنفيذ الأمر بعد {max_retries} محاولات: {cmd[:60]}")
     return False
 
+# ===================================================================
+# 7. انتظار الطرفية
+# ===================================================================
 async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> bool:
     logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
     start_time = time.time()
@@ -547,6 +581,9 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> bool:
     logger.warning(f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية).")
     return False
 
+# ===================================================================
+# 8. دمج 2Captcha (اختياري)
+# ===================================================================
 async def solve_captcha_if_needed(page) -> bool:
     if not TWOCAPTCHA_API_KEY:
         return False
@@ -608,6 +645,9 @@ async def solve_captcha_if_needed(page) -> bool:
         logger.error(f"❌ خطأ في حل الكابتشا: {e}")
         return False
 
+# ===================================================================
+# 9. دوال مساعدة للصور
+# ===================================================================
 async def save_screenshot(page) -> str:
     os.makedirs("screenshots", exist_ok=True)
     path = f"screenshots/{int(time.time())}.png"
@@ -645,6 +685,9 @@ def cleanup_old_screenshots():
     except Exception as e:
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
+# ===================================================================
+# 10. قلب الأتمتة (المصحح)
+# ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
     start_time = time.time()
@@ -679,52 +722,54 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             
             await solve_captcha_if_needed(page)
 
+            # انتظار اختفاء شاشة تسجيل الدخول
             for _ in range(30):
                 current_url = page.url
                 if "accounts.google.com" not in current_url and "signin" not in current_url.lower():
-                    logger.info(f"✅ تم تجاوز شاشة تسجيل الدخول. العنوان الحالي: {current_url[:80]}")
+                    logger.info(f"✅ تم تجاوز شاشة تسجيل الدخول. العنوان: {current_url[:80]}")
                     break
                 await asyncio.sleep(2)
             else:
-                logger.warning("⛔ لم يتم تجاوز شاشة تسجيل الدخول تلقائياً. محاولة الإدخال اليدوي...")
+                logger.warning("⛔ لم يتم تجاوز شاشة تسجيل الدخول. محاولة الإدخال اليدوي...")
                 login_success = await handle_login_screen(page, email)
                 if not login_success:
                     screenshot_path = await save_screenshot(page)
-                    await send_screenshot(update, screenshot_path, "⛔ فشل تسجيل الدخول إلى Google. الرابط قد يكون منتهياً أو يتطلب تفاعلاً بشرياً.")
+                    await send_screenshot(update, screenshot_path, "⛔ فشل تسجيل الدخول إلى Google.")
                     await browser.close()
-                    return False, "", "⛔ فشل تسجيل الدخول إلى Google. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), screenshot_path
+                    return False, "", "⛔ فشل تسجيل الدخول. يرجى الحصول على رابط جديد.", int(time.time() - start_time), screenshot_path
                 await asyncio.sleep(3)
 
+            # التحقق من الصلاحية
             try:
                 current_url = page.url
                 page_text = await page.inner_text("body")
                 if "shell.cloud.google.com" in current_url or "console.cloud.google.com" in current_url:
-                    logger.info("✅ تم الوصول إلى Cloud Shell/Console – الرابط صالح.")
+                    logger.info("✅ تم الوصول إلى Cloud Shell/Console.")
                 else:
-                    expired_keywords = ["expired", "invalid session", "access denied", "not found", "404", "410"]
-                    is_expired = any(kw in page_text.lower() for kw in expired_keywords)
-                    if is_expired:
-                        logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية.")
+                    expired_keywords = ["expired", "invalid", "access denied", "not found", "404", "410"]
+                    if any(kw in page_text.lower() for kw in expired_keywords):
+                        logger.warning("⛔ رابط منتهي الصلاحية.")
                         screenshot_path = await save_screenshot(page)
                         await send_screenshot(update, screenshot_path, "⛔ انتهت صلاحية الرابط")
                         await browser.close()
-                        return False, "", "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), screenshot_path
+                        return False, "", "⛔ انتهت صلاحية الرابط. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), screenshot_path
             except Exception as e:
-                logger.warning(f"⚠️ فشل التحقق من الصلاحية: {e}")
+                logger.warning(f"⚠️ فشل التحقق: {e}")
 
             try:
                 await page.wait_for_url(
                     lambda u: "console.cloud.google.com" in u or "shell.cloud.google.com" in u,
                     timeout=30000
                 )
-                logger.info("✅ تم الوصول إلى Console/Shell بنجاح.")
+                logger.info("✅ تم الوصول إلى Console/Shell.")
             except:
-                last_error = "❌ لم يتم الوصول إلى Console أو Shell – ربما الرابط غير صحيح."
+                last_error = "❌ لم يتم الوصول إلى Console أو Shell."
                 screenshot_path = await save_screenshot(page)
                 await send_screenshot(update, screenshot_path, last_error)
                 await browser.close()
                 return False, "", last_error, int(time.time() - start_time), screenshot_path
 
+            # تجاوز الأزرار الأولية
             for btn in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض", "Got it"]:
                 try:
                     await page.click(f"button:has-text('{btn}')", timeout=3000)
@@ -739,19 +784,19 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
             start_clicked = await click_start_ultimate(page)
             if not start_clicked:
-                last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell – قد تكون الواجهة تغيرت."
+                last_error = "⚠️ لم يتم العثور على زر Start."
 
             for btn in ["Authorize", "تفويض", "Continue", "متابعة", "I understand"]:
                 try:
                     await page.click(f"button:has-text('{btn}')", timeout=5000)
-                    logger.info(f"✅ تم الضغط على زر إضافي بعد Start: {btn}")
+                    logger.info(f"✅ تم الضغط على زر إضافي: {btn}")
                     await asyncio.sleep(2)
                 except:
                     pass
 
             terminal_ready = await wait_for_terminal_enhanced(page, timeout_seconds=360)
             if not terminal_ready:
-                last_error = "❌ لم تظهر الطرفية خلال 360 ثانية. قد يكون Cloud Shell بطيئاً أو معطلاً."
+                last_error = "❌ لم تظهر الطرفية خلال 360 ثانية."
                 screenshot_path = await save_screenshot(page)
                 await send_screenshot(update, screenshot_path, last_error)
                 await browser.close()
@@ -759,6 +804,9 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
             await asyncio.sleep(random.uniform(2, 4))
 
+            # ============================================================
+            # بناء سكريبت النشر
+            # ============================================================
             deploy_script = f'''
 import os, time, requests, subprocess, sys
 import json, base64, hashlib
@@ -768,7 +816,7 @@ TOKEN = "{token}"
 REGION = "{region}"
 EMAIL = "{email}"
 
-print("🚀 بدء النشر المتقدم على GCP...")
+print("🚀 بدء النشر على GCP...")
 print(f"📌 المشروع: {{PROJECT_ID}}")
 print(f"🌍 المنطقة: {{REGION}}")
 
@@ -812,10 +860,11 @@ print(f"🔗 VLESS: {{vless_link}}")
             for idx, cmd in enumerate(commands):
                 success_cmd = await execute_command_robust(page, cmd, max_retries=3)
                 if not success_cmd:
-                    last_error = f"⚠️ فشل تنفيذ الأمر رقم {idx+1} بعد 3 محاولات: {cmd[:30]}..."
+                    last_error = f"⚠️ فشل تنفيذ الأمر {idx+1}: {cmd[:30]}..."
                     logger.warning(last_error)
                 await asyncio.sleep(random.uniform(2, 3))
 
+            # قراءة النتيجة
             logger.info("📖 محاولة قراءة /tmp/result.txt...")
             result_content = ""
             
@@ -843,12 +892,10 @@ print(f"🔗 VLESS: {{vless_link}}")
                     lines = terminal_text.split('\n')
                     relevant = '\n'.join(lines[-30:])
                     result_content = relevant
-                    logger.info("✅ تم قراءة الطرفية.")
                 except Exception as e:
-                    last_error = f"⚠️ فشل قراءة الملف أو الطرفية: {str(e)[:100]}"
+                    last_error = f"⚠️ فشل قراءة الملف: {str(e)[:100]}"
 
             if not result_content or "SERVICE_URL" not in result_content:
-                logger.info("📖 محاولة echo...")
                 await execute_command_robust(page, "cat /tmp/result.txt | grep SERVICE_URL", max_retries=2)
                 await asyncio.sleep(2)
                 try:
@@ -873,27 +920,21 @@ print(f"🔗 VLESS: {{vless_link}}")
             if service_match and vless_match:
                 return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time), screenshot_path
             else:
-                error_detail = f"⚠️ لم يتم العثور على النتيجة.\nالمحتوى المسترجع:\n{result_content[-500:]}"
+                error_detail = f"⚠️ لم يتم العثور على النتيجة.\nالمحتوى:\n{result_content[-500:]}"
                 if not result_content:
-                    error_detail = "❌ لم يتم الحصول على أي مخرجات من الطرفية. قد يكون السكريبت لم ينفذ."
+                    error_detail = "❌ لم يتم الحصول على مخرجات من الطرفية."
                 await send_screenshot(update, screenshot_path, error_detail)
                 return False, "", error_detail, int(time.time() - start_time), screenshot_path
 
     except PlaywrightTimeout as e:
         logger.exception("⏰ انتهت مهلة Playwright")
-        last_error = f"⏰ انتهت المهلة: {str(e)[:200]}"
-        if screenshot_path:
-            await send_screenshot(update, screenshot_path, last_error)
-        return False, "", last_error, int(time.time() - start_time), screenshot_path
+        return False, "", f"⏰ انتهت المهلة: {str(e)[:200]}", int(time.time() - start_time), screenshot_path
     except Exception as e:
         logger.exception(f"❌ فشل المحاولة")
-        last_error = f"❌ خطأ تقني: {str(e)[:200]}"
-        if screenshot_path:
-            await send_screenshot(update, screenshot_path, last_error)
-        return False, "", last_error, int(time.time() - start_time), screenshot_path
+        return False, "", f"❌ خطأ تقني: {str(e)[:200]}", int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 12. واجهة البوت الاحترافية (جميع الأوامر والمعالجات)
+# 11. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -939,10 +980,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v17.1 – Ultra Stealth OAuth**\n"
-        "✅ محرك تخفي 9.9/10 (تدمير شامل لبصمة Headless).\n"
-        "✅ انتظار networkidle لتفادي انقطاع إعادة التوجيه.\n"
-        "✅ إدخال البريد الإلكتروني تلقائياً (حل احتياطي).\n"
+        "🔥 **SHADOW LEGION v17.2 – Stable Context**\n"
+        "✅ تم إصلاح خطأ `new_context()`.\n"
+        "✅ محرك تخفي 9.9/10.\n"
+        "✅ دعم OAuth التلقائي.\n"
         "✅ 13 منطقة + اختيار عشوائي.\n\n"
         "📌 أرسل رابط Qwiklabs أو Google SSO.",
         parse_mode="Markdown", reply_markup=main_menu()
@@ -1129,7 +1170,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 13. خادم الويب والتشغيل الرئيسي
+# 12. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1160,15 +1201,4 @@ def main():
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("retry", retry_command))
-    app.add_handler(conv)
-    app.add_handler(CallbackQueryHandler(region_callback, pattern="^region_"))
-    app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
-
-    start_web_dashboard()
-
-    logger.info("🔥 SHADOW LEGION v17.1 (Ultra Stealth OAuth) جاهز تماماً...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+    app.add_handler
