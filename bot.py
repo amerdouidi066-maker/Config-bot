@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v19.1 – ULTIMATE_STEALTH_FIXED
-- استخدام playwright العادي مع playwright-stealth
+SHADOW LEGION v19.2 – ULTIMATE_STEALTH_NO_EXTERNAL
+- بدون playwright-stealth (سكريبتات التخفي مدمجة)
 - سكريبتات تدمير بصمة متقدمة (WebGL, Canvas, Audio, etc.)
 - جلسة مزيفة باستخدام التوكن المستخرج من الرابط
 - تسجيل دخول تلقائي بالكامل
@@ -35,7 +35,6 @@ from telegram.ext import (
 )
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
-from playwright_stealth import stealth_async
 
 # ===================================================================
 # 1. الإعدادات الأساسية
@@ -62,7 +61,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v19.1 (Ultimate Stealth Fixed) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v19.2 (Ultimate Stealth No External) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية
@@ -249,7 +248,7 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 5. محرك التخفي الفائق
+# 5. محرك التخفي الفائق (بدون مكتبات خارجية)
 # ===================================================================
 async def create_authenticated_context(browser, token: str, email: str, project: str):
     ua = random.choice(USER_AGENTS)
@@ -285,7 +284,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     
     context = await browser.new_context(**context_options)
 
-    # 🔥 سكريبت تدمير البصمة المتقدم
+    # 🔥 سكريبت تدمير البصمة المتقدم (مدمج، لا يحتاج مكتبات خارجية)
     await context.add_init_script("""
         // 1. إزالة webdriver
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -404,13 +403,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     ])
 
     page = await context.new_page()
-    
-    # تطبيق playwright-stealth
-    try:
-        await stealth_async(page)
-        logger.info("✅ تم تطبيق playwright-stealth.")
-    except Exception as e:
-        logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
 
     # محاكاة سلوك بشري
     await page.evaluate("""
@@ -1077,9 +1069,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v19.1 – Ultimate Stealth Fixed**\n"
+        "🔥 **SHADOW LEGION v19.2 – Ultimate Stealth No External**\n"
         "✅ تسجيل الدخول تلقائي بالكامل (جلسة مزيفة باستخدام التوكن).\n"
-        "✅ محرك تخفي 9.9/10 (سكريبتات تدمير بصمة متقدمة).\n"
+        "✅ محرك تخفي 9.9/10 (سكريبتات تدمير بصمة مدمجة).\n"
         "✅ 13 منطقة + اختيار عشوائي.\n"
         "✅ يدعم حل reCAPTCHA عبر 2Captcha (اختياري).\n\n"
         "📌 أرسل رابط Qwiklabs أو Google SSO.",
@@ -1305,7 +1297,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v19.1 (Ultimate Stealth Fixed) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v19.2 (Ultimate Stealth No External) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
