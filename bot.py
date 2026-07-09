@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v22.8 – NONE_TOKEN_FIXED
-- إصلاح خطأ NoneType عند غياب token
-- دعم روابط AddSession بالكامل
-- استخدام cookies.json (إن وجد) لتسجيل الدخول التلقائي
-- محرك تخفي 14 نقطة
-- لقطات شاشة دائمة
+SHADOW LEGION v23.0 – Z3R0-STEALTH_ULTIMATE
+- محرك تخفي Z3R0-STEALTH v2 (بدون playwright-stealth)
+- ترويسات HTTP احترافية (Referer, Origin, Sec-Ch-Ua)
+- التحقق من صحة الكوكيز بعد التحميل
+- دعم الروابط التي لا تحتوي على token (AddSession)
+- لقطات شاشة دائمة (نجاح وفشل)
+- محاكاة حركة الماوس البشرية
 """
 
 import os
@@ -37,7 +38,6 @@ from telegram.ext import (
 )
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
-from playwright_stealth import stealth_async
 
 # ===================================================================
 # 1. الإعدادات الأساسية
@@ -62,7 +62,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v22.8 (None Token Fixed) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v23.0 (Z3R0-STEALTH Ultimate) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -79,7 +79,174 @@ TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydne
 LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8", "fr-FR,fr;q=0.9,en;q=0.8"]
 
 # ===================================================================
-# 3. المستخرج الذكي V7 – يدعم روابط AddSession
+# 3. دوال مساعدة متقدمة
+# ===================================================================
+def get_random_proxy() -> Optional[str]:
+    return random.choice(PROXY_LIST) if PROXY_LIST else None
+
+def get_random_referer() -> str:
+    return random.choice([
+        "https://www.google.com/",
+        "https://accounts.google.com/",
+        "https://mail.google.com/",
+        "https://www.cloudskillsboost.google.com/"
+    ])
+
+def generate_random_fingerprint() -> Dict:
+    return {
+        "vendor": random.choice(['Intel Inc.', 'NVIDIA Corporation', 'AMD', 'Apple', 'ARM']),
+        "renderer": random.choice(['Intel Iris OpenGL Engine', 'NVIDIA GeForce GTX 1660', 'AMD Radeon Pro 5500M', 'Apple M1 GPU', 'ARM Mali-G78']),
+        "canvas_noise": random.uniform(0.01, 0.05),
+        "audio_noise": random.uniform(0.0005, 0.002),
+        "device_memory": random.choice([4, 8, 16]),
+        "hardware_concurrency": random.choice([4, 8, 12, 16]),
+        "platform": random.choice(["Win32", "MacIntel", "Linux x86_64"]),
+    }
+
+async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
+    if not TWOCAPTCHA_API_KEY:
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            data = {
+                "key": TWOCAPTCHA_API_KEY,
+                "method": "userrecaptcha",
+                "googlekey": sitekey,
+                "pageurl": page.url,
+                "json": 1
+            }
+            async with session.post("https://2captcha.com/in.php", data=data) as resp:
+                result = await resp.json()
+                if result.get("status") != 1:
+                    return None
+                captcha_id = result.get("request")
+            for _ in range(30):
+                await asyncio.sleep(5)
+                async with session.get(f"https://2captcha.com/res.php?key={TWOCAPTCHA_API_KEY}&action=get&id={captcha_id}&json=1") as resp:
+                    result = await resp.json()
+                    if result.get("status") == 1:
+                        return result.get("request")
+                    elif result.get("request") == "CAPCHA_NOT_READY":
+                        continue
+                    else:
+                        return None
+        return None
+    except:
+        return None
+
+# ===================================================================
+# 4. قاعدة البيانات
+# ===================================================================
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.executescript("""
+        PRAGMA journal_mode=WAL;
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            deploy_count INTEGER DEFAULT 0,
+            last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_link TEXT
+        );
+        CREATE TABLE IF NOT EXISTS deploy_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+            lab_url TEXT,
+            service_url TEXT,
+            vless_link TEXT,
+            region_used TEXT,
+            deployed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            success INTEGER DEFAULT 1,
+            error_msg TEXT,
+            duration_seconds INTEGER DEFAULT 0,
+            screenshot_path TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_history_user ON deploy_history(user_id);
+        CREATE INDEX IF NOT EXISTS idx_history_date ON deploy_history(deployed_at DESC);
+    """)
+    conn.commit()
+    conn.close()
+init_db()
+
+def get_user(user_id: int) -> Optional[Dict]:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT user_id, username, first_name, last_name, deploy_count, last_active, joined_at, last_link FROM users WHERE user_id=?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {
+            "user_id": row[0],
+            "username": row[1],
+            "first_name": row[2],
+            "last_name": row[3],
+            "deploy_count": row[4],
+            "last_active": row[5],
+            "joined_at": row[6],
+            "last_link": row[7]
+        }
+    return None
+
+def create_or_update_user(user_id: int, username: str = None, first_name: str = None, last_name: str = None):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    existing = get_user(user_id)
+    if existing:
+        c.execute("UPDATE users SET username=?, first_name=?, last_name=?, last_active=CURRENT_TIMESTAMP WHERE user_id=?",
+                  (username, first_name, last_name, user_id))
+    else:
+        c.execute("INSERT INTO users (user_id, username, first_name, last_name) VALUES (?,?,?,?)",
+                  (user_id, username, first_name, last_name))
+    conn.commit()
+    conn.close()
+
+def update_last_link(user_id: int, link: str):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE users SET last_link=? WHERE user_id=?", (link, user_id))
+    conn.commit()
+    conn.close()
+
+def increment_deploy_count(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE users SET deploy_count = deploy_count + 1, last_active = CURRENT_TIMESTAMP WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def add_history(user_id: int, lab_url: str, service_url: str, vless: str, region: str,
+                success: int = 1, error_msg: str = "", duration: int = 0, screenshot: str = ""):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO deploy_history (user_id, lab_url, service_url, vless_link, region_used,
+                                    success, error_msg, duration_seconds, screenshot_path)
+        VALUES (?,?,?,?,?,?,?,?,?)
+    """, (user_id, lab_url, service_url, vless, region, success, error_msg, duration, screenshot))
+    conn.commit()
+    conn.close()
+
+def get_history(user_id: int, limit: int = 10) -> List[Dict]:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, lab_url, service_url, vless_link, region_used, deployed_at, success, error_msg, duration_seconds
+        FROM deploy_history WHERE user_id=? ORDER BY deployed_at DESC LIMIT ?
+    """, (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return [{
+        "id": r[0], "lab_url": r[1], "service_url": r[2],
+        "vless_link": r[3], "region_used": r[4], "deployed_at": r[5],
+        "success": r[6], "error_msg": r[7], "duration": r[8]
+    } for r in rows]
+
+# ===================================================================
+# 5. المستخرج الذكي V7 – يدعم روابط AddSession
 # ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
     """يستخرج project, token, email من أي رابط (بما فيه AddSession)"""
@@ -145,69 +312,30 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 4. دوال مساعدة
-# ===================================================================
-def get_random_proxy() -> Optional[str]:
-    return random.choice(PROXY_LIST) if PROXY_LIST else None
-
-def generate_random_fingerprint() -> Dict:
-    return {
-        "vendor": random.choice(['Intel Inc.', 'NVIDIA Corporation', 'AMD', 'Apple', 'ARM']),
-        "renderer": random.choice(['Intel Iris OpenGL Engine', 'NVIDIA GeForce GTX 1660', 'AMD Radeon Pro 5500M', 'Apple M1 GPU', 'ARM Mali-G78']),
-        "canvas_noise": random.uniform(0.01, 0.05),
-        "audio_noise": random.uniform(0.0005, 0.002),
-        "device_memory": random.choice([4, 8, 16]),
-        "hardware_concurrency": random.choice([4, 8, 12, 16]),
-        "platform": random.choice(["Win32", "MacIntel", "Linux x86_64"]),
-    }
-
-async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
-    if not TWOCAPTCHA_API_KEY:
-        return None
-    try:
-        async with aiohttp.ClientSession() as session:
-            data = {
-                "key": TWOCAPTCHA_API_KEY,
-                "method": "userrecaptcha",
-                "googlekey": sitekey,
-                "pageurl": page.url,
-                "json": 1
-            }
-            async with session.post("https://2captcha.com/in.php", data=data) as resp:
-                result = await resp.json()
-                if result.get("status") != 1:
-                    return None
-                captcha_id = result.get("request")
-            for _ in range(30):
-                await asyncio.sleep(5)
-                async with session.get(f"https://2captcha.com/res.php?key={TWOCAPTCHA_API_KEY}&action=get&id={captcha_id}&json=1") as resp:
-                    result = await resp.json()
-                    if result.get("status") == 1:
-                        return result.get("request")
-                    elif result.get("request") == "CAPCHA_NOT_READY":
-                        continue
-                    else:
-                        return None
-        return None
-    except:
-        return None
-
-# ===================================================================
-# 5. محرك التخفي (مع دعم cookies.json)
+# 6. محرك التخفي Z3R0-STEALTH v2 (مع التحقق من الكوكيز)
 # ===================================================================
 async def fallback_cookies(context, token):
-    """يضيف كوكيز مزيفة في حالة عدم وجود ملف cookies.json (فقط إذا كان token موجوداً)"""
-    if not token:
-        logger.info("ℹ️ لا يوجد token ولا cookies.json، سيتم تخطي إضافة الكوكيز.")
-        return
-    await context.add_cookies([
-        {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
-    ])
-    logger.info("⚠️ تم استخدام الكوكيز المزيفة (قد لا تعمل).")
+    """يضيف كوكيز احتياطية في حال عدم وجود ملف cookies.json"""
+    if os.path.exists("cookies.json"):
+        try:
+            with open("cookies.json", "r") as f:
+                cookies = json.load(f)
+            await context.add_cookies(cookies)
+            logger.info("✅ تم تحميل الكوكيز من الملف (fallback).")
+            return
+        except:
+            pass
+    if token:
+        await context.add_cookies([
+            {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
+            {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
+            {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
+            {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
+            {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
+        ])
+        logger.warning("⚠️ تم استخدام كوكيز مزيفة (قد لا تعمل).")
+    else:
+        logger.warning("⚠️ لا يوجد token ولا ملف cookies.json – سيتم تخطي الكوكيز.")
 
 async def check_token_validity(browser, token: str) -> bool:
     """يتحقق من صحة التوكن (يعيد False إذا كان None أو فارغاً)"""
@@ -252,14 +380,17 @@ async def create_authenticated_context(browser, token: str, email: str, project:
         "extra_http_headers": {
             "Accept-Language": lang,
             "Accept-Encoding": "gzip, deflate, br",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Sec-Ch-Ua": '"Google Chrome";v="126", "Chromium";v="126", "Not?A_Brand";v="99"',
             "Sec-Ch-Ua-Mobile": "?0",
             "Sec-Ch-Ua-Platform": '"Windows"',
             "Upgrade-Insecure-Requests": "1",
+            "User-Agent": ua,
+            "Referer": get_random_referer(),
+            "Origin": "https://console.cloud.google.com"
         },
         "ignore_https_errors": True,
         "accept_downloads": True,
+        "java_script_enabled": True,
     }
     
     proxy = get_random_proxy()
@@ -269,107 +400,130 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     
     context = await browser.new_context(**context_options)
 
-    # 🔥 تحميل الكوكيز من الملف إن وجد
-    cookies_file = "cookies.json"
-    if os.path.exists(cookies_file):
+    # ================================================================
+    # 🔥 تحميل الكوكيز مع التحقق من الصحة
+    # ================================================================
+    cookies_loaded_count = 0
+    if os.path.exists("cookies.json"):
         try:
-            with open(cookies_file, "r") as f:
+            with open("cookies.json", "r") as f:
                 cookies = json.load(f)
             await context.add_cookies(cookies)
-            logger.info("✅ تم استيراد الكوكيز من ملف cookies.json بنجاح.")
+            cookies_loaded = await context.cookies()
+            cookies_loaded_count = len(cookies_loaded)
+            logger.info(f"✅ تم تحميل {cookies_loaded_count} كوكي بنجاح.")
+            
+            # التحقق من وجود الكوكيز الأساسية
+            essential = ['SID', 'HSID', 'SSID', '__Secure-3PSID']
+            found_essential = [c for c in cookies_loaded if c.get('name') in essential]
+            if len(found_essential) >= 3:
+                logger.info("✅ الكوكيز الأساسية موجودة – الجلسة صالحة على الأرجح.")
+            else:
+                logger.warning(f"⚠️ الكوكيز الأساسية مفقودة! الموجودة: {[c['name'] for c in found_essential]}")
         except Exception as e:
             logger.warning(f"⚠️ فشل تحميل الكوكيز: {e}")
             await fallback_cookies(context, token)
     else:
-        logger.info("ℹ️ ملف cookies.json غير موجود، سيتم استخدام الكوكيز المزيفة (إن وجد token).")
         await fallback_cookies(context, token)
 
-    # سكريبت تدمير البصمة (14 نقطة)
+    # ================================================================
+    # 🔥 Z3R0-STEALTH v2 – سكريبت التخفي الشامل (بدون playwright-stealth)
+    # ================================================================
     await context.add_init_script(f"""
-        Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
-        Object.defineProperty(navigator, 'plugins', {{ 
-            get: () => {{
-                const plugins = [
-                    {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' }},
-                    {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' }},
-                    {{ name: 'Native Client', filename: 'internal-nacl-plugin' }}
-                ];
-                plugins.length = 5;
-                return plugins;
+        (() => {{
+            // 1. مسح webdriver بالكامل
+            Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+            Object.defineProperty(navigator, 'selenium', {{ get: () => undefined }});
+            delete window.__webdriver_evaluate;
+            delete window.__webdriver_script_function;
+            delete window.__webdriver_script_func;
+
+            // 2. تزوير chrome
+            if (!window.chrome) {{
+                window.chrome = {{ runtime: {{}}, loadTimes: () => {{}}, csi: () => {{}}, app: {{}} }};
             }}
-        }});
-        Object.defineProperty(navigator, 'languages', {{ get: () => ['en-US', 'en'] }});
-        window.chrome = {{
-            runtime: {{}},
-            loadTimes: function() {{}},
-            csi: function() {{}},
-            app: {{}}
-        }};
-        const originalQuery = window.navigator.permissions.query;
-        window.navigator.permissions.query = function(params) {{
-            if (params.name === 'notifications') {{
-                return Promise.resolve({{ state: 'prompt' }});
-            }}
-            return originalQuery.call(this, params);
-        }};
-        const getParameter = WebGLRenderingContext.prototype.getParameter;
-        WebGLRenderingContext.prototype.getParameter = function(p) {{
-            if (p === 37445) return '{fingerprint["vendor"]}';
-            if (p === 37446) return '{fingerprint["renderer"]}';
-            return getParameter.call(this, p);
-        }};
-        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-        HTMLCanvasElement.prototype.toDataURL = function(type) {{
-            if (type === 'image/png' || !type) {{
-                const ctx = this.getContext('2d');
-                const imgData = ctx.getImageData(0, 0, this.width, this.height);
-                const data = imgData.data;
-                for (let i = 0; i < data.length; i += 4) {{
-                    if (Math.random() < {fingerprint["canvas_noise"]}) {{
-                        data[i] ^= (Math.random() > 0.5 ? 1 : 0);
-                        data[i+1] ^= (Math.random() > 0.5 ? 1 : 0);
-                        data[i+2] ^= (Math.random() > 0.5 ? 1 : 0);
+
+            // 3. تزوير plugins
+            const plugins = [
+                {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' }},
+                {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' }},
+                {{ name: 'Native Client', filename: 'internal-nacl-plugin' }}
+            ];
+            plugins.length = 5;
+            navigator.__defineGetter__('plugins', () => plugins);
+
+            // 4. تزوير اللغات والمنصة
+            Object.defineProperty(navigator, 'languages', {{ get: () => ['{lang}', 'en-US', 'en'] }});
+            Object.defineProperty(navigator, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
+            Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {fingerprint["device_memory"]} }});
+            Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {fingerprint["hardware_concurrency"]} }});
+
+            // 5. WebGL تزوير البائعين (عميق)
+            const realGetParam = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(p) {{
+                if (p === 37445) return '{fingerprint["vendor"]}';
+                if (p === 37446) return '{fingerprint["renderer"]}';
+                if (p === 7936) return 'WebGL 1.0';
+                if (p === 7937) return 'WebGL GLSL ES 1.0';
+                return realGetParam.call(this, p);
+            }};
+            WebGLRenderingContext.prototype.getExtension = function(name) {{
+                if (name === 'WEBGL_debug_renderer_info') return null;
+                return WebGLRenderingContext.prototype.getExtension.call(this, name);
+            }};
+
+            // 6. Canvas تشويش متسق
+            const canvasNoise = {fingerprint["canvas_noise"]};
+            const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+            HTMLCanvasElement.prototype.toDataURL = function(type) {{
+                if (type === 'image/png' || !type) {{
+                    const ctx = this.getContext('2d');
+                    if (ctx) {{
+                        const imgData = ctx.getImageData(0, 0, this.width, this.height);
+                        for (let i = 0; i < imgData.data.length; i += 4) {{
+                            if (Math.random() < canvasNoise) {{
+                                imgData.data[i] ^= (Math.random() > 0.5 ? 1 : 0);
+                                imgData.data[i+1] ^= (Math.random() > 0.5 ? 1 : 0);
+                                imgData.data[i+2] ^= (Math.random() > 0.5 ? 1 : 0);
+                            }}
+                        }}
+                        ctx.putImageData(imgData, 0, 0);
                     }}
                 }}
-                ctx.putImageData(imgData, 0, 0);
+                return origToDataURL.apply(this, arguments);
+            }};
+
+            // 7. Audio تشويش
+            const audioNoise = {fingerprint["audio_noise"]};
+            const origChannel = AudioBuffer.prototype.getChannelData;
+            AudioBuffer.prototype.getChannelData = function(ch) {{
+                const data = origChannel.call(this, ch);
+                for (let i = 0; i < data.length; i += 100) data[i] += (Math.random() - 0.5) * audioNoise;
+                return data;
+            }};
+
+            // 8. إخفاء متغيرات Playwright
+            delete window.__playwright;
+            delete window.__pw_binding;
+            delete window.__pw_;
+
+            // 9. مطابقة UserAgent
+            if (navigator.userAgent !== '{ua}') {{
+                Object.defineProperty(navigator, 'userAgent', {{ get: () => '{ua}' }});
             }}
-            return originalToDataURL.apply(this, arguments);
-        }};
-        const originalGetChannelData = AudioBuffer.prototype.getChannelData;
-        AudioBuffer.prototype.getChannelData = function(channel) {{
-            const data = originalGetChannelData.call(this, channel);
-            for (let i = 0; i < data.length; i += 100) {{
-                data[i] += (Math.random() - 0.5) * {fingerprint["audio_noise"]};
-            }}
-            return data;
-        }};
-        Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {fingerprint["device_memory"]} }});
-        Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {fingerprint["hardware_concurrency"]} }});
-        Object.defineProperty(navigator, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
-        Object.defineProperty(navigator, 'oscpu', {{ get: () => 'Windows NT 10.0; Win64; x64' }});
-        if (navigator.userAgentData) {{
-            Object.defineProperty(navigator.userAgentData, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
-        }}
-        if (navigator.connection) {{
-            Object.defineProperty(navigator.connection, 'rtt', {{ get: () => Math.floor(Math.random() * 100 + 50) }});
-            Object.defineProperty(navigator.connection, 'downlink', {{ get: () => (Math.random() * 9 + 1).toFixed(1) }});
-        }}
+
+            console.log('[Z3R0] بصمة مخفية بالكامل.');
+        }})();
     """)
 
     page = await context.new_page()
-    
-    try:
-        await stealth_async(page)
-        logger.info("✅ تم تطبيق playwright-stealth.")
-    except Exception as e:
-        logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
-
     await simulate_mouse_movement(page)
+    logger.info("✅ سياق Z3R0-STEALTH v2 جاهز مع {} كوكي.".format(cookies_loaded_count))
 
     return context, page
 
 # ===================================================================
-# 6. محاكاة حركة الماوس
+# 7. محاكاة حركة الماوس
 # ===================================================================
 async def simulate_mouse_movement(page):
     try:
@@ -384,7 +538,7 @@ async def simulate_mouse_movement(page):
         logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
 
 # ===================================================================
-# 7. الضغط على الأزرار (بدون evaluate)
+# 8. الضغط على الأزرار (بدون evaluate)
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
     if aria_labels is None:
@@ -442,13 +596,14 @@ async def extract_sitekey(page) -> Optional[str]:
         return None
 
 # ===================================================================
-# 8. معالج الانتظار الذكي (مع تجاوز تسجيل الدخول)
+# 9. معالج الانتظار الذكي (مع تجاوز تسجيل الدخول)
 # ===================================================================
 EXPIRED_KEYWORDS = [
     "expired", "invalid", "session", "access denied", "not found", "404", "410",
     "sign in", "choose an account", "accounts.google.com", "login", "log in",
     "Couldn't sign you in", "verify this account", "contact your administrator",
-    "domain", "not authorized", "forbidden", "terminated", "suspended"
+    "domain", "not authorized", "forbidden", "terminated", "suspended",
+    "Impossible de vous connecter"
 ]
 
 async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -> Tuple[bool, str]:
@@ -488,7 +643,7 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
                     except:
                         pass
         
-        if "sign in" in page_text.lower() or "accounts.google.com" in current_url:
+        if "sign in" in page_text.lower() or "accounts.google.com" in current_url or "Impossible de vous connecter" in page_text:
             logger.info("🔐 شاشة تسجيل دخول – محاولة التجاوز...")
             
             if email and not login_attempted:
@@ -518,7 +673,7 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 9. دوال إضافية
+# 10. دوال إضافية
 # ===================================================================
 async def click_start_ultimate(page) -> bool:
     return await smart_click_button(
@@ -600,7 +755,7 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 10. سكريبت النشر
+# 11. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
@@ -657,7 +812,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 11. قلب الأتمتة (مع لقطات شاشة دائمة ومعالجة None token)
+# 12. قلب الأتمتة (مع لقطات شاشة دائمة)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -881,7 +1036,7 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return False, "", last_error, int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 12. دوال مساعدة للصور
+# 13. دوال مساعدة للصور
 # ===================================================================
 async def save_screenshot(page) -> str:
     os.makedirs("screenshots", exist_ok=True)
@@ -919,117 +1074,6 @@ def cleanup_old_screenshots():
                     logger.info(f"🗑️ تم حذف لقطة قديمة: {filename}")
     except Exception as e:
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
-
-# ===================================================================
-# 13. قاعدة البيانات
-# ===================================================================
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.executescript("""
-        PRAGMA journal_mode=WAL;
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            deploy_count INTEGER DEFAULT 0,
-            last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_link TEXT
-        );
-        CREATE TABLE IF NOT EXISTS deploy_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
-            lab_url TEXT,
-            service_url TEXT,
-            vless_link TEXT,
-            region_used TEXT,
-            deployed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            success INTEGER DEFAULT 1,
-            error_msg TEXT,
-            duration_seconds INTEGER DEFAULT 0,
-            screenshot_path TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_history_user ON deploy_history(user_id);
-        CREATE INDEX IF NOT EXISTS idx_history_date ON deploy_history(deployed_at DESC);
-    """)
-    conn.commit()
-    conn.close()
-init_db()
-
-def get_user(user_id: int) -> Optional[Dict]:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT user_id, username, first_name, last_name, deploy_count, last_active, joined_at, last_link FROM users WHERE user_id=?", (user_id,))
-    row = c.fetchone()
-    conn.close()
-    if row:
-        return {
-            "user_id": row[0],
-            "username": row[1],
-            "first_name": row[2],
-            "last_name": row[3],
-            "deploy_count": row[4],
-            "last_active": row[5],
-            "joined_at": row[6],
-            "last_link": row[7]
-        }
-    return None
-
-def create_or_update_user(user_id: int, username: str = None, first_name: str = None, last_name: str = None):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    existing = get_user(user_id)
-    if existing:
-        c.execute("UPDATE users SET username=?, first_name=?, last_name=?, last_active=CURRENT_TIMESTAMP WHERE user_id=?",
-                  (username, first_name, last_name, user_id))
-    else:
-        c.execute("INSERT INTO users (user_id, username, first_name, last_name) VALUES (?,?,?,?)",
-                  (user_id, username, first_name, last_name))
-    conn.commit()
-    conn.close()
-
-def update_last_link(user_id: int, link: str):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET last_link=? WHERE user_id=?", (link, user_id))
-    conn.commit()
-    conn.close()
-
-def increment_deploy_count(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET deploy_count = deploy_count + 1, last_active = CURRENT_TIMESTAMP WHERE user_id=?", (user_id,))
-    conn.commit()
-    conn.close()
-
-def add_history(user_id: int, lab_url: str, service_url: str, vless: str, region: str,
-                success: int = 1, error_msg: str = "", duration: int = 0, screenshot: str = ""):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO deploy_history (user_id, lab_url, service_url, vless_link, region_used,
-                                    success, error_msg, duration_seconds, screenshot_path)
-        VALUES (?,?,?,?,?,?,?,?,?)
-    """, (user_id, lab_url, service_url, vless, region, success, error_msg, duration, screenshot))
-    conn.commit()
-    conn.close()
-
-def get_history(user_id: int, limit: int = 10) -> List[Dict]:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, lab_url, service_url, vless_link, region_used, deployed_at, success, error_msg, duration_seconds
-        FROM deploy_history WHERE user_id=? ORDER BY deployed_at DESC LIMIT ?
-    """, (user_id, limit))
-    rows = c.fetchall()
-    conn.close()
-    return [{
-        "id": r[0], "lab_url": r[1], "service_url": r[2],
-        "vless_link": r[3], "region_used": r[4], "deployed_at": r[5],
-        "success": r[6], "error_msg": r[7], "duration": r[8]
-    } for r in rows]
 
 # ===================================================================
 # 14. واجهة البوت (مع دعم غياب token)
@@ -1095,17 +1139,13 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     token = extracted.get("token")
     email = extracted.get("email")
     
-    # 🔥 التحقق من وجود cookies.json
     cookies_exists = os.path.exists("cookies.json")
-    
-    # إذا كان الرابط من نوع AddSession أو يوجد cookies.json، نسمح بغياب token
     is_add_session = "AddSession" in text or "accounts.google.com" in text
     
     if not project:
         await update.message.reply_text("❌ لم أتمكن من استخراج **project** من الرابط.")
         return WAITING_LINK
     
-    # إذا لم يكن هناك token، نتحقق من وجود حل بديل
     if not token and not cookies_exists and not is_add_session:
         await update.message.reply_text(
             "❌ لم أتمكن من استخراج **token** من الرابط.\n"
@@ -1113,7 +1153,6 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return WAITING_LINK
     
-    # إذا لم يكن هناك token ولكن يوجد cookies.json، نستمر (سنستخدم الجلسة)
     if not token:
         logger.info("ℹ️ الرابط لا يحتوي على token، سيتم استخدام cookies.json (إن وجد) للجلسة.")
     
@@ -1300,7 +1339,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v22.8 (None Token Fixed) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v23.0 (Z3R0-STEALTH Ultimate) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
