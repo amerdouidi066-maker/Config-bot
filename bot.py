@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v22.2 – FINAL_NO_EVALUATE
-- إزالة جميع page.evaluate (بما فيها حركة الماوس)
-- الاعتماد على دوال Playwright الآمنة
+SHADOW LEGION v22.3 – FINAL_FIXED
+- إضافة القوائم المفقودة (USER_AGENTS, TIMEZONES, LANGUAGES)
+- إزالة جميع page.evaluate
 - رسالة /start احترافية
 """
 
@@ -60,10 +60,24 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v22.2 (Final No Evaluate) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v22.3 (Final Fixed) بدأ التشغيل...")
 
 # ===================================================================
-# 2. دوال مساعدة
+# 2. قوائم عشوائية للتمويه
+# ===================================================================
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/118.0",
+]
+TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydney", "America/Los_Angeles", "Europe/Paris", "Asia/Dubai"]
+LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8", "fr-FR,fr;q=0.9,en;q=0.8"]
+
+# ===================================================================
+# 3. دوال مساعدة
 # ===================================================================
 def get_random_proxy() -> Optional[str]:
     return random.choice(PROXY_LIST) if PROXY_LIST else None
@@ -108,7 +122,7 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
         return None
 
 # ===================================================================
-# 3. قاعدة البيانات
+# 4. قاعدة البيانات
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -219,7 +233,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for r in rows]
 
 # ===================================================================
-# 4. المستخرج الذكي V6
+# 5. المستخرج الذكي V6
 # ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
     link = link.strip()
@@ -285,7 +299,7 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 5. التحقق من صلاحية التوكن
+# 6. التحقق من صلاحية التوكن
 # ===================================================================
 async def check_token_validity(browser, token: str) -> bool:
     try:
@@ -308,7 +322,7 @@ async def check_token_validity(browser, token: str) -> bool:
         return False
 
 # ===================================================================
-# 6. محرك التخفي (بدون page.evaluate)
+# 7. محرك التخفي (بدون page.evaluate)
 # ===================================================================
 async def create_authenticated_context(browser, token: str, email: str, project: str):
     ua = random.choice(USER_AGENTS)
@@ -347,7 +361,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     
     context = await browser.new_context(**context_options)
 
-    # سكريبت تدمير البصمة (بدون async/await)
+    # سكريبت تدمير البصمة
     await context.add_init_script(f"""
         Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
         Object.defineProperty(navigator, 'plugins', {{ 
@@ -426,14 +440,11 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     except Exception as e:
         logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
 
-    # 🔥 تم إزالة page.evaluate الخاص بحركة الماوس (لتجنب الأخطاء)
-    # سيتم استخدام تأخيرات عشوائية بدلاً من ذلك
     await asyncio.sleep(random.uniform(0.5, 1.5))
-
     return context, page
 
 # ===================================================================
-# 7. كشف ديناميكي للأزرار (بدون evaluate)
+# 8. كشف ديناميكي للأزرار (بدون evaluate)
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
     if aria_labels is None:
@@ -459,7 +470,6 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
         except:
             pass
     
-    # البحث الشامل (بدون evaluate)
     try:
         buttons = await page.query_selector_all("button, div[role='button'], a[role='button']")
         for btn in buttons:
@@ -479,7 +489,7 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
     return False
 
 # ===================================================================
-# 8. استخراج sitekey (بدون evaluate)
+# 9. استخراج sitekey (بدون evaluate)
 # ===================================================================
 async def extract_sitekey(page) -> Optional[str]:
     try:
@@ -495,7 +505,7 @@ async def extract_sitekey(page) -> Optional[str]:
         return None
 
 # ===================================================================
-# 9. معالج الانتظار الذكي
+# 10. معالج الانتظار الذكي
 # ===================================================================
 EXPIRED_KEYWORDS = [
     "expired", "invalid", "session", "access denied", "not found", "404", "410",
@@ -564,7 +574,7 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 10. الضغط على Start
+# 11. الضغط على Start
 # ===================================================================
 async def click_start_ultimate(page) -> bool:
     return await smart_click_button(
@@ -575,7 +585,7 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 11. تنفيذ الأوامر
+# 12. تنفيذ الأوامر
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     for attempt in range(max_retries):
@@ -606,7 +616,7 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     return False
 
 # ===================================================================
-# 12. انتظار الطرفية
+# 13. انتظار الطرفية
 # ===================================================================
 async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, str]:
     logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
@@ -652,7 +662,7 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 13. سكريبت النشر
+# 14. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
@@ -709,7 +719,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 14. قلب الأتمتة (بدون أي evaluate)
+# 15. قلب الأتمتة (بدون أي evaluate)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -922,7 +932,7 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return False, "", last_error, int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 15. دوال مساعدة للصور
+# 16. دوال مساعدة للصور
 # ===================================================================
 async def save_screenshot(page) -> str:
     os.makedirs("screenshots", exist_ok=True)
@@ -962,7 +972,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 16. واجهة البوت
+# 17. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1169,7 +1179,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 17. التشغيل الرئيسي
+# 18. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1207,7 +1217,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v22.2 (Final No Evaluate) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v22.3 (Final Fixed) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
