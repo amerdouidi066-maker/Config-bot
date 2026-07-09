@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v22.3 – FINAL_FIXED
-- إضافة القوائم المفقودة (USER_AGENTS, TIMEZONES, LANGUAGES)
-- إزالة جميع page.evaluate
+SHADOW LEGION v22.4 – ULTIMATE_STEALTH_BROWSER
+- 14 نقطة تزوير (WebGL, Canvas, Audio, deviceMemory, hardwareConcurrency, etc.)
+- محاكاة حركة الماوس البشرية (بدون page.evaluate)
+- Proxies ديناميكية + عشوائية كاملة
+- جلسة مزيفة بالتوكن
 - رسالة /start احترافية
+- خالٍ من أخطاء SyntaxError
 """
 
 import os
@@ -60,7 +63,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v22.3 (Final Fixed) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v22.4 (Ultimate Stealth Browser) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -87,7 +90,10 @@ def generate_random_fingerprint() -> Dict:
         "vendor": random.choice(['Intel Inc.', 'NVIDIA Corporation', 'AMD', 'Apple', 'ARM']),
         "renderer": random.choice(['Intel Iris OpenGL Engine', 'NVIDIA GeForce GTX 1660', 'AMD Radeon Pro 5500M', 'Apple M1 GPU', 'ARM Mali-G78']),
         "canvas_noise": random.uniform(0.01, 0.05),
-        "audio_noise": random.uniform(0.0005, 0.002)
+        "audio_noise": random.uniform(0.0005, 0.002),
+        "device_memory": random.choice([4, 8, 16]),
+        "hardware_concurrency": random.choice([4, 8, 12, 16]),
+        "platform": random.choice(["Win32", "MacIntel", "Linux x86_64"]),
     }
 
 async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
@@ -322,9 +328,10 @@ async def check_token_validity(browser, token: str) -> bool:
         return False
 
 # ===================================================================
-# 7. محرك التخفي (بدون page.evaluate)
+# 7. محرك التخفي الفائق (مع 14 نقطة تزوير)
 # ===================================================================
 async def create_authenticated_context(browser, token: str, email: str, project: str):
+    fingerprint = generate_random_fingerprint()
     ua = random.choice(USER_AGENTS)
     width = random.randint(1800, 1920)
     height = random.randint(1000, 1080)
@@ -332,7 +339,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     lang = random.choice(LANGUAGES)
     lat = random.uniform(30, 50)
     lon = random.uniform(-100, -70)
-    fingerprint = generate_random_fingerprint()
 
     context_options = {
         "user_agent": ua,
@@ -361,9 +367,12 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     
     context = await browser.new_context(**context_options)
 
-    # سكريبت تدمير البصمة
+    # 🔥 سكريبت تدمير البصمة الفائق (14 نقطة تزوير)
     await context.add_init_script(f"""
+        // 1. إزالة webdriver
         Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+        
+        // 2. تزوير plugins
         Object.defineProperty(navigator, 'plugins', {{ 
             get: () => {{
                 const plugins = [
@@ -375,13 +384,19 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 return plugins;
             }}
         }});
+        
+        // 3. تزوير languages
         Object.defineProperty(navigator, 'languages', {{ get: () => ['en-US', 'en'] }});
+        
+        // 4. تزوير chrome object
         window.chrome = {{
             runtime: {{}},
             loadTimes: function() {{}},
             csi: function() {{}},
             app: {{}}
         }};
+        
+        // 5. تزوير permissions
         const originalQuery = window.navigator.permissions.query;
         window.navigator.permissions.query = function(params) {{
             if (params.name === 'notifications') {{
@@ -389,14 +404,16 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             }}
             return originalQuery.call(this, params);
         }};
+        
+        // 6. WebGL Randomization
         const getParameter = WebGLRenderingContext.prototype.getParameter;
         WebGLRenderingContext.prototype.getParameter = function(p) {{
-            const vendors = ['Intel Inc.', 'NVIDIA Corporation', 'AMD', 'Apple', 'ARM'];
-            const renderers = ['Intel Iris OpenGL Engine', 'NVIDIA GeForce GTX 1660', 'AMD Radeon Pro 5500M', 'Apple M1 GPU', 'ARM Mali-G78'];
             if (p === 37445) return '{fingerprint["vendor"]}';
             if (p === 37446) return '{fingerprint["renderer"]}';
             return getParameter.call(this, p);
         }};
+        
+        // 7. Canvas Noise
         const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
         HTMLCanvasElement.prototype.toDataURL = function(type) {{
             if (type === 'image/png' || !type) {{
@@ -414,6 +431,8 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             }}
             return originalToDataURL.apply(this, arguments);
         }};
+        
+        // 8. Audio Noise
         const originalGetChannelData = AudioBuffer.prototype.getChannelData;
         AudioBuffer.prototype.getChannelData = function(channel) {{
             const data = originalGetChannelData.call(this, channel);
@@ -422,8 +441,32 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             }}
             return data;
         }};
+        
+        // 9. deviceMemory
+        Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {fingerprint["device_memory"]} }});
+        
+        // 10. hardwareConcurrency
+        Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {fingerprint["hardware_concurrency"]} }});
+        
+        // 11. platform
+        Object.defineProperty(navigator, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
+        
+        // 12. oscpu (Firefox)
+        Object.defineProperty(navigator, 'oscpu', {{ get: () => 'Windows NT 10.0; Win64; x64' }});
+        
+        // 13. userAgentData (Chrome)
+        if (navigator.userAgentData) {{
+            Object.defineProperty(navigator.userAgentData, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
+        }}
+        
+        // 14. connection (شبكة)
+        if (navigator.connection) {{
+            Object.defineProperty(navigator.connection, 'rtt', {{ get: () => Math.floor(Math.random() * 100 + 50) }});
+            Object.defineProperty(navigator.connection, 'downlink', {{ get: () => (Math.random() * 9 + 1).toFixed(1) }});
+        }}
     """)
 
+    # جلسة مزيفة (Cookies)
     await context.add_cookies([
         {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
         {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
@@ -434,17 +477,38 @@ async def create_authenticated_context(browser, token: str, email: str, project:
 
     page = await context.new_page()
     
+    # تطبيق playwright-stealth
     try:
         await stealth_async(page)
         logger.info("✅ تم تطبيق playwright-stealth.")
     except Exception as e:
         logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
 
-    await asyncio.sleep(random.uniform(0.5, 1.5))
+    # محاكاة حركة الماوس (بدون evaluate)
+    await simulate_mouse_movement(page)
+
     return context, page
 
 # ===================================================================
-# 8. كشف ديناميكي للأزرار (بدون evaluate)
+# 8. محاكاة حركة الماوس (بدون page.evaluate)
+# ===================================================================
+async def simulate_mouse_movement(page):
+    """يحاكي حركة الماوس البشرية باستخدام دوال Playwright الآمنة"""
+    try:
+        # حركات عشوائية متعددة
+        for _ in range(random.randint(3, 6)):
+            x = random.randint(100, 1800)
+            y = random.randint(100, 900)
+            await page.mouse.move(x, y, steps=random.randint(10, 30))
+            await asyncio.sleep(random.uniform(0.1, 0.5))
+        # نقرة خفيفة (ليست حقيقية)
+        await page.mouse.click(random.randint(100, 1800), random.randint(100, 900))
+        logger.info("✅ تمت محاكاة حركة الماوس.")
+    except Exception as e:
+        logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
+
+# ===================================================================
+# 9. كشف ديناميكي للأزرار (بدون evaluate)
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
     if aria_labels is None:
@@ -489,7 +553,7 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
     return False
 
 # ===================================================================
-# 9. استخراج sitekey (بدون evaluate)
+# 10. استخراج sitekey (بدون evaluate)
 # ===================================================================
 async def extract_sitekey(page) -> Optional[str]:
     try:
@@ -505,7 +569,7 @@ async def extract_sitekey(page) -> Optional[str]:
         return None
 
 # ===================================================================
-# 10. معالج الانتظار الذكي
+# 11. معالج الانتظار الذكي
 # ===================================================================
 EXPIRED_KEYWORDS = [
     "expired", "invalid", "session", "access denied", "not found", "404", "410",
@@ -574,7 +638,7 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 11. الضغط على Start
+# 12. الضغط على Start
 # ===================================================================
 async def click_start_ultimate(page) -> bool:
     return await smart_click_button(
@@ -585,7 +649,7 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 12. تنفيذ الأوامر
+# 13. تنفيذ الأوامر
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     for attempt in range(max_retries):
@@ -616,7 +680,7 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     return False
 
 # ===================================================================
-# 13. انتظار الطرفية
+# 14. انتظار الطرفية
 # ===================================================================
 async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, str]:
     logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
@@ -662,7 +726,7 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 14. سكريبت النشر
+# 15. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
@@ -719,7 +783,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 15. قلب الأتمتة (بدون أي evaluate)
+# 16. قلب الأتمتة (مع محرك التخفي الفائق)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -932,7 +996,7 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return False, "", last_error, int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 16. دوال مساعدة للصور
+# 17. دوال مساعدة للصور
 # ===================================================================
 async def save_screenshot(page) -> str:
     os.makedirs("screenshots", exist_ok=True)
@@ -972,7 +1036,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 17. واجهة البوت
+# 18. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1179,7 +1243,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 18. التشغيل الرئيسي
+# 19. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1217,7 +1281,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v22.3 (Final Fixed) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v22.4 (Ultimate Stealth Browser) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
