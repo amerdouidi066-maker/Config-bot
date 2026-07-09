@@ -1,11 +1,12 @@
-FROM mcr.microsoft.com/playwright:python-v1.40.0-focal
+FROM mcr.microsoft.com/playwright:v1.40.0-focal
 
 WORKDIR /app
 
+# تثبيت pip إذا لم يكن موجوداً
+RUN apt-get update && apt-get install -y python3-pip && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    playwright install chromium && \
-    playwright install-deps
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
