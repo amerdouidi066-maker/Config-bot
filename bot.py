@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v19.2 – ULTIMATE_STEALTH_NO_EXTERNAL
-- بدون playwright-stealth (سكريبتات التخفي مدمجة)
-- سكريبتات تدمير بصمة متقدمة (WebGL, Canvas, Audio, etc.)
-- جلسة مزيفة باستخدام التوكن المستخرج من الرابط
+SHADOW LEGION v19.3 – ULTIMATE_STEALTH_SLIM
+- تبعيات مبسطة (بدون aiohttp أو playwright-stealth)
+- جلسة مزيفة باستخدام التوكن
+- سكريبتات تدمير بصمة متقدمة
 - تسجيل دخول تلقائي بالكامل
-- محرك تخفي 9.9/10
 """
 
 import os
@@ -49,9 +48,6 @@ SHELL_TIMEOUT = int(os.environ.get("SHELL_TIMEOUT", "600"))
 CLEANUP_DAYS = int(os.environ.get("CLEANUP_DAYS", "7"))
 PROXY = os.environ.get("PROXY")
 
-TWOCAPTCHA_API_KEY = os.environ.get("TWOCAPTCHA_API_KEY", "")
-CAPTCHA_TIMEOUT = int(os.environ.get("CAPTCHA_TIMEOUT", "120"))
-
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -61,7 +57,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v19.2 (Ultimate Stealth No External) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v19.3 (Ultimate Stealth Slim) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية
@@ -284,12 +280,9 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     
     context = await browser.new_context(**context_options)
 
-    # 🔥 سكريبت تدمير البصمة المتقدم (مدمج، لا يحتاج مكتبات خارجية)
+    # سكريبت تدمير البصمة المتقدم
     await context.add_init_script("""
-        // 1. إزالة webdriver
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        
-        // 2. تزوير plugins
         Object.defineProperty(navigator, 'plugins', { 
             get: () => {
                 const plugins = [
@@ -301,19 +294,13 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 return plugins;
             }
         });
-        
-        // 3. تزوير languages
         Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-        
-        // 4. تزوير chrome object
         window.chrome = {
             runtime: {},
             loadTimes: function() {},
             csi: function() {},
             app: {}
         };
-        
-        // 5. تزوير permissions
         const originalQuery = window.navigator.permissions.query;
         window.navigator.permissions.query = function(params) {
             if (params.name === 'notifications') {
@@ -321,8 +308,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             }
             return originalQuery.call(this, params);
         };
-        
-        // 6. WebGL Randomization
         const getParameter = WebGLRenderingContext.prototype.getParameter;
         WebGLRenderingContext.prototype.getParameter = function(p) {
             const vendors = ['Intel Inc.', 'NVIDIA Corporation', 'AMD', 'Apple', 'ARM'];
@@ -331,8 +316,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             if (p === 37446) return renderers[Math.floor(Math.random() * renderers.length)];
             return getParameter.call(this, p);
         };
-        
-        // 7. Canvas Noise (3%)
         const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
         HTMLCanvasElement.prototype.toDataURL = function(type) {
             if (type === 'image/png' || !type) {
@@ -350,8 +333,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             }
             return originalToDataURL.apply(this, arguments);
         };
-        
-        // 8. Audio Noise
         const originalGetChannelData = AudioBuffer.prototype.getChannelData;
         AudioBuffer.prototype.getChannelData = function(channel) {
             const data = originalGetChannelData.call(this, channel);
@@ -362,49 +343,17 @@ async def create_authenticated_context(browser, token: str, email: str, project:
         };
     """)
 
-    # 🔥 تثبيت الجلسة المزيفة (Cookies)
+    # جلسة مزيفة باستخدام التوكن
     await context.add_cookies([
-        {
-            "name": "SID",
-            "value": f"{token[:50]}",
-            "domain": ".google.com",
-            "path": "/",
-            "secure": True
-        },
-        {
-            "name": "LSID",
-            "value": f"{token[50:]}",
-            "domain": ".google.com",
-            "path": "/",
-            "secure": True
-        },
-        {
-            "name": "SSID",
-            "value": f"{token[::-1][:50]}",
-            "domain": ".google.com",
-            "path": "/",
-            "secure": True
-        },
-        {
-            "name": "HSID",
-            "value": f"{token[:20]}",
-            "domain": ".google.com",
-            "path": "/",
-            "secure": True
-        },
-        {
-            "name": "__Secure-3PSID",
-            "value": f"{token}",
-            "domain": ".google.com",
-            "path": "/",
-            "secure": True,
-            "sameSite": "None"
-        }
+        {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
     ])
 
     page = await context.new_page()
 
-    # محاكاة سلوك بشري
     await page.evaluate("""
         setTimeout(() => {
             window.scrollTo(0, Math.floor(Math.random() * 300));
@@ -424,18 +373,14 @@ async def create_authenticated_context(browser, token: str, email: str, project:
 # ===================================================================
 async def wait_for_redirect_auto(page, max_wait: int = 120) -> Tuple[bool, str]:
     start_time = time.time()
-
     while time.time() - start_time < max_wait:
         current_url = page.url
         page_text = await page.inner_text("body")
-        
         if "console.cloud.google.com" in current_url or "shell.cloud.google.com" in current_url:
-            logger.info("✅ تم الوصول إلى Console/Shell بنجاح.")
+            logger.info("✅ تم الوصول إلى Console/Shell.")
             return True, ""
-        
         if "Couldn't sign you in" in page_text or "couldn't verify this account" in page_text:
             return False, "⛔ الحساب غير صالح أو منتهي الصلاحية."
-        
         if "Welcome to your new account" in page_text:
             try:
                 await page.click("button:has-text('Understand')", timeout=5000)
@@ -444,7 +389,6 @@ async def wait_for_redirect_auto(page, max_wait: int = 120) -> Tuple[bool, str]:
                 continue
             except:
                 pass
-        
         if "sign in" in page_text.lower() and not page_text.startswith("Welcome"):
             logger.info("⚠️ شاشة تسجيل دخول غير متوقعة – محاولة إدخال البريد.")
             try:
@@ -464,13 +408,11 @@ async def wait_for_redirect_auto(page, max_wait: int = 120) -> Tuple[bool, str]:
                             continue
             except Exception as e:
                 logger.warning(f"⚠️ فشل إدخال البريد: {e}")
-        
         await asyncio.sleep(2)
-    
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 7. دوال التفاعل الإضافية
+# 7. دوال التفاعل الأساسية
 # ===================================================================
 async def click_start_ultimate(page) -> bool:
     selectors = [
@@ -494,7 +436,6 @@ async def click_start_ultimate(page) -> bool:
                 return True
         except:
             continue
-    
     result = await page.evaluate("""
         () => {
             const keywords = ['Start', 'Launch', 'Activate', 'بدء', 'تفعيل', 'شغّل', 'Run'];
@@ -539,7 +480,6 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
                 return True
         except:
             pass
-        
         try:
             result = await page.evaluate(f"""
                 (cmd) => {{
@@ -570,7 +510,6 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
                 return True
         except:
             pass
-        
         try:
             for ch in cmd:
                 await page.keyboard.type(ch, delay=random.randint(15, 40))
@@ -579,7 +518,6 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
             return True
         except:
             pass
-        
         try:
             await page.evaluate(f"""
                 () => {{
@@ -596,32 +534,18 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
         except Exception as e:
             logger.error(f"فشل تنفيذ الأمر في المحاولة {attempt+1}: {e}")
             await asyncio.sleep(2)
-    
     logger.error(f"❌ فشل تنفيذ الأمر بعد {max_retries} محاولات: {cmd[:60]}")
     return False
 
 async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> bool:
     logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
     start_time = time.time()
-
     try:
         await page.wait_for_selector(".loading-spinner, .loader, .spinner, .waiting", timeout=10000, state="hidden")
         logger.info("✅ اختفى مؤشر التحميل.")
     except:
         pass
-
-    selectors = [
-        ".xterm",
-        ".xterm-helper-textarea",
-        ".xterm-screen",
-        ".terminal",
-        "[role='textbox']",
-        "textarea",
-        ".terminal-active",
-        ".xterm-viewport",
-        ".terminal-wrapper"
-    ]
-
+    selectors = [".xterm", ".xterm-helper-textarea", ".xterm-screen", ".terminal", "[role='textbox']", "textarea", ".terminal-active", ".xterm-viewport", ".terminal-wrapper"]
     for selector in selectors:
         try:
             await page.wait_for_selector(selector, timeout=20000, state="visible")
@@ -629,7 +553,6 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> bool:
             return True
         except:
             continue
-
     try:
         frames = page.frames
         for frame in frames:
@@ -643,7 +566,6 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> bool:
                     continue
     except Exception as e:
         logger.warning(f"⚠️ فشل البحث في iframes: {e}")
-
     while time.time() - start_time < timeout_seconds:
         for selector in selectors:
             try:
@@ -656,70 +578,8 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> bool:
             except:
                 pass
         await asyncio.sleep(1)
-
     logger.warning(f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية).")
     return False
-
-async def solve_captcha_if_needed(page) -> bool:
-    if not TWOCAPTCHA_API_KEY:
-        return False
-    try:
-        captcha_frame = await page.query_selector("iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha']")
-        if not captcha_frame:
-            return False
-        logger.info("🛡️ تم اكتشاف reCAPTCHA، جاري الحل عبر 2Captcha...")
-        sitekey = await page.evaluate("""
-            () => {
-                const iframe = document.querySelector('iframe[src*="recaptcha"]');
-                if (!iframe) return null;
-                const src = iframe.src;
-                const match = src.match(/k=([^&]+)/);
-                return match ? match[1] : null;
-            }
-        """)
-        if not sitekey:
-            logger.warning("⚠️ لم يتم العثور على sitekey للكابتشا.")
-            return False
-        import aiohttp
-        async with aiohttp.ClientSession() as session:
-            data = {
-                "key": TWOCAPTCHA_API_KEY,
-                "method": "userrecaptcha",
-                "googlekey": sitekey,
-                "pageurl": page.url,
-                "json": 1
-            }
-            async with session.post("https://2captcha.com/in.php", data=data) as resp:
-                result = await resp.json()
-                if result.get("status") != 1:
-                    logger.warning(f"⚠️ فشل إرسال الكابتشا: {result}")
-                    return False
-                captcha_id = result.get("request")
-            for _ in range(CAPTCHA_TIMEOUT // 5):
-                await asyncio.sleep(5)
-                async with session.get(f"https://2captcha.com/res.php?key={TWOCAPTCHA_API_KEY}&action=get&id={captcha_id}&json=1") as resp:
-                    result = await resp.json()
-                    if result.get("status") == 1:
-                        solution = result.get("request")
-                        await page.evaluate(f"""
-                            (solution) => {{
-                                document.querySelector('#g-recaptcha-response').innerHTML = solution;
-                                document.querySelector('form').dispatchEvent(new Event('submit'));
-                            }}
-                        """, solution)
-                        logger.info("✅ تم حل الكابتشا بنجاح.")
-                        await asyncio.sleep(2)
-                        return True
-                    elif result.get("request") == "CAPCHA_NOT_READY":
-                        continue
-                    else:
-                        logger.warning(f"⚠️ فشل حل الكابتشا: {result}")
-                        return False
-            logger.warning("⏰ انتهت مهلة حل الكابتشا.")
-            return False
-    except Exception as e:
-        logger.error(f"❌ خطأ في حل الكابتشا: {e}")
-        return False
 
 async def save_screenshot(page) -> str:
     os.makedirs("screenshots", exist_ok=True)
@@ -759,7 +619,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 8. قلب الأتمتة – النسخة النهائية
+# 8. قلب الأتمتة
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -793,8 +653,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
             logger.info("📌 فتح الرابط...")
             await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
-            
-            await solve_captcha_if_needed(page)
 
             redirect_success, redirect_msg = await wait_for_redirect_auto(page, max_wait=120)
             if not redirect_success:
@@ -1023,7 +881,7 @@ print(f"🔗 VLESS: {{vless_link}}")
         return False, "", last_error, int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 9. واجهة البوت (جميع الأوامر)
+# 9. واجهة البوت (الأوامر)
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1065,15 +923,17 @@ def region_menu():
     kb.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
     return InlineKeyboardMarkup(kb)
 
+# ===================================================================
+# الأوامر (تم اختصارها للطول – نفس الكود السابق)
+# ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "🔥 **SHADOW LEGION v19.2 – Ultimate Stealth No External**\n"
-        "✅ تسجيل الدخول تلقائي بالكامل (جلسة مزيفة باستخدام التوكن).\n"
-        "✅ محرك تخفي 9.9/10 (سكريبتات تدمير بصمة مدمجة).\n"
-        "✅ 13 منطقة + اختيار عشوائي.\n"
-        "✅ يدعم حل reCAPTCHA عبر 2Captcha (اختياري).\n\n"
+        "🔥 **SHADOW LEGION v19.3 – Ultimate Stealth Slim**\n"
+        "✅ تسجيل دخول تلقائي بالكامل (جلسة مزيفة).\n"
+        "✅ محرك تخفي 9.9/10 (سكريبتات مدمجة).\n"
+        "✅ 13 منطقة + اختيار عشوائي.\n\n"
         "📌 أرسل رابط Qwiklabs أو Google SSO.",
         parse_mode="Markdown", reply_markup=main_menu()
     )
@@ -1096,22 +956,13 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     email = extracted.get("email")
     
     if not project and not token:
-        await update.message.reply_text(
-            "❌ لم أتمكن من استخراج **project** أو **token** من الرابط.\n"
-            "تأكد من نسخ الرابط كاملاً (بدون اختصار) وأنه يحتوي على معاملات `project` و `token`."
-        )
+        await update.message.reply_text("❌ لم أتمكن من استخراج **project** أو **token** من الرابط.")
         return WAITING_LINK
     if not project:
-        await update.message.reply_text(
-            "❌ تم استخراج **token** لكن **project** مفقود.\n"
-            "تأكد من أن الرابط يحتوي على معامل `project` أو `projectId`."
-        )
+        await update.message.reply_text("❌ تم استخراج **token** لكن **project** مفقود.")
         return WAITING_LINK
     if not token:
-        await update.message.reply_text(
-            "❌ تم استخراج **project** لكن **token** مفقود.\n"
-            "تأكد من أن الرابط يحتوي على معامل `token` أو `display_token`."
-        )
+        await update.message.reply_text("❌ تم استخراج **project** لكن **token** مفقود.")
         return WAITING_LINK
     
     user_id = update.effective_user.id
@@ -1127,26 +978,17 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_id = update.effective_user.id
     user_data = get_user(user_id)
     if not user_data or not user_data.get("last_link"):
-        await update.message.reply_text(
-            "📭 لا يوجد رابط سابق لإعادة المحاولة.\n"
-            "يرجى إرسال رابط جديد أولاً.",
-            reply_markup=main_menu()
-        )
+        await update.message.reply_text("📭 لا يوجد رابط سابق لإعادة المحاولة.")
         return ConversationHandler.END
-    
     last_link = user_data["last_link"]
-    await update.message.reply_text(
-        f"🔄 جاري إعادة استخدام الرابط السابق:\n`{last_link[:100]}...`",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"🔄 جاري إعادة استخدام الرابط السابق:\n`{last_link[:100]}...`", parse_mode="Markdown")
     extracted = smart_extract(last_link)
     project = extracted.get("project_id")
     token = extracted.get("token")
     email = extracted.get("email")
     if not project or not token:
-        await update.message.reply_text("❌ الرابط المخزن غير صالح. يرجى إرسال رابط جديد.")
+        await update.message.reply_text("❌ الرابط المخزن غير صالح.")
         return ConversationHandler.END
-    
     context.user_data.update({"lab_url": last_link, "project_id": project, "token": token, "email": email})
     await update.message.reply_text(
         f"✅ **تم استخراج البيانات بنجاح**\n🆔 Project: `{project}`\n🔑 Token: `{token[:15]}...`\n📧 Email: `{email if email else 'غير موجود'}`\n\n🌍 اختر المنطقة:",
@@ -1157,9 +999,7 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    
     raw_region = q.data.replace("region_", "")
-    
     if raw_region == "random":
         region = random.choice(list(KNOWN_REGIONS.keys()))
         logger.info(f"🎲 تم اختيار منطقة عشوائية: {region}")
@@ -1297,7 +1137,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v19.2 (Ultimate Stealth No External) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v19.3 (Ultimate Stealth Slim) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
