@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v22.1 – NO_EVALUATE_AT_ALL
-- إزالة جميع page.evaluate نهائياً
-- الاعتماد على دوال Playwright المباشرة
+SHADOW LEGION v22.2 – FINAL_NO_EVALUATE
+- إزالة جميع page.evaluate (بما فيها حركة الماوس)
+- الاعتماد على دوال Playwright الآمنة
 - رسالة /start احترافية
-- محرك تخفي 10/10
 """
 
 import os
@@ -21,7 +20,6 @@ import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 from logging.handlers import RotatingFileHandler
-import math
 import requests
 import aiohttp
 
@@ -62,24 +60,10 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v22.1 (No Evaluate At All) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v22.2 (Final No Evaluate) بدأ التشغيل...")
 
 # ===================================================================
-# 2. قوائم عشوائية
-# ===================================================================
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/118.0",
-]
-TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydney", "America/Los_Angeles", "Europe/Paris", "Asia/Dubai"]
-LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8", "fr-FR,fr;q=0.9,en;q=0.8"]
-
-# ===================================================================
-# 3. دوال مساعدة
+# 2. دوال مساعدة
 # ===================================================================
 def get_random_proxy() -> Optional[str]:
     return random.choice(PROXY_LIST) if PROXY_LIST else None
@@ -124,7 +108,7 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
         return None
 
 # ===================================================================
-# 4. قاعدة البيانات
+# 3. قاعدة البيانات
 # ===================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -235,7 +219,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for r in rows]
 
 # ===================================================================
-# 5. المستخرج الذكي V6
+# 4. المستخرج الذكي V6
 # ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
     link = link.strip()
@@ -301,7 +285,7 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 6. التحقق من صلاحية التوكن
+# 5. التحقق من صلاحية التوكن
 # ===================================================================
 async def check_token_validity(browser, token: str) -> bool:
     try:
@@ -324,7 +308,7 @@ async def check_token_validity(browser, token: str) -> bool:
         return False
 
 # ===================================================================
-# 7. محرك التخفي الفائق
+# 6. محرك التخفي (بدون page.evaluate)
 # ===================================================================
 async def create_authenticated_context(browser, token: str, email: str, project: str):
     ua = random.choice(USER_AGENTS)
@@ -363,6 +347,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     
     context = await browser.new_context(**context_options)
 
+    # سكريبت تدمير البصمة (بدون async/await)
     await context.add_init_script(f"""
         Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
         Object.defineProperty(navigator, 'plugins', {{ 
@@ -441,46 +426,21 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     except Exception as e:
         logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
 
-    await page.evaluate("""
-        function bezier(t, p0, p1, p2, p3) {
-            return Math.pow(1-t,3)*p0 + 3*Math.pow(1-t,2)*t*p1 + 3*(1-t)*Math.pow(t,2)*p2 + Math.pow(t,3)*p3;
-        }
-        async function moveMouse(x1, y1, x2, y2, duration) {
-            const steps = 50;
-            const cx = Math.floor(Math.random() * (Math.max(x1,x2) - Math.min(x1,x2)) + Math.min(x1,x2));
-            const cy = Math.floor(Math.random() * (Math.max(y1,y2) - Math.min(y1,y2)) + Math.min(y1,y2));
-            for (let i = 0; i < steps; i++) {
-                const t = i / steps;
-                const x = bezier(t, x1, cx, cx, x2);
-                const y = bezier(t, y1, cy, cy, y2);
-                const ev = new MouseEvent('mousemove', { clientX: x, clientY: y, bubbles: true });
-                document.dispatchEvent(ev);
-                await new Promise(r => setTimeout(r, duration / steps));
-            }
-        }
-        setTimeout(() => {
-            const startX = Math.random() * window.innerWidth;
-            const startY = Math.random() * window.innerHeight;
-            const endX = Math.random() * window.innerWidth;
-            const endY = Math.random() * window.innerHeight;
-            moveMouse(startX, startY, endX, endY, 2000 + Math.random() * 3000);
-        }, 1000 + Math.random() * 2000);
-    """)
+    # 🔥 تم إزالة page.evaluate الخاص بحركة الماوس (لتجنب الأخطاء)
+    # سيتم استخدام تأخيرات عشوائية بدلاً من ذلك
+    await asyncio.sleep(random.uniform(0.5, 1.5))
 
     return context, page
 
 # ===================================================================
-# 8. كشف ديناميكي للأزرار (بدون evaluate)
+# 7. كشف ديناميكي للأزرار (بدون evaluate)
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
-    """يضغط على زر باستخدام محددات متعددة، بدون page.evaluate"""
     if aria_labels is None:
         aria_labels = text_keywords
     
-    # 1. محاولة النقر عبر النص
     for text in text_keywords:
         try:
-            # استخدام has-text مع button و div
             btn = await page.query_selector(f"button:has-text('{text}'), div[role='button']:has-text('{text}')")
             if btn and await btn.is_visible():
                 await btn.click()
@@ -489,7 +449,6 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
         except:
             pass
     
-    # 2. محاولة النقر عبر aria-label
     for label in aria_labels:
         try:
             btn = await page.query_selector(f"button[aria-label*='{label}'], div[role='button'][aria-label*='{label}']")
@@ -500,9 +459,8 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
         except:
             pass
     
-    # 3. محاولة البحث عن أي زر يحتوي على النص (بطريقة أوسع)
+    # البحث الشامل (بدون evaluate)
     try:
-        # نبحث عن جميع الأزرار ونقرأ نصوصها
         buttons = await page.query_selector_all("button, div[role='button'], a[role='button']")
         for btn in buttons:
             text = await btn.inner_text()
@@ -521,12 +479,10 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
     return False
 
 # ===================================================================
-# 9. استخراج sitekey من الصفحة (بدون evaluate)
+# 8. استخراج sitekey (بدون evaluate)
 # ===================================================================
 async def extract_sitekey(page) -> Optional[str]:
-    """يستخرج sitekey من iframe reCAPTCHA بدون use evaluate"""
     try:
-        # الحصول على جميع iframes
         iframes = await page.query_selector_all("iframe[src*='recaptcha']")
         for iframe in iframes:
             src = await iframe.get_attribute("src")
@@ -539,7 +495,7 @@ async def extract_sitekey(page) -> Optional[str]:
         return None
 
 # ===================================================================
-# 10. معالج الانتظار الذكي (بدون evaluate)
+# 9. معالج الانتظار الذكي
 # ===================================================================
 EXPIRED_KEYWORDS = [
     "expired", "invalid", "session", "access denied", "not found", "404", "410",
@@ -574,7 +530,6 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
             if sitekey:
                 solution = await solve_captcha_2captcha(page, sitekey)
                 if solution:
-                    # حقن الحل عبر fill في الحقل المخفي
                     try:
                         await page.fill("#g-recaptcha-response", solution)
                         await page.click("form button[type='submit'], form input[type='submit']")
@@ -609,7 +564,7 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 11. الضغط على Start
+# 10. الضغط على Start
 # ===================================================================
 async def click_start_ultimate(page) -> bool:
     return await smart_click_button(
@@ -620,13 +575,12 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 12. تنفيذ الأوامر (بدون evaluate)
+# 11. تنفيذ الأوامر
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     for attempt in range(max_retries):
         logger.info(f"▶️ تنفيذ: {cmd[:60]}... (محاولة {attempt+1}/{max_retries})")
         try:
-            # التركيز على الطرفية
             terminal_selectors = [".xterm-helper-textarea", ".xterm", ".terminal", "[role='textbox']"]
             for selector in terminal_selectors:
                 try:
@@ -652,7 +606,7 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     return False
 
 # ===================================================================
-# 13. انتظار الطرفية
+# 12. انتظار الطرفية
 # ===================================================================
 async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, str]:
     logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
@@ -698,7 +652,7 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 14. سكريبت النشر
+# 13. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
@@ -755,7 +709,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 15. قلب الأتمتة (بدون أي evaluate)
+# 14. قلب الأتمتة (بدون أي evaluate)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -893,7 +847,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             logger.info("📖 محاولة قراءة /tmp/result.txt...")
             result_content = ""
             
-            # تنفيذ cat وقراءة مخرجات الطرفية
             await execute_command_robust(page, "cat /tmp/result.txt", max_retries=2)
             await asyncio.sleep(2)
             try:
@@ -909,7 +862,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             except Exception as e:
                 last_error = f"⚠️ فشل قراءة الطرفية: {str(e)[:100]}"
 
-            # محاولة grep إذا لم تظهر النتيجة كاملة
             if not result_content or "SERVICE_URL" not in result_content:
                 logger.info("📖 محاولة grep...")
                 await execute_command_robust(page, "cat /tmp/result.txt | grep SERVICE_URL", max_retries=2)
@@ -923,9 +875,8 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 except:
                     pass
 
-            # محاولة echo (آخر أمل)
             if not result_content or "SERVICE_URL" not in result_content:
-                logger.info("📖 محاولة echo...")
+                logger.info("📖 محاولة grep VLESS...")
                 await execute_command_robust(page, "cat /tmp/result.txt | grep VLESS", max_retries=2)
                 await asyncio.sleep(2)
                 try:
@@ -971,7 +922,7 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return False, "", last_error, int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 16. دوال مساعدة للصور
+# 15. دوال مساعدة للصور
 # ===================================================================
 async def save_screenshot(page) -> str:
     os.makedirs("screenshots", exist_ok=True)
@@ -1011,7 +962,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 17. واجهة البوت (بدون أزرار)
+# 16. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1218,7 +1169,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 18. التشغيل الرئيسي
+# 17. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1256,7 +1207,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v22.1 (No Evaluate At All) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v22.2 (Final No Evaluate) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
