@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v21.0 – ULTIMATE_PENETRATION
+SHADOW LEGION v21.1 – FIXED_VALIDITY
+- إزالة اختبار صلاحية الرابط المسبق (كان يسبب نتائج خاطئة)
+- الكشف يتم أثناء فتح الرابط في Playwright
 - محرك تخفي 10/10 مع playwright-stealth
-- Proxies ديناميكيين + 2Captcha
-- إعادة محاولة ذكية مع backoff
-- بصمة متصفح ديناميكية (WebGL/Canvas/Audio)
-- اختبار صلاحية الرابط قبل التشغيل
-- رسائل احترافية لا تكشف طريقة العمل
+- دعم Proxies و 2Captcha
+- رسائل احترافية
 """
 
 import os
@@ -42,7 +41,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from playwright_stealth import stealth_async
 
 # ===================================================================
-# 1. الإعدادات الأساسية (مع متغيرات البيئة الجديدة)
+# 1. الإعدادات الأساسية
 # ===================================================================
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
@@ -64,7 +63,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v21.0 (Ultimate Penetration) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v21.1 (Fixed Validity) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية
@@ -93,15 +92,6 @@ def generate_random_fingerprint() -> Dict:
         "canvas_noise": random.uniform(0.01, 0.05),
         "audio_noise": random.uniform(0.0005, 0.002)
     }
-
-async def check_link_validity(lab_url: str) -> bool:
-    try:
-        response = requests.head(lab_url, allow_redirects=True, timeout=10)
-        if "accounts.google.com" in response.url:
-            return False
-        return True
-    except:
-        return True
 
 async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
     if not TWOCAPTCHA_API_KEY:
@@ -257,7 +247,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for r in rows]
 
 # ===================================================================
-# 5. المستخرج الذكي V6 (مع استخراج شامل للبريد الإلكتروني)
+# 5. المستخرج الذكي V6
 # ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
     link = link.strip()
@@ -280,7 +270,6 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     project = params.get('project', [None])[0] or params.get('projectId', [None])[0] or params.get('id', [None])[0]
     token = params.get('token', [None])[0] or params.get('display_token', [None])[0] or params.get('auth_token', [None])[0]
     
-    # استخراج شامل للبريد الإلكتروني
     email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
     all_emails = re.findall(email_pattern, decoded)
     if all_emails:
@@ -347,7 +336,7 @@ async def check_token_validity(browser, token: str) -> bool:
         return False
 
 # ===================================================================
-# 7. محرك التخفي الفائق (مع playwright-stealth)
+# 7. محرك التخفي الفائق
 # ===================================================================
 async def create_authenticated_context(browser, token: str, email: str, project: str):
     ua = random.choice(USER_AGENTS)
@@ -386,12 +375,8 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     
     context = await browser.new_context(**context_options)
 
-    # سكريبت تدمير البصمة المتقدم مع بصمة ديناميكية
     await context.add_init_script(f"""
-        // 1. إزالة webdriver
         Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
-        
-        // 2. تزوير plugins
         Object.defineProperty(navigator, 'plugins', {{ 
             get: () => {{
                 const plugins = [
@@ -403,19 +388,13 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 return plugins;
             }}
         }});
-        
-        // 3. تزوير languages
         Object.defineProperty(navigator, 'languages', {{ get: () => ['en-US', 'en'] }});
-        
-        // 4. تزوير chrome object
         window.chrome = {{
             runtime: {{}},
             loadTimes: function() {{}},
             csi: function() {{}},
             app: {{}}
         }};
-        
-        // 5. تزوير permissions
         const originalQuery = window.navigator.permissions.query;
         window.navigator.permissions.query = function(params) {{
             if (params.name === 'notifications') {{
@@ -423,8 +402,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             }}
             return originalQuery.call(this, params);
         }};
-        
-        // 6. WebGL Randomization (بصمة ديناميكية)
         const getParameter = WebGLRenderingContext.prototype.getParameter;
         WebGLRenderingContext.prototype.getParameter = function(p) {{
             const vendors = ['Intel Inc.', 'NVIDIA Corporation', 'AMD', 'Apple', 'ARM'];
@@ -433,8 +410,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             if (p === 37446) return '{fingerprint["renderer"]}';
             return getParameter.call(this, p);
         }};
-        
-        // 7. Canvas Noise (ديناميكي)
         const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
         HTMLCanvasElement.prototype.toDataURL = function(type) {{
             if (type === 'image/png' || !type) {{
@@ -452,8 +427,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             }}
             return originalToDataURL.apply(this, arguments);
         }};
-        
-        // 8. Audio Noise (ديناميكي)
         const originalGetChannelData = AudioBuffer.prototype.getChannelData;
         AudioBuffer.prototype.getChannelData = function(channel) {{
             const data = originalGetChannelData.call(this, channel);
@@ -464,7 +437,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
         }};
     """)
 
-    # جلسة مزيفة (Cookies)
     await context.add_cookies([
         {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
         {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
@@ -475,14 +447,12 @@ async def create_authenticated_context(browser, token: str, email: str, project:
 
     page = await context.new_page()
     
-    # تطبيق playwright-stealth (تدمير إضافي للبصمة)
     try:
         await stealth_async(page)
         logger.info("✅ تم تطبيق playwright-stealth.")
     except Exception as e:
         logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
 
-    # محاكاة حركة الماوس البشرية
     await page.evaluate("""
         function bezier(t, p0, p1, p2, p3) {
             return Math.pow(1-t,3)*p0 + 3*Math.pow(1-t,2)*t*p1 + 3*(1-t)*Math.pow(t,2)*p2 + Math.pow(t,3)*p3;
@@ -565,7 +535,7 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
     return False
 
 # ===================================================================
-# 9. معالج الانتظار الذكي (مع كشف متقدم للصلاحية + CAPTCHA)
+# 9. معالج الانتظار الذكي
 # ===================================================================
 EXPIRED_KEYWORDS = [
     "expired", "invalid", "session", "access denied", "not found", "404", "410",
@@ -594,7 +564,6 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
                 await asyncio.sleep(2)
                 continue
         
-        # كشف CAPTCHA وحلها
         if "recaptcha" in page_text.lower() or "captcha" in page_text.lower():
             logger.info("🛡️ تم اكتشاف CAPTCHA، جاري الحل عبر 2Captcha...")
             sitekey = await page.evaluate("""
@@ -642,7 +611,7 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 10. الضغط على Start (باستخدام الكشف الديناميكي)
+# 10. الضغط على Start
 # ===================================================================
 async def click_start_ultimate(page) -> bool:
     return await smart_click_button(
@@ -653,7 +622,7 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 11. تنفيذ الأوامر مع إعادة محاولة
+# 11. تنفيذ الأوامر
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     for attempt in range(max_retries):
@@ -734,7 +703,7 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     return False
 
 # ===================================================================
-# 12. انتظار الطرفية المحسّن
+# 12. انتظار الطرفية
 # ===================================================================
 async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, str]:
     logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
@@ -780,7 +749,7 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 13. سكريبت النشر (مع عشوائية)
+# 13. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
@@ -837,7 +806,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 14. قلب الأتمتة (النسخة النهائية مع جميع الترقيات)
+# 14. قلب الأتمتة (المعدل)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -845,15 +814,9 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
     screenshot_path = ""
     last_error = ""
 
-    # اختبار صلاحية الرابط قبل التشغيل
-    logger.info("🔍 جاري فحص صلاحية الرابط...")
-    if not await check_link_validity(lab_url):
-        return False, "", "⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية). يرجى الحصول على رابط جديد.", int(time.time() - start_time), ""
-
     try:
         logger.info(f"🔄 بدء محاولة وحيدة (مهلة {SHELL_TIMEOUT} ثانية)...")
         logger.info(f"📧 البريد الإلكتروني المستخرج: {email}")
-        # إخفاء التوكن في السجلات
         logger.info(f"🔑 التوكن: {token[:10]}...{token[-10:]}")
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -899,6 +862,13 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             logger.info("📌 فتح الرابط...")
             await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
 
+            # 🔥 كشف فوري لإعادة التوجيه إلى تسجيل الدخول (بدون اختبار مسبق)
+            current_url = page.url
+            if "accounts.google.com" in current_url or "signin" in current_url.lower():
+                logger.warning("⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية).")
+                await browser.close()
+                return False, "", "⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية). يرجى الحصول على رابط جديد.", int(time.time() - start_time), ""
+
             redirect_success, redirect_msg = await wait_for_redirect_auto(page, email, max_wait=120)
             if not redirect_success:
                 screenshot_path = await save_screenshot(page)
@@ -919,7 +889,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 await browser.close()
                 return False, "", last_error, int(time.time() - start_time), screenshot_path
 
-            # استخدام الكشف الديناميكي للأزرار
             for btn_text in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض", "Got it"]:
                 if await smart_click_button(page, [btn_text], [btn_text]):
                     logger.info(f"✅ تم تجاوز زر: {btn_text}")
@@ -941,7 +910,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell بعد 3 محاولات."
                 logger.warning(last_error)
 
-            # أزرار إضافية بعد Start
             for btn_text in ["Authorize", "تفويض", "Continue", "متابعة", "I understand", "Got it"]:
                 if await smart_click_button(page, [btn_text], [btn_text]):
                     logger.info(f"✅ تم الضغط على زر إضافي: {btn_text}")
@@ -1090,7 +1058,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 16. واجهة البوت (رسالة /start احترافية)
+# 16. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1309,7 +1277,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 17. التشغيل الرئيسي + خادم الويب
+# 17. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1347,7 +1315,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v21.0 (Ultimate Penetration) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v21.1 (Fixed Validity) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
