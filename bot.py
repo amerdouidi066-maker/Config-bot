@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v23.4 – HARDCODED_COOKIES_FIXED
-- تصحيح sameSite: "None" بدلاً من "no_restriction"
+SHADOW LEGION v23.6 – ULTIMATE_LOGIN_BYPASS
+- إصلاح شامل لشاشات Google (Choose account, Sign in, Password)
+- الكوكيز المضمنة مع تحقق من تحميلها
+- معالج اختيار الحساب التلقائي
 - Z3R0-STEALTH v2 النهائي
-- دعم الروابط بدون token (AddSession)
-- ترويسات HTTP احترافية مع Referer عشوائي
+- دعم كامل للروابط بدون token
 - لقطات شاشة دائمة
-- معالجة متقدمة لشاشات تسجيل الدخول (بما فيها الفرنسية)
+- تحسينات في انتظار الطرفية وزر Start
 """
 
 import os
@@ -23,7 +24,6 @@ import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 from logging.handlers import RotatingFileHandler
-import requests
 import aiohttp
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
@@ -62,7 +62,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v23.4 (Hardcoded Cookies Fixed) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v23.6 (Ultimate Login Bypass) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -377,7 +377,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     context = await browser.new_context(**context_options)
 
     # ================================================================
-    # 🔥 الكوكيز المضمنة مباشرة (مع تصحيح sameSite)
+    # 🔥 الكوكيز المضمنة (صالحة حتى 2027)
     # ================================================================
     cookies = [
         {"name": "SAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
@@ -397,10 +397,12 @@ async def create_authenticated_context(browser, token: str, email: str, project:
         {"name": "__Secure-DIVERSION_ID", "value": "AXzjpddp2zngCu3/Ld53kKQ5lsctSjkF9+i0FbVtwG+6:e", "domain": ".console.cloud.google.com", "path": "/", "secure": True, "httpOnly": True}
     ]
 
-    # إضافة الكوكيز إلى السياق
+    # إضافة الكوكيز
     await context.add_cookies(cookies)
     cookies_loaded = await context.cookies()
     logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي (مضمنة في الكود).")
+    if len(cookies_loaded) < 10:
+        logger.warning("⚠️ عدد الكوكيز قليل، قد تكون الجلسة غير مكتملة.")
 
     # ================================================================
     # 🔥 Z3R0-STEALTH v2 – سكريبت التخفي الشامل
@@ -514,7 +516,7 @@ async def simulate_mouse_movement(page):
         logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
 
 # ===================================================================
-# 8. الضغط على الأزرار (بدون evaluate)
+# 8. الضغط على الأزرار (مع تركيز على Start Cloud Shell)
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
     if aria_labels is None:
@@ -572,7 +574,7 @@ async def extract_sitekey(page) -> Optional[str]:
         return None
 
 # ===================================================================
-# 9. معالج الانتظار الذكي (مع تجاوز تسجيل الدخول)
+# 9. معالج الانتظار الذكي – مع دعم شاشات اختيار الحساب
 # ===================================================================
 EXPIRED_KEYWORDS = [
     "expired", "invalid", "session", "access denied", "not found", "404", "410",
@@ -582,7 +584,7 @@ EXPIRED_KEYWORDS = [
     "Impossible de vous connecter"
 ]
 
-async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -> Tuple[bool, str]:
+async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wait: int = 120) -> Tuple[bool, str]:
     start_time = time.time()
     login_attempted = False
     
@@ -619,45 +621,167 @@ async def wait_for_redirect_auto(page, email: str = None, max_wait: int = 120) -
                     except:
                         pass
         
-        if "sign in" in page_text.lower() or "accounts.google.com" in current_url or "Impossible de vous connecter" in page_text:
-            logger.info("🔐 شاشة تسجيل دخول – محاولة التجاوز...")
+        # ============================================================
+        # معالج شاشات Google المتقدمة (Choose account, Sign in, Password)
+        # ============================================================
+        if "accounts.google.com" in current_url or "Impossible de vous connecter" in page_text:
+            logger.info("🔐 شاشة Google – محاولة التجاوز...")
             
-            if email and not login_attempted:
+            # 1. شاشة "اختيار حساب" (Choose an account)
+            if "choose an account" in page_text.lower() or "pick an account" in page_text.lower():
+                logger.info("🔄 شاشة اختيار حساب مكتشفة – محاولة النقر على الحساب الأول...")
                 try:
-                    email_input = await page.query_selector("input[type='email'], input[type='text'][name='identifier']")
-                    if email_input:
-                        await email_input.fill(email)
-                        logger.info(f"✅ تم إدخال البريد الإلكتروني: {email}")
-                        await asyncio.sleep(1)
-                        
-                        if await smart_click_button(page, ["Next", "التالي"], ["Next", "Continue"]):
-                            logger.info("✅ تم الضغط على Next.")
-                            await asyncio.sleep(3)
-                            login_attempted = True
-                            
-                            if "password" in await page.inner_text("body").lower():
-                                logger.warning("⚠️ ظهرت شاشة كلمة المرور – لا يمكن التجاوز.")
-                                return False, "⛔ الرابط يتطلب كلمة مرور (تسجيل دخول يدوي). يرجى استخدام رابط ضيف أو رفع ملف cookies.json."
+                    # محاولة النقر على البطاقة التي تحتوي على البريد الإلكتروني مباشرة
+                    if email:
+                        account_selector = f"div[data-email='{email}'], div:has-text('{email}'), button:has-text('{email}')"
+                        btn = await page.query_selector(account_selector)
+                        if btn and await btn.is_visible():
+                            await btn.click()
+                            logger.info(f"✅ تم النقر على الحساب: {email}")
+                            await asyncio.sleep(2)
                             continue
+                    
+                    # الحل البديل: النقر على أي زر "Continue" أو "التالي"
+                    if await smart_click_button(page, ["Continue", "التالي", "Next"]):
+                        logger.info("✅ تم الضغط على Continue في شاشة اختيار الحساب.")
+                        await asyncio.sleep(2)
+                        continue
                 except Exception as e:
-                    logger.warning(f"⚠️ فشل إدخال البريد الإلكتروني: {e}")
-            
-            return False, "⛔ فشل تسجيل الدخول إلى Google. يرجى الحصول على رابط جديد أو رفع ملف cookies.json."
+                    logger.warning(f"⚠️ فشل النقر على الحساب: {e}")
+
+            # 2. شاشة إدخال البريد الإلكتروني (تسجيل دخول جديد)
+            elif "sign in" in page_text.lower() or "email" in page_text.lower() or "identifier" in page_text.lower():
+                logger.info("📧 شاشة إدخال البريد الإلكتروني...")
+                if email and not login_attempted:
+                    try:
+                        email_input = await page.wait_for_selector("input[type='email'], input[type='text'][name='identifier']", timeout=5000)
+                        if email_input:
+                            await email_input.fill(email)
+                            logger.info(f"✅ تم إدخال البريد: {email}")
+                            await asyncio.sleep(1)
+                            if await smart_click_button(page, ["Next", "التالي"]):
+                                logger.info("✅ تم الضغط على Next.")
+                                await asyncio.sleep(3)
+                                login_attempted = True
+                                continue
+                    except:
+                        pass
+                
+                # إذا لم ينجح، نأخذ لقطة ونطلب تدخل المستخدم
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, "⛔ شاشة تسجيل دخول تتطلب إدخالاً يدوياً.")
+                return False, "⛔ فشل تسجيل الدخول. يرجى تحديث الكوكيز أو استخدام رابط ضيف."
+
+            # 3. أي شاشة أخرى (مثل طلب كلمة المرور)
+            else:
+                logger.warning("⚠️ شاشة غير متوقعة، محاولة إعادة التحميل...")
+                await page.reload()
+                await asyncio.sleep(2)
+                continue
         
         await asyncio.sleep(2)
     
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 10. دوال إضافية
+# 10. دوال إضافية – التركيز على Start Cloud Shell
 # ===================================================================
-async def click_start_ultimate(page) -> bool:
-    return await smart_click_button(
-        page,
-        text_keywords=["Start Cloud Shell", "Launch Cloud Shell", "Activate Cloud Shell", 
-                      "بدء Cloud Shell", "تفعيل Cloud Shell", "Start", "Launch", "Activate"],
-        aria_labels=["Start Cloud Shell", "Launch Cloud Shell", "Activate Cloud Shell"]
-    )
+async def click_start_ultimate(page, max_attempts=5) -> bool:
+    """محاولة الضغط على زر Start Cloud Shell بطرق متعددة وشاملة."""
+    logger.info("🔍 البحث عن زر Start Cloud Shell...")
+    
+    # محددات دقيقة محدثة
+    selectors = [
+        "button[aria-label='Start Cloud Shell']",
+        "button[data-testid='start-cloud-shell']",
+        "button:has-text('Start Cloud Shell')",
+        "button:has-text('Activate Cloud Shell')",
+        "button:has-text('Launch Cloud Shell')",
+        "button:has-text('بدء Cloud Shell')",
+        "button:has-text('تفعيل Cloud Shell')",
+        "button:has-text('Start')",
+        "button:has-text('Launch')",
+        "button:has-text('Activate')",
+        "div[role='button']:has-text('Start Cloud Shell')",
+        "div[role='button']:has-text('Activate Cloud Shell')",
+        "div[role='button']:has-text('Launch Cloud Shell')",
+        "button#start-cloud-shell",
+        "button.gcloud-start-button",
+        "button[data-command='start']",
+        "button[data-action='start']",
+        ".cloud-shell-start-button",
+        ".start-cloud-shell-btn",
+        "button[aria-describedby='start-cloud-shell-description']",
+        "button[class*='start']",
+        "button[class*='cloud-shell']",
+    ]
+
+    # محاولة في الإطار الرئيسي أولاً
+    for attempt in range(max_attempts):
+        # التمرير لأسفل لتظهر العناصر المخفية
+        try:
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
+            await asyncio.sleep(0.5)
+        except:
+            pass
+
+        for selector in selectors:
+            try:
+                btn = await page.query_selector(selector)
+                if btn and await btn.is_visible():
+                    await btn.scroll_into_view_if_needed()
+                    await asyncio.sleep(0.3)
+                    await btn.click()
+                    logger.info(f"✅ تم الضغط على الزر باستخدام المحدد: {selector}")
+                    return True
+            except:
+                continue
+
+        # البحث في iframes
+        try:
+            frames = page.frames
+            for frame in frames:
+                for selector in selectors:
+                    try:
+                        btn = await frame.query_selector(selector)
+                        if btn and await btn.is_visible():
+                            await btn.scroll_into_view_if_needed()
+                            await asyncio.sleep(0.3)
+                            await btn.click()
+                            logger.info(f"✅ تم الضغط على الزر في iframe باستخدام: {selector}")
+                            return True
+                    except:
+                        continue
+        except:
+            pass
+
+        # الحل الأخير: JavaScript
+        try:
+            result = await page.evaluate("""
+                () => {
+                    const btns = document.querySelectorAll('button, div[role="button"], a[role="button"]');
+                    for (let btn of btns) {
+                        const text = (btn.innerText || btn.getAttribute('aria-label') || '').toLowerCase();
+                        if (text.includes('start cloud shell') || text.includes('activate cloud shell') || text.includes('launch cloud shell') || text.includes('بدء cloud shell') || text.includes('تفعيل cloud shell') || text.includes('start')) {
+                            btn.scrollIntoView();
+                            btn.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            """)
+            if result:
+                logger.info("✅ تم الضغط على الزر عبر JavaScript.")
+                return True
+        except:
+            pass
+
+        logger.warning(f"⚠️ لم يتم العثور على زر Start في المحاولة {attempt+1}/{max_attempts}")
+        await asyncio.sleep(4)
+
+    logger.error("❌ فشل العثور على زر Start Cloud Shell بعد عدة محاولات.")
+    return False
 
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
     for attempt in range(max_retries):
@@ -788,7 +912,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة
+# 12. قلب الأتمتة (مع تحسينات شاشة الدخول)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -846,19 +970,25 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             
             context_browser, page = await create_authenticated_context(browser, token, email, project_id)
 
+            # ================================================================
+            # تأكيد تحميل الكوكيز قبل فتح الرابط
+            # ================================================================
+            cookies_before = await context_browser.cookies()
+            logger.info(f"🍪 عدد الكوكيز المحملة قبل فتح الرابط: {len(cookies_before)}")
+            if len(cookies_before) < 5:
+                logger.warning("⚠️ عدد الكوكيز قليل، قد تكون الجلسة غير مكتملة.")
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, "⚠️ عدد الكوكيز قليل جداً، قد تكون الجلسة منتهية.")
+                await browser.close()
+                return False, "", "⚠️ الكوكيز غير مكتملة. يرجى تحديث الكوكيز المضمنة.", int(time.time() - start_time), screenshot_path
+
             logger.info("📌 فتح الرابط...")
             await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
 
-            current_url = page.url
-            if "accounts.google.com" in current_url or "signin" in current_url.lower():
-                redirect_success, redirect_msg = await wait_for_redirect_auto(page, email, max_wait=30)
-                if not redirect_success:
-                    screenshot_path = await save_screenshot(page)
-                    await send_screenshot(update, screenshot_path, redirect_msg)
-                    await browser.close()
-                    return False, "", redirect_msg, int(time.time() - start_time), screenshot_path
-
-            redirect_success, redirect_msg = await wait_for_redirect_auto(page, email, max_wait=120)
+            # ================================================================
+            # معالج إعادة التوجيه مع دعم شاشات الاختيار
+            # ================================================================
+            redirect_success, redirect_msg = await wait_for_redirect_auto(update, page, email, max_wait=120)
             if not redirect_success:
                 screenshot_path = await save_screenshot(page)
                 await send_screenshot(update, screenshot_path, redirect_msg)
@@ -878,30 +1008,47 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 await browser.close()
                 return False, "", last_error, int(time.time() - start_time), screenshot_path
 
+            # تجاوز الأزرار الأولية
             for btn_text in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض", "Got it"]:
                 if await smart_click_button(page, [btn_text], [btn_text]):
                     logger.info(f"✅ تم تجاوز زر: {btn_text}")
                     await asyncio.sleep(random.uniform(1, 2))
 
+            # ================================================================
+            # التوجه إلى Cloud Shell مع انتظار مطول لظهور الزر
+            # ================================================================
             logger.info("🔄 التوجه إلى Cloud Shell...")
-            await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
+            await page.goto("https://shell.cloud.google.com", timeout=90000, wait_until="networkidle")
             logger.info("✅ تم تحميل صفحة Cloud Shell بنجاح.")
-            await asyncio.sleep(random.uniform(3, 5))
+            
+            # انتظر حتى يظهر الزر (حتى 30 ثانية إضافية)
+            for _ in range(15):
+                await asyncio.sleep(2)
+                found = await page.query_selector("button:has-text('Start Cloud Shell'), button[aria-label='Start Cloud Shell'], button:has-text('Activate Cloud Shell'), button:has-text('بدء Cloud Shell')")
+                if found:
+                    logger.info("✅ تم التأكد من ظهور زر Start.")
+                    break
+            else:
+                logger.warning("⚠️ لم يظهر زر Start بعد المهلة، سيتم المحاولة على أي حال.")
+            
+            await asyncio.sleep(random.uniform(2, 4))
 
             logger.info("🔍 جاري البحث عن زر 'Start Cloud Shell'...")
             start_clicked = False
-            for attempt in range(3):
-                logger.info(f"🔄 محاولة الضغط على Start (محاولة {attempt+1}/3)...")
-                start_clicked = await click_start_ultimate(page)
+            for attempt in range(5):
+                logger.info(f"🔄 محاولة الضغط على Start (محاولة {attempt+1}/5)...")
+                start_clicked = await click_start_ultimate(page, max_attempts=1)
                 if start_clicked:
                     logger.info(f"✅ تم الضغط على زر Start في المحاولة {attempt+1}.")
                     break
-                logger.warning(f"⚠️ فشلت المحاولة {attempt+1}، الانتظار 5 ثوانٍ وإعادة المحاولة...")
-                await asyncio.sleep(5)
+                logger.warning(f"⚠️ فشلت المحاولة {attempt+1}، الانتظار 6 ثوانٍ وإعادة المحاولة...")
+                await asyncio.sleep(6)
 
             if not start_clicked:
-                last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell بعد 3 محاولات."
+                last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell بعد 5 محاولات."
                 logger.warning(last_error)
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, last_error)
             else:
                 logger.info("✅ تم الضغط على Start Cloud Shell بنجاح.")
 
@@ -1060,7 +1207,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 14. واجهة البوت (مع دعم غياب token)
+# 14. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1304,7 +1451,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v23.4 (Hardcoded Cookies Fixed) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v23.6 (Ultimate Login Bypass) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
