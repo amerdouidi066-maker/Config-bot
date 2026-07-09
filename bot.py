@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v21.4 – CUSTOM_START (FIXED)
-- إصلاح خطأ async/await في execute_command_robust
-- ثلاث خيارات لرسالة /start احترافية
+SHADOW LEGION v21.6 – NO_BUTTONS
+- إزالة شريط الأزرار السفلي بالكامل
 - محرك تخفي 10/10
+- دعم Proxies و 2Captcha
+- رسالة /start احترافية
 """
 
 import os
@@ -24,7 +25,7 @@ import math
 import requests
 import aiohttp
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -61,7 +62,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v21.4 (Custom Start) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v21.6 (No Buttons) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية
@@ -620,82 +621,19 @@ async def click_start_ultimate(page) -> bool:
     )
 
 # ===================================================================
-# 11. تنفيذ الأوامر (مع إصلاح الخطأ)
+# 11. تنفيذ الأوامر (مبسط)
 # ===================================================================
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
+    """ينفذ الأمر باستخدام keyboard.type (الأكثر استقراراً) مع إعادة محاولة."""
     for attempt in range(max_retries):
         logger.info(f"▶️ تنفيذ: {cmd[:60]}... (محاولة {attempt+1}/{max_retries})")
         try:
-            # إصلاح: استخدام دالة متزامنة داخل evaluate بدلاً من async
-            result = await page.evaluate(f"""
-                (cmd) => {{
-                    const term = document.activeElement || document.querySelector('.xterm-helper-textarea, .xterm, .terminal, [role="textbox"]');
-                    if (term) {{
-                        term.focus();
-                        // محاكاة الكتابة عبر clipboard
-                        navigator.clipboard.writeText(cmd + '\\n').then(() => {{
-                            document.execCommand('paste');
-                        }});
-                        return true;
-                    }}
-                    return false;
-                }}
-            """, cmd)
-            if result:
-                await asyncio.sleep(1.5)
-                return True
-        except:
-            pass
-        try:
-            result = await page.evaluate(f"""
-                (cmd) => {{
-                    const term = document.activeElement || document.querySelector('.xterm-helper-textarea, .xterm, .terminal, [role="textbox"]');
-                    if (term) {{
-                        term.focus();
-                        const inputEvent = new InputEvent('input', {{
-                            inputType: 'insertText',
-                            data: cmd + '\\n',
-                            bubbles: true,
-                            cancelable: true
-                        }});
-                        if (term.value !== undefined) {{
-                            term.value = (term.value || '') + cmd + '\\n';
-                        }} else if (term.innerText !== undefined) {{
-                            term.innerText = (term.innerText || '') + cmd + '\\n';
-                        }}
-                        term.dispatchEvent(inputEvent);
-                        const enterEvent = new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }});
-                        term.dispatchEvent(enterEvent);
-                        return true;
-                    }}
-                    return false;
-                }}
-            """, cmd)
-            if result:
-                await asyncio.sleep(1.5)
-                return True
-        except:
-            pass
-        try:
+            await page.focus(".xterm-helper-textarea, .xterm, .terminal, [role='textbox']")
+            await asyncio.sleep(0.5)
             for ch in cmd:
-                await page.keyboard.type(ch, delay=random.randint(15, 40))
+                await page.keyboard.type(ch, delay=random.randint(10, 30))
             await page.keyboard.press("Enter")
-            await asyncio.sleep(1.5)
-            return True
-        except:
-            pass
-        try:
-            await page.evaluate(f"""
-                () => {{
-                    const input = document.activeElement || document.querySelector('.xterm-helper-textarea');
-                    if (input) {{
-                        input.value = (input.value || '') + '{cmd}\\n';
-                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        input.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter' }}));
-                    }}
-                }}
-            """)
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(2)
             return True
         except Exception as e:
             logger.error(f"فشل تنفيذ الأمر في المحاولة {attempt+1}: {e}")
@@ -1057,7 +995,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 16. واجهة البوت (مع رسالة /start قابلة للتخصيص)
+# 16. واجهة البوت (بدون أزرار)
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1077,13 +1015,6 @@ KNOWN_REGIONS = {
     "southamerica-east1": "🇧🇷 ساو باولو (Sao Paulo)",
 }
 
-def main_menu():
-    return ReplyKeyboardMarkup([
-        [KeyboardButton("🚀 نشر جديدة"), KeyboardButton("📊 إحصائياتي")],
-        [KeyboardButton("📜 سجل النشر"), KeyboardButton("❓ مساعدة")],
-        [KeyboardButton("🔄 إعادة المحاولة"), KeyboardButton("❌ إلغاء")]
-    ], resize_keyboard=True)
-
 def region_menu():
     kb = []
     row = []
@@ -1099,42 +1030,18 @@ def region_menu():
     kb.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
     return InlineKeyboardMarkup(kb)
 
-# ===================================================================
-# 🔥 اختر رسالة /start التي تفضلها (علّق على الخيارين الآخرين)
-# ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
-    
-    # ============================================================
-    # الخيار 1 – الأكثر احترافية وبساطة
-    # ============================================================
     await update.message.reply_text(
-        "مرحباً.\n"
-        "يرجى إرسال الرابط المطلوب لبدء العملية.",
-        reply_markup=main_menu()
+        "مرحباً بك في النظام المتقدم.\n\n"
+        "يرجى إرسال الرابط المطلوب لبدء العملية.\n"
+        "يمكنك استخدام الأزرار أدناه للتنقل بين الخدمات.",
+        reply_markup=ReplyKeyboardRemove()
     )
-    
-    # ============================================================
-    # الخيار 2 – رسمي ومختصر (علّق على الخيار 1 وافتح هذا)
-    # ============================================================
-    # await update.message.reply_text(
-    #     "🔹 النظام جاهز.\n"
-    #     "🔸 أرسل الرابط لبدء التنفيذ.",
-    #     reply_markup=main_menu()
-    # )
-    
-    # ============================================================
-    # الخيار 3 – أنيق ومؤسسي (علّق على الخيار 1 وافتح هذا)
-    # ============================================================
-    # await update.message.reply_text(
-    #     "⚡ النظام متاح.\n"
-    #     "📎 يرجى توفير الرابط المطلوب.",
-    #     reply_markup=main_menu()
-    # )
 
 async def deploy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚀 أرسل رابط Qwiklabs أو Google SSO:", reply_markup=main_menu())
+    await update.message.reply_text("🚀 أرسل رابط Qwiklabs أو Google SSO:", reply_markup=ReplyKeyboardRemove())
     return WAITING_LINK
 
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1142,7 +1049,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "❌ إلغاء" or text == "🔄 إعادة المحاولة":
         if text == "🔄 إعادة المحاولة":
             return await retry_command(update, context)
-        await update.message.reply_text("❌ تم الإلغاء.", reply_markup=main_menu())
+        await update.message.reply_text("❌ تم الإلغاء.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     
     extracted = smart_extract(text)
@@ -1173,16 +1080,16 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_id = update.effective_user.id
     user_data = get_user(user_id)
     if not user_data or not user_data.get("last_link"):
-        await update.message.reply_text("📭 لا يوجد رابط سابق لإعادة المحاولة.")
+        await update.message.reply_text("📭 لا يوجد رابط سابق لإعادة المحاولة.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     last_link = user_data["last_link"]
-    await update.message.reply_text(f"🔄 جاري إعادة استخدام الرابط السابق:", parse_mode="Markdown")
+    await update.message.reply_text(f"🔄 جاري إعادة استخدام الرابط السابق:", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
     extracted = smart_extract(last_link)
     project = extracted.get("project_id")
     token = extracted.get("token")
     email = extracted.get("email")
     if not project or not token:
-        await update.message.reply_text("❌ الرابط المخزن غير صالح.")
+        await update.message.reply_text("❌ الرابط المخزن غير صالح.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     context.user_data.update({"lab_url": last_link, "project_id": project, "token": token, "email": email})
     await update.message.reply_text(
@@ -1226,20 +1133,20 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_history(user_id, lab, service, vless, region, success=1, duration=duration, screenshot=screenshot)
         await q.message.reply_text(
             f"✅ **تم النشر بنجاح**\n🌍 {region_name}\n⏱️ {duration} ثانية\n🌐 `{service}`\n\n🔗 **VLESS:**\n`{vless}`",
-            parse_mode="Markdown", reply_markup=main_menu()
+            parse_mode="Markdown"
         )
     else:
         add_history(user_id, lab, "", "", region, success=0, error_msg=vless[:200], duration=duration, screenshot=screenshot)
         await q.message.reply_text(
             f"❌ **فشل النشر**\n\n```\n{vless}\n```",
-            parse_mode="Markdown", reply_markup=main_menu()
+            parse_mode="Markdown"
         )
 
     context.user_data.clear()
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("❌ تم الإلغاء.", reply_markup=main_menu())
+    await update.message.reply_text("❌ تم الإلغاء.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1249,20 +1156,20 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         f"📊 **إحصائياتك**\n👤 {u['first_name']}\n📦 نشرات: {u['deploy_count']}\n📅 انضم: {u['joined_at'][:16]}",
-        parse_mode="Markdown", reply_markup=main_menu()
+        parse_mode="Markdown"
     )
 
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     history = get_history(update.effective_user.id, 5)
     if not history:
-        await update.message.reply_text("📭 لا يوجد سجل.", reply_markup=main_menu())
+        await update.message.reply_text("📭 لا يوجد سجل.")
         return
     text = "📜 **آخر 5 نشرات:**\n"
     for i, h in enumerate(history, 1):
         status = "✅" if h['success'] else "❌"
         region = KNOWN_REGIONS.get(h['region_used'], h['region_used'])
         text += f"{i}. {status} {region} – {h['deployed_at'][:16]}\n"
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu())
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -1273,7 +1180,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/stats – إحصائياتك\n"
         "/history – سجل النشرات\n"
         "/cancel – إلغاء العملية",
-        parse_mode="Markdown", reply_markup=main_menu()
+        parse_mode="Markdown"
     )
 
 async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1332,7 +1239,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v21.4 (Custom Start) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v21.6 (No Buttons) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
