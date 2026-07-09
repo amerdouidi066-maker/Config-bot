@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v23.3 – HARDCODED_COOKIES
-- الكوكيز المضمنة مباشرة في الكود (لا حاجة لملف cookies.json)
-- Z3R0-STEALTH v2
-- ترويسات HTTP احترافية
-- دعم الروابط التي لا تحتوي على token (AddSession)
+SHADOW LEGION v23.4 – HARDCODED_COOKIES_FIXED
+- تصحيح sameSite: "None" بدلاً من "no_restriction"
+- Z3R0-STEALTH v2 النهائي
+- دعم الروابط بدون token (AddSession)
+- ترويسات HTTP احترافية مع Referer عشوائي
 - لقطات شاشة دائمة
+- معالجة متقدمة لشاشات تسجيل الدخول (بما فيها الفرنسية)
 """
 
 import os
@@ -61,7 +62,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v23.3 (Hardcoded Cookies) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v23.4 (Hardcoded Cookies Fixed) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -376,23 +377,23 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     context = await browser.new_context(**context_options)
 
     # ================================================================
-    # 🔥 الكوكيز المضمنة مباشرة (دائمة ولا تحتاج لملف)
+    # 🔥 الكوكيز المضمنة مباشرة (مع تصحيح sameSite)
     # ================================================================
     cookies = [
         {"name": "SAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "no_restriction"},
+        {"name": "__Secure-3PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
         {"name": "__Secure-1PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
         {"name": "APISID", "value": "RHsaBKVYMtAVWGi2/AlwtRaTi-hYvuaJzP", "domain": ".google.com", "path": "/", "secure": False},
         {"name": "HSID", "value": "Ag53T7geTHHtR8ZHU", "domain": ".google.com", "path": "/", "secure": False},
         {"name": "SSID", "value": "AxpGJl8kyO9o7ySmz", "domain": ".google.com", "path": "/", "secure": True},
         {"name": "SID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDf4E57O0vW0SExPoSYUJtkAACgYKARASARQSFQHGX2MivRer4LjlSHhMOnCsHRjnpBoVAUF8yKqWA_-BJRPIH__yizMU0i_Y0076", "domain": ".google.com", "path": "/", "secure": False},
         {"name": "__Secure-1PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDyTVqDlWj0_CAIo5Xaz4MMgACgYKAdYSARQSFQHGX2Mi4HDwWwlKXUTdtzNAlryTjBoVAUF8yKopZQBh62PiGsSctQRClff00076", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDiKinPT98rTDtiD4-SrNllQACgYKAbYSARQSFQHGX2MiUYFlgGm-fqgsDygOzSn6eRoVAUF8yKqi8zzCQgZxCxRqXq6JKSgU0076", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "no_restriction"},
+        {"name": "__Secure-3PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDiKinPT98rTDtiD4-SrNllQACgYKAbYSARQSFQHGX2MiUYFlgGm-fqgsDygOzSn6eRoVAUF8yKqi8zzCQgZxCxRqXq6JKSgU0076", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
         {"name": "__Secure-1PSIDCC", "value": "AKEyXzViJXJ36O-lTw96y-cCwCBS1VM-LSDfnmZk7go2bLJUaBS7TGGkuJRle4PEdLYresiS", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PSIDCC", "value": "AKEyXzVfy8ccQUdkOIRNeUFnrw-AT-sFT3f_tye2gmtUtg5fP7DaETWkVBG0yg6CoywybhnF", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "no_restriction"},
+        {"name": "__Secure-3PSIDCC", "value": "AKEyXzVfy8ccQUdkOIRNeUFnrw-AT-sFT3f_tye2gmtUtg5fP7DaETWkVBG0yg6CoywybhnF", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
         {"name": "SIDCC", "value": "AKEyXzXyU55lULRK51O_6eOFpZtoBDPCP2L2rzDnAiFrOcrIETQOMYMbFoyJ8I6DcL8DjKB2", "domain": ".google.com", "path": "/", "secure": False},
         {"name": "OSID", "value": "g.a000_wjNRTQakPou7N01ERdPCmrxFmtfLteOihlT7fA8iak2QMuU8AYPIOdsvBgUtc40tcC-UgACgYKAesSARQSFQHGX2Mi_UqTkEfUIeBE-z-D6hvVbBoVAUF8yKpIzivx8pIww0YSMzKPjzzX0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "hostOnly": True},
-        {"name": "__Secure-OSID", "value": "g.a000_wjNRTQakPou7N01ERdPCmrxFmtfLteOihlT7fA8iak2QMuUU-qvZAMkA4JCcQimn5CsawACgYKAXYSARQSFQHGX2MiXvWnBXSHqyx-OmPvM9brPxoVAUF8yKrJSRWueWLjDCccS19HZi1G0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "sameSite": "no_restriction", "hostOnly": True},
+        {"name": "__Secure-OSID", "value": "g.a000_wjNRTQakPou7N01ERdPCmrxFmtfLteOihlT7fA8iak2QMuUU-qvZAMkA4JCcQimn5CsawACgYKAXYSARQSFQHGX2MiXvWnBXSHqyx-OmPvM9brPxoVAUF8yKrJSRWueWLjDCccS19HZi1G0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "sameSite": "None", "hostOnly": True},
         {"name": "__Secure-DIVERSION_ID", "value": "AXzjpddp2zngCu3/Ld53kKQ5lsctSjkF9+i0FbVtwG+6:e", "domain": ".console.cloud.google.com", "path": "/", "secure": True, "httpOnly": True}
     ]
 
@@ -1303,7 +1304,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v23.3 (Hardcoded Cookies) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v23.4 (Hardcoded Cookies Fixed) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
