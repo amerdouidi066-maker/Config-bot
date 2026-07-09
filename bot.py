@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v23.2 – COOKIES_FIX
-- تحسين تحميل الكوكيز وقراءة الملف
-- طباعة مسار الملف الحالي للتشخيص
-- محاولة تحميل الملف مرتين عند الفشل
-- إضافة كوكيز احتياطية من التوكن إن وجد
-- Z3R0-STEALTH v2 مع سجلات تفصيلية
+SHADOW LEGION v23.3 – HARDCODED_COOKIES
+- الكوكيز المضمنة مباشرة في الكود (لا حاجة لملف cookies.json)
+- Z3R0-STEALTH v2
+- ترويسات HTTP احترافية
+- دعم الروابط التي لا تحتوي على token (AddSession)
+- لقطات شاشة دائمة
 """
 
 import os
@@ -61,7 +61,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v23.2 (Cookies Fix) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v23.3 (Hardcoded Cookies) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -311,34 +311,9 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 6. محرك التخفي Z3R0-STEALTH v2 (مع تحسين تحميل الكوكيز)
+# 6. محرك التخفي Z3R0-STEALTH v2 (مع الكوكيز المضمنة)
 # ===================================================================
-async def fallback_cookies(context, token):
-    """يضيف كوكيز احتياطية في حال عدم وجود ملف cookies.json"""
-    cookies_file = "cookies.json"
-    if os.path.exists(cookies_file):
-        try:
-            with open(cookies_file, "r") as f:
-                cookies = json.load(f)
-            await context.add_cookies(cookies)
-            logger.info("✅ تم تحميل الكوكيز من الملف (fallback).")
-            return
-        except Exception as e:
-            logger.warning(f"⚠️ فشل تحميل الكوكيز في fallback: {e}")
-    if token:
-        await context.add_cookies([
-            {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
-            {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
-            {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
-            {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
-            {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
-        ])
-        logger.warning("⚠️ تم استخدام كوكيز مزيفة (قد لا تعمل).")
-    else:
-        logger.warning("⚠️ لا يوجد token ولا ملف cookies.json – سيتم تخطي الكوكيز.")
-
 async def check_token_validity(browser, token: str) -> bool:
-    """يتحقق من صحة التوكن (يعيد False إذا كان None أو فارغاً)"""
     if not token:
         return False
     try:
@@ -401,55 +376,30 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     context = await browser.new_context(**context_options)
 
     # ================================================================
-    # 🔥 تحميل الكوكيز مع تحسينات (محاولة متعددة)
+    # 🔥 الكوكيز المضمنة مباشرة (دائمة ولا تحتاج لملف)
     # ================================================================
-    cookies_loaded_count = 0
-    cookies_file = "cookies.json"
-    current_dir = os.getcwd()
-    logger.info(f"📂 المسار الحالي: {current_dir}")
-    
-    # المحاولة الأولى: تحميل من الملف
-    if os.path.exists(cookies_file):
-        try:
-            with open(cookies_file, "r") as f:
-                cookies = json.load(f)
-            await context.add_cookies(cookies)
-            cookies_loaded = await context.cookies()
-            cookies_loaded_count = len(cookies_loaded)
-            logger.info(f"✅ تم تحميل {cookies_loaded_count} كوكي بنجاح.")
-            
-            essential = ['SID', 'HSID', 'SSID', '__Secure-3PSID']
-            found_essential = [c for c in cookies_loaded if c.get('name') in essential]
-            if len(found_essential) >= 3:
-                logger.info("✅ الكوكيز الأساسية موجودة – الجلسة صالحة على الأرجح.")
-            else:
-                logger.warning(f"⚠️ الكوكيز الأساسية مفقودة! الموجودة: {[c['name'] for c in found_essential]}")
-        except Exception as e:
-            logger.warning(f"⚠️ فشل تحميل الكوكيز من الملف: {e}")
-            # محاولة ثانية عبر fallback
-            await fallback_cookies(context, token)
-            # إعادة التحقق
-            cookies_loaded = await context.cookies()
-            cookies_loaded_count = len(cookies_loaded)
-    else:
-        logger.warning(f"⚠️ ملف {cookies_file} غير موجود في المسار الحالي.")
-        await fallback_cookies(context, token)
-        cookies_loaded = await context.cookies()
-        cookies_loaded_count = len(cookies_loaded)
+    cookies = [
+        {"name": "SAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "no_restriction"},
+        {"name": "__Secure-1PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "APISID", "value": "RHsaBKVYMtAVWGi2/AlwtRaTi-hYvuaJzP", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "HSID", "value": "Ag53T7geTHHtR8ZHU", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "SSID", "value": "AxpGJl8kyO9o7ySmz", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "SID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDf4E57O0vW0SExPoSYUJtkAACgYKARASARQSFQHGX2MivRer4LjlSHhMOnCsHRjnpBoVAUF8yKqWA_-BJRPIH__yizMU0i_Y0076", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "__Secure-1PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDyTVqDlWj0_CAIo5Xaz4MMgACgYKAdYSARQSFQHGX2Mi4HDwWwlKXUTdtzNAlryTjBoVAUF8yKopZQBh62PiGsSctQRClff00076", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDiKinPT98rTDtiD4-SrNllQACgYKAbYSARQSFQHGX2MiUYFlgGm-fqgsDygOzSn6eRoVAUF8yKqi8zzCQgZxCxRqXq6JKSgU0076", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "no_restriction"},
+        {"name": "__Secure-1PSIDCC", "value": "AKEyXzViJXJ36O-lTw96y-cCwCBS1VM-LSDfnmZk7go2bLJUaBS7TGGkuJRle4PEdLYresiS", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PSIDCC", "value": "AKEyXzVfy8ccQUdkOIRNeUFnrw-AT-sFT3f_tye2gmtUtg5fP7DaETWkVBG0yg6CoywybhnF", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "no_restriction"},
+        {"name": "SIDCC", "value": "AKEyXzXyU55lULRK51O_6eOFpZtoBDPCP2L2rzDnAiFrOcrIETQOMYMbFoyJ8I6DcL8DjKB2", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "OSID", "value": "g.a000_wjNRTQakPou7N01ERdPCmrxFmtfLteOihlT7fA8iak2QMuU8AYPIOdsvBgUtc40tcC-UgACgYKAesSARQSFQHGX2Mi_UqTkEfUIeBE-z-D6hvVbBoVAUF8yKpIzivx8pIww0YSMzKPjzzX0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "hostOnly": True},
+        {"name": "__Secure-OSID", "value": "g.a000_wjNRTQakPou7N01ERdPCmrxFmtfLteOihlT7fA8iak2QMuUU-qvZAMkA4JCcQimn5CsawACgYKAXYSARQSFQHGX2MiXvWnBXSHqyx-OmPvM9brPxoVAUF8yKrJSRWueWLjDCccS19HZi1G0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "sameSite": "no_restriction", "hostOnly": True},
+        {"name": "__Secure-DIVERSION_ID", "value": "AXzjpddp2zngCu3/Ld53kKQ5lsctSjkF9+i0FbVtwG+6:e", "domain": ".console.cloud.google.com", "path": "/", "secure": True, "httpOnly": True}
+    ]
 
-    # إذا كان العدد لا يزال 0، نحاول تحميل الملف مرة أخرى باستخدام مسار مطلق (محاولة أخيرة)
-    if cookies_loaded_count == 0:
-        logger.warning("⚠️ لم يتم تحميل أي كوكيز. محاولة تحميل الملف مرة أخرى...")
-        try:
-            if os.path.exists(cookies_file):
-                with open(cookies_file, "r") as f:
-                    cookies = json.load(f)
-                await context.add_cookies(cookies)
-                cookies_loaded = await context.cookies()
-                cookies_loaded_count = len(cookies_loaded)
-                logger.info(f"✅ تم تحميل {cookies_loaded_count} كوكي بعد المحاولة الثانية.")
-        except Exception as e:
-            logger.error(f"❌ فشلت المحاولة الثانية لتحميل الكوكيز: {e}")
+    # إضافة الكوكيز إلى السياق
+    await context.add_cookies(cookies)
+    cookies_loaded = await context.cookies()
+    logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي (مضمنة في الكود).")
 
     # ================================================================
     # 🔥 Z3R0-STEALTH v2 – سكريبت التخفي الشامل
@@ -543,7 +493,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
 
     page = await context.new_page()
     await simulate_mouse_movement(page)
-    logger.info(f"✅ سياق Z3R0-STEALTH v2 جاهز مع {cookies_loaded_count} كوكي.")
+    logger.info(f"✅ سياق Z3R0-STEALTH v2 جاهز مع {len(cookies_loaded)} كوكي (مضمنة).")
 
     return context, page
 
@@ -837,7 +787,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة (مع لقطات شاشة دائمة)
+# 12. قلب الأتمتة
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -851,7 +801,7 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
         if token:
             logger.info(f"🔑 التوكن: {token[:10]}...{token[-10:]}")
         else:
-            logger.info("ℹ️ الرابط لا يحتوي على token، سيتم استخدام cookies.json (إن وجد).")
+            logger.info("ℹ️ الرابط لا يحتوي على token.")
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
@@ -883,7 +833,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 ]
             )
             
-            # التحقق من صلاحية التوكن (فقط إذا كان موجوداً)
             if token:
                 logger.info("🔍 جاري التحقق من صلاحية التوكن...")
                 token_valid = await check_token_validity(browser, token)
@@ -892,14 +841,13 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     return False, "", "⛔ التوكن غير صالح أو منتهي الصلاحية. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
                 logger.info("✅ التوكن صالح.")
             else:
-                logger.info("ℹ️ لا يوجد token، سيتم تجاوز التحقق (الاعتماد على cookies.json).")
+                logger.info("ℹ️ لا يوجد token، سيتم الاعتماد على الكوكيز المضمنة.")
             
             context_browser, page = await create_authenticated_context(browser, token, email, project_id)
 
             logger.info("📌 فتح الرابط...")
             await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
 
-            # كشف فوري مع التقاط صورة
             current_url = page.url
             if "accounts.google.com" in current_url or "signin" in current_url.lower():
                 redirect_success, redirect_msg = await wait_for_redirect_auto(page, email, max_wait=30)
@@ -934,9 +882,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     logger.info(f"✅ تم تجاوز زر: {btn_text}")
                     await asyncio.sleep(random.uniform(1, 2))
 
-            # ================================================================
-            # 🚀 التوجه إلى Cloud Shell (مع سجلات تفصيلية)
-            # ================================================================
             logger.info("🔄 التوجه إلى Cloud Shell...")
             await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
             logger.info("✅ تم تحميل صفحة Cloud Shell بنجاح.")
@@ -959,16 +904,12 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             else:
                 logger.info("✅ تم الضغط على Start Cloud Shell بنجاح.")
 
-            # أزرار إضافية بعد Start
-            logger.info("🔍 جاري البحث عن أزرار إضافية (Authorize, Continue, etc.)...")
+            logger.info("🔍 جاري البحث عن أزرار إضافية...")
             for btn_text in ["Authorize", "تفويض", "Continue", "متابعة", "I understand", "Got it"]:
                 if await smart_click_button(page, [btn_text], [btn_text]):
                     logger.info(f"✅ تم الضغط على زر إضافي: {btn_text}")
                     await asyncio.sleep(2)
 
-            # ================================================================
-            # انتظار الطرفية
-            # ================================================================
             logger.info("⏳ في انتظار ظهور الطرفية (قد يستغرق 6 دقائق)...")
             terminal_ready, terminal_msg = await wait_for_terminal_enhanced(page, timeout_seconds=360)
             if not terminal_ready:
@@ -982,9 +923,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             logger.info("✅ الطرفية ظهرت بنجاح.")
             await asyncio.sleep(random.uniform(2, 4))
 
-            # ================================================================
-            # بناء سكريبت النشر وتنفيذه
-            # ================================================================
             deploy_script = generate_deploy_script(project_id, token, region, email)
             b64_script = base64.b64encode(deploy_script.encode()).decode()
             
@@ -1001,9 +939,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     logger.warning(last_error)
                 await asyncio.sleep(random.uniform(2, 3))
 
-            # ================================================================
-            # قراءة النتيجة
-            # ================================================================
             logger.info("📖 محاولة قراءة /tmp/result.txt...")
             result_content = ""
             
@@ -1049,9 +984,6 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 except:
                     pass
 
-            # ================================================================
-            # التقاط صورة نهائية وإغلاق المتصفح
-            # ================================================================
             os.makedirs("screenshots", exist_ok=True)
             screenshot_path = f"screenshots/{int(time.time())}.png"
             await page.screenshot(path=screenshot_path, full_page=True)
@@ -1190,28 +1122,15 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     token = extracted.get("token")
     email = extracted.get("email")
     
-    cookies_exists = os.path.exists("cookies.json")
-    is_add_session = "AddSession" in text or "accounts.google.com" in text
-    
     if not project:
         await update.message.reply_text("❌ لم أتمكن من استخراج **project** من الرابط.")
         return WAITING_LINK
-    
-    if not token and not cookies_exists and not is_add_session:
-        await update.message.reply_text(
-            "❌ لم أتمكن من استخراج **token** من الرابط.\n"
-            "تأكد من أن الرابط صحيح، أو قم برفع ملف `cookies.json` لتجاوز الحاجة إلى token."
-        )
-        return WAITING_LINK
-    
-    if not token:
-        logger.info("ℹ️ الرابط لا يحتوي على token، سيتم استخدام cookies.json (إن وجد) للجلسة.")
     
     user_id = update.effective_user.id
     update_last_link(user_id, text)
     context.user_data.update({"lab_url": text, "project_id": project, "token": token, "email": email})
     
-    token_display = token[:15] if token else "سيتم استخدام الجلسة"
+    token_display = token[:15] if token else "سيتم استخدام الكوكيز المضمنة"
     await update.message.reply_text(
         f"✅ **تم استخراج البيانات بنجاح**\n🆔 Project: `{project}`\n📧 Email: `{email if email else 'غير موجود'}`\n🔑 Token: `{token_display}`\n\n🌍 اختر المنطقة:",
         parse_mode="Markdown", reply_markup=region_menu()
@@ -1231,18 +1150,12 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     token = extracted.get("token")
     email = extracted.get("email")
     
-    cookies_exists = os.path.exists("cookies.json")
-    is_add_session = "AddSession" in last_link or "accounts.google.com" in last_link
-    
     if not project:
         await update.message.reply_text("❌ الرابط المخزن لا يحتوي على project.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
-    if not token and not cookies_exists and not is_add_session:
-        await update.message.reply_text("❌ الرابط المخزن لا يحتوي على token ولا يوجد cookies.json.", reply_markup=ReplyKeyboardRemove())
-        return ConversationHandler.END
     
     context.user_data.update({"lab_url": last_link, "project_id": project, "token": token, "email": email})
-    token_display = token[:15] if token else "سيتم استخدام الجلسة"
+    token_display = token[:15] if token else "سيتم استخدام الكوكيز المضمنة"
     await update.message.reply_text(
         f"✅ **تم استخراج البيانات بنجاح**\n🆔 Project: `{project}`\n📧 Email: `{email if email else 'غير موجود'}`\n🔑 Token: `{token_display}`\n\n🌍 اختر المنطقة:",
         parse_mode="Markdown", reply_markup=region_menu()
@@ -1390,7 +1303,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v23.2 (Cookies Fix) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v23.3 (Hardcoded Cookies) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
