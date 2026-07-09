@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v22.4 – ULTIMATE_STEALTH_BROWSER
+SHADOW LEGION v22.5 – ULTIMATE_ALWAYS_SCREENSHOT
 - 14 نقطة تزوير (WebGL, Canvas, Audio, deviceMemory, hardwareConcurrency, etc.)
 - محاكاة حركة الماوس البشرية (بدون page.evaluate)
+- استيراد الجلسة من cookies.json (إن وجد)
+- لقطات شاشة دائمة (نجاح وفشل)
 - Proxies ديناميكية + عشوائية كاملة
-- جلسة مزيفة بالتوكن
-- رسالة /start احترافية
+- جلسة مزيفة بالتوكن (في حال عدم وجود cookies.json)
 - خالٍ من أخطاء SyntaxError
+- رسالة /start احترافية
 """
 
 import os
@@ -63,7 +65,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v22.4 (Ultimate Stealth Browser) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v22.5 (Ultimate Always Screenshot) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -328,8 +330,19 @@ async def check_token_validity(browser, token: str) -> bool:
         return False
 
 # ===================================================================
-# 7. محرك التخفي الفائق (مع 14 نقطة تزوير)
+# 7. محرك التخفي الفائق + دعم cookies.json
 # ===================================================================
+async def fallback_cookies(context, token):
+    """يضيف كوكيز مزيفة في حالة عدم وجود ملف cookies.json"""
+    await context.add_cookies([
+        {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
+    ])
+    logger.info("⚠️ تم استخدام الكوكيز المزيفة (قد لا تعمل مع الروابط الجديدة).")
+
 async def create_authenticated_context(browser, token: str, email: str, project: str):
     fingerprint = generate_random_fingerprint()
     ua = random.choice(USER_AGENTS)
@@ -367,7 +380,22 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     
     context = await browser.new_context(**context_options)
 
-    # 🔥 سكريبت تدمير البصمة الفائق (14 نقطة تزوير)
+    # 🔥 تحميل الكوكيز من الملف إن وجد
+    cookies_file = "cookies.json"
+    if os.path.exists(cookies_file):
+        try:
+            with open(cookies_file, "r") as f:
+                cookies = json.load(f)
+            await context.add_cookies(cookies)
+            logger.info("✅ تم استيراد الكوكيز من الملف cookies.json بنجاح.")
+        except Exception as e:
+            logger.warning(f"⚠️ فشل تحميل الكوكيز من الملف: {e}")
+            await fallback_cookies(context, token)
+    else:
+        logger.info("ℹ️ ملف cookies.json غير موجود، سيتم استخدام الكوكيز المزيفة.")
+        await fallback_cookies(context, token)
+
+    # 🔥 سكريبت تدمير البصمة الفائق (14 نقطة)
     await context.add_init_script(f"""
         // 1. إزالة webdriver
         Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
@@ -466,25 +494,15 @@ async def create_authenticated_context(browser, token: str, email: str, project:
         }}
     """)
 
-    # جلسة مزيفة (Cookies)
-    await context.add_cookies([
-        {"name": "SID", "value": f"{token[:50]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "LSID", "value": f"{token[50:]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "SSID", "value": f"{token[::-1][:50]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "HSID", "value": f"{token[:20]}", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PSID", "value": f"{token}", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"}
-    ])
-
     page = await context.new_page()
     
-    # تطبيق playwright-stealth
     try:
         await stealth_async(page)
         logger.info("✅ تم تطبيق playwright-stealth.")
     except Exception as e:
         logger.warning(f"⚠️ فشل تطبيق stealth: {e}")
 
-    # محاكاة حركة الماوس (بدون evaluate)
+    # محاكاة حركة الماوس
     await simulate_mouse_movement(page)
 
     return context, page
@@ -493,15 +511,12 @@ async def create_authenticated_context(browser, token: str, email: str, project:
 # 8. محاكاة حركة الماوس (بدون page.evaluate)
 # ===================================================================
 async def simulate_mouse_movement(page):
-    """يحاكي حركة الماوس البشرية باستخدام دوال Playwright الآمنة"""
     try:
-        # حركات عشوائية متعددة
         for _ in range(random.randint(3, 6)):
             x = random.randint(100, 1800)
             y = random.randint(100, 900)
             await page.mouse.move(x, y, steps=random.randint(10, 30))
             await asyncio.sleep(random.uniform(0.1, 0.5))
-        # نقرة خفيفة (ليست حقيقية)
         await page.mouse.click(random.randint(100, 1800), random.randint(100, 900))
         logger.info("✅ تمت محاكاة حركة الماوس.")
     except Exception as e:
@@ -783,7 +798,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 16. قلب الأتمتة (مع محرك التخفي الفائق)
+# 16. قلب الأتمتة (مع لقطات شاشة دائمة)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
@@ -829,8 +844,14 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             logger.info("🔍 جاري التحقق من صلاحية التوكن...")
             token_valid = await check_token_validity(browser, token)
             if not token_valid:
+                # 🔥 التقاط صورة حتى عند فشل التحقق من التوكن
+                try:
+                    screenshot_path = await save_screenshot(page) if 'page' in locals() else ""
+                except:
+                    screenshot_path = ""
+                await send_screenshot(update, screenshot_path, "⛔ التوكن غير صالح أو منتهي الصلاحية. يرجى الحصول على رابط جديد.")
                 await browser.close()
-                return False, "", "⛔ التوكن غير صالح أو منتهي الصلاحية. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
+                return False, "", "⛔ التوكن غير صالح أو منتهي الصلاحية. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), screenshot_path
             logger.info("✅ التوكن صالح.")
 
             context_browser, page = await create_authenticated_context(browser, token, email, project_id)
@@ -838,11 +859,15 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             logger.info("📌 فتح الرابط...")
             await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
 
+            # 🔥 كشف فوري مع التقاط صورة
             current_url = page.url
             if "accounts.google.com" in current_url or "signin" in current_url.lower():
                 logger.warning("⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية).")
+                await asyncio.sleep(1)
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, "⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية). يرجى الحصول على رابط جديد.")
                 await browser.close()
-                return False, "", "⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية). يرجى الحصول على رابط جديد.", int(time.time() - start_time), ""
+                return False, "", "⛔ الرابط يعيد التوجيه إلى تسجيل الدخول (منتهي الصلاحية). يرجى الحصول على رابط جديد.", int(time.time() - start_time), screenshot_path
 
             redirect_success, redirect_msg = await wait_for_redirect_auto(page, email, max_wait=120)
             if not redirect_success:
@@ -962,6 +987,9 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 except:
                     pass
 
+            # ================================================================
+            # التقاط صورة نهائية (دائماً)
+            # ================================================================
             os.makedirs("screenshots", exist_ok=True)
             screenshot_path = f"screenshots/{int(time.time())}.png"
             await page.screenshot(path=screenshot_path, full_page=True)
@@ -973,6 +1001,8 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', result_content)
 
             if service_match and vless_match:
+                # 🔥 إرسال صورة النجاح
+                await send_screenshot(update, screenshot_path, "✅ تم النشر بنجاح")
                 return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time), screenshot_path
             else:
                 if not result_content:
@@ -1036,7 +1066,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 18. واجهة البوت
+# 18. واجهة البوت (بدون أزرار)
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1243,7 +1273,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 19. التشغيل الرئيسي
+# 19. التشغيل الرئيسي + خادم الويب
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1281,7 +1311,7 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v22.4 (Ultimate Stealth Browser) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v22.5 (Ultimate Always Screenshot) جاهز تماماً...")
     app.run_polling()
 
 if __name__ == "__main__":
