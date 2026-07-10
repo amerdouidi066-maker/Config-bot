@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v25.0 – ULTIMATE_LIVE_MASTER
-- بث مباشر للشاشة في لوحة التحكم (MJPEG)
+SHADOW LEGION v26.0 – MONGODB_MASTER
+- قاعدة بيانات MongoDB بدلاً من SQLite
+- بث مباشر للشاشة في لوحة التحكم
 - تسجيل دخول تفاعلي متخفي (/login + /done)
 - Z3R0-STEALTH v2
-- كوكيز حية ومضمنة
 - دعم الروابط بدون token
 - لقطات شاشة دائمة
 - 5 محاولات ذكية لـ Start Cloud Shell
@@ -19,7 +19,6 @@ import base64
 import random
 import logging
 import asyncio
-import sqlite3
 import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
@@ -40,10 +39,10 @@ from telegram.ext import (
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 # ===================================================================
-# استيراد نظام البث المباشر
+# استيراد MongoDB و stream_state
 # ===================================================================
+from pymongo import MongoClient
 import stream_state
-import web_dashboard
 
 # ===================================================================
 # 1. الإعدادات الأساسية
@@ -52,15 +51,20 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("❌ TOKEN غير موجود (ضعه في متغيرات البيئة)")
 
-DB_PATH = os.environ.get("DB_PATH", "shadow_legion.db")
+MONGO_URI = os.environ.get("MONGO_URI")
+if not MONGO_URI:
+    raise ValueError("❌ MONGO_URI غير موجود (ضعه في متغيرات البيئة)")
+
+MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "shadow_legion")
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "1"))
 SHELL_TIMEOUT = int(os.environ.get("SHELL_TIMEOUT", "600"))
 CLEANUP_DAYS = int(os.environ.get("CLEANUP_DAYS", "7"))
 PROXY_LIST = [p.strip() for p in os.environ.get("PROXY_LIST", "").split(",") if p.strip()]
 TWOCAPTCHA_API_KEY = os.environ.get("TWOCAPTCHA_API_KEY", "")
 COOKIES_FILE = "cookies_live.json"
-ENABLE_LIVE_STREAM = True  # تفعيل البث المباشر
+ENABLE_LIVE_STREAM = True
 
+# إعدادات التسجيل
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -70,10 +74,104 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v25.0 (Ultimate Live Master) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v26.0 (MongoDB Master) بدأ التشغيل...")
 
 # ===================================================================
-# 2. قوائم عشوائية للتمويه
+# 2. اتصال MongoDB
+# ===================================================================
+try:
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    db = client[MONGO_DB_NAME]
+    users_collection = db["users"]
+    history_collection = db["deploy_history"]
+    # تأكيد الاتصال
+    client.admin.command('ping')
+    logger.info("✅ الاتصال بـ MongoDB ناجح.")
+except Exception as e:
+    logger.error(f"❌ فشل الاتصال بـ MongoDB: {e}")
+    raise
+
+# ===================================================================
+# 3. دوال قاعدة البيانات (MongoDB)
+# ===================================================================
+def get_user(user_id: int) -> Optional[Dict]:
+    doc = users_collection.find_one({"_id": user_id})
+    if doc:
+        return {
+            "user_id": doc["_id"],
+            "username": doc.get("username"),
+            "first_name": doc.get("first_name"),
+            "last_name": doc.get("last_name"),
+            "deploy_count": doc.get("deploy_count", 0),
+            "last_active": doc.get("last_active"),
+            "joined_at": doc.get("joined_at"),
+            "last_link": doc.get("last_link")
+        }
+    return None
+
+def create_or_update_user(user_id: int, username: str = None, first_name: str = None, last_name: str = None):
+    now = datetime.now().isoformat()
+    users_collection.update_one(
+        {"_id": user_id},
+        {"$set": {
+            "username": username,
+            "first_name": first_name,
+            "last_name": last_name,
+            "last_active": now
+        }},
+        upsert=True
+    )
+
+def update_last_link(user_id: int, link: str):
+    users_collection.update_one(
+        {"_id": user_id},
+        {"$set": {"last_link": link, "last_active": datetime.now().isoformat()}}
+    )
+
+def increment_deploy_count(user_id: int):
+    users_collection.update_one(
+        {"_id": user_id},
+        {"$inc": {"deploy_count": 1}, "$set": {"last_active": datetime.now().isoformat()}}
+    )
+
+def add_history(user_id: int, lab_url: str, service_url: str, vless: str, region: str,
+                success: int = 1, error_msg: str = "", duration: int = 0, screenshot: str = ""):
+    history_collection.insert_one({
+        "user_id": user_id,
+        "lab_url": lab_url,
+        "service_url": service_url,
+        "vless_link": vless,
+        "region_used": region,
+        "success": success,
+        "error_msg": error_msg,
+        "duration_seconds": duration,
+        "screenshot_path": screenshot,
+        "deployed_at": datetime.now().isoformat()
+    })
+
+def get_history(user_id: int, limit: int = 10) -> List[Dict]:
+    docs = history_collection.find(
+        {"user_id": user_id},
+        sort=[("deployed_at", -1)],
+        limit=limit
+    )
+    result = []
+    for doc in docs:
+        result.append({
+            "id": str(doc["_id"]),
+            "lab_url": doc.get("lab_url"),
+            "service_url": doc.get("service_url"),
+            "vless_link": doc.get("vless_link"),
+            "region_used": doc.get("region_used"),
+            "deployed_at": doc.get("deployed_at"),
+            "success": doc.get("success", 0),
+            "error_msg": doc.get("error_msg"),
+            "duration": doc.get("duration_seconds", 0)
+        })
+    return result
+
+# ===================================================================
+# 4. دوال مساعدة (تمويه، كابتشا، إلخ)
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -86,9 +184,6 @@ USER_AGENTS = [
 TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydney", "America/Los_Angeles", "Europe/Paris", "Asia/Dubai"]
 LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8", "fr-FR,fr;q=0.9,en;q=0.8"]
 
-# ===================================================================
-# 3. دوال مساعدة
-# ===================================================================
 def get_random_proxy() -> Optional[str]:
     return random.choice(PROXY_LIST) if PROXY_LIST else None
 
@@ -141,117 +236,6 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
         return None
     except:
         return None
-
-# ===================================================================
-# 4. قاعدة البيانات
-# ===================================================================
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.executescript("""
-        PRAGMA journal_mode=WAL;
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            deploy_count INTEGER DEFAULT 0,
-            last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_link TEXT
-        );
-        CREATE TABLE IF NOT EXISTS deploy_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
-            lab_url TEXT,
-            service_url TEXT,
-            vless_link TEXT,
-            region_used TEXT,
-            deployed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            success INTEGER DEFAULT 1,
-            error_msg TEXT,
-            duration_seconds INTEGER DEFAULT 0,
-            screenshot_path TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_history_user ON deploy_history(user_id);
-        CREATE INDEX IF NOT EXISTS idx_history_date ON deploy_history(deployed_at DESC);
-    """)
-    conn.commit()
-    conn.close()
-init_db()
-
-def get_user(user_id: int) -> Optional[Dict]:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT user_id, username, first_name, last_name, deploy_count, last_active, joined_at, last_link FROM users WHERE user_id=?", (user_id,))
-    row = c.fetchone()
-    conn.close()
-    if row:
-        return {
-            "user_id": row[0],
-            "username": row[1],
-            "first_name": row[2],
-            "last_name": row[3],
-            "deploy_count": row[4],
-            "last_active": row[5],
-            "joined_at": row[6],
-            "last_link": row[7]
-        }
-    return None
-
-def create_or_update_user(user_id: int, username: str = None, first_name: str = None, last_name: str = None):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    existing = get_user(user_id)
-    if existing:
-        c.execute("UPDATE users SET username=?, first_name=?, last_name=?, last_active=CURRENT_TIMESTAMP WHERE user_id=?",
-                  (username, first_name, last_name, user_id))
-    else:
-        c.execute("INSERT INTO users (user_id, username, first_name, last_name) VALUES (?,?,?,?)",
-                  (user_id, username, first_name, last_name))
-    conn.commit()
-    conn.close()
-
-def update_last_link(user_id: int, link: str):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET last_link=? WHERE user_id=?", (link, user_id))
-    conn.commit()
-    conn.close()
-
-def increment_deploy_count(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET deploy_count = deploy_count + 1, last_active = CURRENT_TIMESTAMP WHERE user_id=?", (user_id,))
-    conn.commit()
-    conn.close()
-
-def add_history(user_id: int, lab_url: str, service_url: str, vless: str, region: str,
-                success: int = 1, error_msg: str = "", duration: int = 0, screenshot: str = ""):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO deploy_history (user_id, lab_url, service_url, vless_link, region_used,
-                                    success, error_msg, duration_seconds, screenshot_path)
-        VALUES (?,?,?,?,?,?,?,?,?)
-    """, (user_id, lab_url, service_url, vless, region, success, error_msg, duration, screenshot))
-    conn.commit()
-    conn.close()
-
-def get_history(user_id: int, limit: int = 10) -> List[Dict]:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, lab_url, service_url, vless_link, region_used, deployed_at, success, error_msg, duration_seconds
-        FROM deploy_history WHERE user_id=? ORDER BY deployed_at DESC LIMIT ?
-    """, (user_id, limit))
-    rows = c.fetchall()
-    conn.close()
-    return [{
-        "id": r[0], "lab_url": r[1], "service_url": r[2],
-        "vless_link": r[3], "region_used": r[4], "deployed_at": r[5],
-        "success": r[6], "error_msg": r[7], "duration": r[8]
-    } for r in rows]
 
 # ===================================================================
 # 5. المستخرج الذكي V7
@@ -395,7 +379,7 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 java_script_enabled=True,
             )
             
-            # تطبيق Z3R0-STEALTH الكامل
+            # تطبيق Z3R0-STEALTH الكامل على جلسة تسجيل الدخول
             await login_context.add_init_script(f"""
                 (() => {{
                     Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
@@ -735,7 +719,7 @@ async def simulate_mouse_movement(page):
         logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
 
 # ===================================================================
-# 9. دوال الأزرار والانتظار
+# 9. دوال الأزرار والانتظار (مختصرة للمساحة، نفس الكود السابق)
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
     if aria_labels is None:
@@ -1074,7 +1058,6 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
 streaming_active = False
 
 async def live_stream_broadcaster(page, duration_seconds=0):
-    """بث مباشر مع تحديث الحالة ودفع الإطارات."""
     global streaming_active
     streaming_active = True
     stream_state.set_streaming(True)
@@ -1517,8 +1500,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "📌 **SHADOW LEGION v25.0**\n\n"
-        "⚡️ نظام نشر آلي متخفي مع بث مباشر.\n\n"
+        "📌 **SHADOW LEGION v26.0**\n\n"
+        "⚡️ نظام نشر آلي متخفي مع بث مباشر وقاعدة بيانات MongoDB.\n\n"
         "📋 **الأوامر:**\n"
         "/login – تسجيل الدخول لمرة واحدة (يوصى به أولاً)\n"
         "/deploy – نشر خدمة جديدة\n"
@@ -1526,7 +1509,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/stats – إحصائياتك\n"
         "/history – سجل النشرات\n"
         "/help – المساعدة\n\n"
-        "🌐 **لوحة التحكم:** `http://localhost:8080`",
+        "🌐 **لوحة التحكم:** متاحة على الرابط العام للتطبيق",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardRemove()
     )
@@ -1695,14 +1678,21 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 16. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
+    """تشغيل خادم Flask مع المنفذ الديناميكي."""
     try:
         import threading
-        thread = threading.Thread(target=web_dashboard.run_web_server, kwargs={"port": 8080}, daemon=True)
+        import web_dashboard
+        port = int(os.environ.get("PORT", 8080))
+        thread = threading.Thread(
+            target=web_dashboard.run_web_server,
+            kwargs={"port": port},
+            daemon=True
+        )
         thread.start()
-        logger.info("🌐 لوحة التحكم (Dashboard) تعمل على http://0.0.0.0:8080")
-        logger.info("🔑 كلمة المرور الافتراضية: shadow2099 (غيّرها عبر WEB_PASSWORD)")
+        logger.info(f"🌐 لوحة التحكم تعمل على المنفذ {port}")
+        logger.info("🔑 كلمة المرور: shadow2099 (غيّرها عبر WEB_PASSWORD)")
     except Exception as e:
-        logger.warning(f"⚠️ فشل تشغيل لوحة التحكم: {e}")
+        logger.error(f"❌ فشل تشغيل لوحة التحكم: {e}")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -1731,9 +1721,9 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v25.0 (Ultimate Live Master) جاهز تماماً...")
-    logger.info("📌 استخدم /login أولاً لتسجيل الدخول وحفظ الجلسة الحية المتخفية.")
-    logger.info("🌐 افتح http://localhost:8080 لمشاهدة البث المباشر.")
+    logger.info("🔥 SHADOW LEGION v26.0 (MongoDB Master) جاهز تماماً...")
+    logger.info("📌 استخدم /login أولاً لتسجيل الدخول وحفظ الجلسة.")
+    logger.info("🌐 لوحة التحكم متاحة على الرابط العام للتطبيق.")
     app.run_polling()
 
 if __name__ == "__main__":
