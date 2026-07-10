@@ -10,18 +10,15 @@ _current_region = "-"
 _cookie_count = 0
 
 def update_frame(frame_bytes):
-    """تحديث الإطار الحالي (يُستدعى من البوت)."""
     global _last_frame
     with _frame_lock:
         _last_frame = frame_bytes
 
 def get_last_frame():
-    """استرجاع آخر إطار (يُستدعى من خادم الويب)."""
     with _frame_lock:
         return _last_frame
 
 def update_status(action=None, project=None, region=None, cookies=None):
-    """تحديث معلومات الحالة."""
     global _current_action, _current_project, _current_region, _cookie_count
     if action is not None:
         _current_action = action
@@ -33,7 +30,6 @@ def update_status(action=None, project=None, region=None, cookies=None):
         _cookie_count = cookies
 
 def get_status():
-    """استرجاع معلومات الحالة."""
     return {
         "action": _current_action,
         "project": _current_project,
