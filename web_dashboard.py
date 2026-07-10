@@ -1,4 +1,9 @@
-# web_dashboard.py
+
+───────────────────────────────────────────────────────────────
+[3] FILE: web_dashboard.py  (UNCHANGED – BUT CONFIRMED)
+───────────────────────────────────────────────────────────────
+*(Copy exactly as you sent it – it's correct. Paste it into web_dashboard.py)*
+```python
 import os
 import time
 from datetime import datetime, timedelta
