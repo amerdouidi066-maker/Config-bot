@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v35.0 – ULTIMATE_STABLE_BROWSER_FIX
-- إلغاء مهمة البث وانتظارها قبل إغلاق المتصفح
-- التقاط استثناء closed في حلقة البث
-- استخدام asyncio.CancelledError
-- جميع الميزات السابقة
+SHADOW LEGION v36.0 – FINAL_STABLE_STREAM_FIX
+- إصلاح نهائي لمشكلة إغلاق المتصفح
+- استخدام asyncio.Event لإيقاف البث فوراً
+- انتظار إلغاء المهمة مع مهلة
+- تحسين التعرف على استثناءات الإغلاق
 """
 
 import os
@@ -66,7 +66,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v35.0 (Ultimate Stable Browser Fix) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v36.0 (Final Stable Stream Fix) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -83,7 +83,7 @@ except Exception as e:
     raise
 
 # ===================================================================
-# 3. دوال قاعدة البيانات (مختصرة)
+# 3. دوال قاعدة البيانات
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     doc = users_collection.find_one({"_id": user_id})
@@ -511,12 +511,14 @@ async def wait_for_terminal(page, timeout=300) -> Tuple[bool, str]:
     return False, f"⏰ انتهت مهلة الطرفية ({timeout} ثانية)"
 
 # ===================================================================
-# 9. البث المباشر (مع إيقاف آمن عبر Exception)
+# 9. البث المباشر (مع إيقاف فوري عبر Event)
 # ===================================================================
+stream_stop_event = asyncio.Event()
+
 async def live_stream_broadcaster(page):
     logger.info("📹 بدء البث المباشر")
     try:
-        while True:
+        while not stream_stop_event.is_set():
             try:
                 screenshot = await page.screenshot(type='jpeg', quality=40, full_page=False)
                 if screenshot:
@@ -534,7 +536,7 @@ async def live_stream_broadcaster(page):
                 logger.warning(f"⚠️ خطأ في البث: {e}")
                 await asyncio.sleep(0.5)
     except asyncio.CancelledError:
-        logger.info("⏹️ تم إلغاء مهمة البث")
+        logger.info("⏹️ تم إلغاء مهمة البث (CancelledError)")
     finally:
         stream_state.set_streaming(False)
         logger.info("⏹️ تم إيقاف البث")
@@ -567,9 +569,10 @@ print(f"SERVICE_URL: {url}")
 '''
 
 # ===================================================================
-# 11. قلب الأتمتة (الحل الجذري مع إلغاء المهمة)
+# 11. قلب الأتمتة (الحل الجذري مع Event)
 # ===================================================================
 async def run_stealth_session(update, lab_url, region, start_time):
+    stream_stop_event.clear()  # مهم: إعادة تعيين الحدث
     video_path = None
     stream_task = None
     
@@ -614,11 +617,9 @@ async def run_stealth_session(update, lab_url, region, start_time):
                 # التحقق من الكوكيز
                 cookies = await context.cookies()
                 if len(cookies) < 5:
-                    stream_task.cancel()
-                    try:
-                        await stream_task
-                    except:
-                        pass
+                    stream_stop_event.set()
+                    if stream_task:
+                        await asyncio.wait_for(stream_task, timeout=0.5)
                     return False, "", "⚠️ الكوكيز غير مكتملة. استخدم /login", int(time.time()-start_time), ""
                 
                 # فتح الرابط
@@ -628,21 +629,17 @@ async def run_stealth_session(update, lab_url, region, start_time):
                 # انتظار إعادة التوجيه
                 ok, msg = await wait_for_redirect(page, 120)
                 if not ok:
-                    stream_task.cancel()
-                    try:
-                        await stream_task
-                    except:
-                        pass
+                    stream_stop_event.set()
+                    if stream_task:
+                        await asyncio.wait_for(stream_task, timeout=0.5)
                     return False, "", msg, int(time.time()-start_time), ""
                 
                 # التأكد من الوصول
                 page_text = await page.inner_text("body")
                 if "sign in" in page_text.lower() or "email" in page_text.lower():
-                    stream_task.cancel()
-                    try:
-                        await stream_task
-                    except:
-                        pass
+                    stream_stop_event.set()
+                    if stream_task:
+                        await asyncio.wait_for(stream_task, timeout=0.5)
                     return False, "", "⛔ فشل التجاوز: لا تزال شاشة الدخول", int(time.time()-start_time), ""
                 
                 # تجاوز الأزرار
@@ -669,11 +666,9 @@ async def run_stealth_session(update, lab_url, region, start_time):
                         break
                     await asyncio.sleep(4)
                 if not clicked:
-                    stream_task.cancel()
-                    try:
-                        await stream_task
-                    except:
-                        pass
+                    stream_stop_event.set()
+                    if stream_task:
+                        await asyncio.wait_for(stream_task, timeout=0.5)
                     return False, "", "⚠️ لم يتم العثور على زر Start", int(time.time()-start_time), ""
                 
                 # الأزرار الإضافية
@@ -684,11 +679,9 @@ async def run_stealth_session(update, lab_url, region, start_time):
                 # انتظار الطرفية
                 ok, msg = await wait_for_terminal(page, 360)
                 if not ok:
-                    stream_task.cancel()
-                    try:
-                        await stream_task
-                    except:
-                        pass
+                    stream_stop_event.set()
+                    if stream_task:
+                        await asyncio.wait_for(stream_task, timeout=0.5)
                     return False, "", msg, int(time.time()-start_time), ""
                 
                 # تنفيذ النشر إذا وجد project
@@ -724,15 +717,25 @@ async def run_stealth_session(update, lab_url, region, start_time):
                     pass
                 
                 # ================================================================
-                # إلغاء مهمة البث وانتظار انتهائها قبل إغلاق المتصفح
+                # إيقاف البث وانتظار المهمة مع مهلة
                 # ================================================================
-                stream_task.cancel()
-                try:
-                    await stream_task
-                except asyncio.CancelledError:
-                    pass
-                stream_state.set_streaming(False)
+                if stream_task:
+                    stream_stop_event.set()
+                    try:
+                        await asyncio.wait_for(stream_task, timeout=0.5)
+                    except asyncio.TimeoutError:
+                        logger.warning("⏰ مهلة إيقاف البث، إلغاء المهمة")
+                        stream_task.cancel()
+                        try:
+                            await stream_task
+                        except:
+                            pass
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        logger.warning(f"⚠️ خطأ أثناء إيقاف البث: {e}")
                 
+                stream_state.set_streaming(False)
                 # المتصفح يُغلق تلقائياً عند الخروج من async with
                 service_match = re.search(r'SERVICE_URL:\s*(https://[^\s]+)', result_content)
                 vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', result_content)
@@ -745,9 +748,9 @@ async def run_stealth_session(update, lab_url, region, start_time):
     except Exception as e:
         logger.error(f"❌ خطأ: {e}")
         if stream_task and not stream_task.done():
-            stream_task.cancel()
+            stream_stop_event.set()
             try:
-                await stream_task
+                await asyncio.wait_for(stream_task, timeout=0.5)
             except:
                 pass
         stream_state.set_streaming(False)
@@ -1002,7 +1005,7 @@ def main():
     app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v35.0 (Ultimate Stable Browser Fix) جاهز")
+    logger.info("🔥 SHADOW LEGION v36.0 (Final Stable Stream Fix) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
