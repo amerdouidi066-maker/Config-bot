@@ -5,22 +5,25 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta
-from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for
+from flask import Flask, Response, render_template_string, jsonify, request, session, redirect, url_for
 from functools import wraps
+
+# استيراد حالة البث المباشر
+import stream_state
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("WEB_SECRET", "shadow_legion_secret_key_2099")
 DB_PATH = os.environ.get("DB_PATH", "shadow_legion.db")
 PASSWORD = os.environ.get("WEB_PASSWORD", "shadow2099")
 
-# ============ HTML قالب متكامل (مع Bootstrap + JS) ============
+# ============ HTML قالب متكامل مع البث المباشر ============
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html dir="ltr" lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🛡️ Shadow Legion – Control Panel</title>
+    <title>🛡️ Shadow Legion – Live Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
@@ -32,7 +35,35 @@ HTML_TEMPLATE = '''
         .bg-danger-soft { background: #2b1218; color: #f87171; }
         .bg-primary-soft { background: #122238; color: #60a5fa; }
         .bg-warning-soft { background: #2b2412; color: #fbbf24; }
-        .log-container { height: 400px; overflow-y: auto; background: #0a0d12; border-radius: 12px; padding: 12px; font-size: 13px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-break: break-all; }
+        .stream-container {
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            border: 1px solid #2a3546;
+            position: relative;
+        }
+        .stream-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+        .stream-overlay {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            right: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0,0,0,0.7);
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid #2a354688;
+            font-size: 12px;
+        }
+        .log-container { height: 200px; overflow-y: auto; background: #0a0d12; border-radius: 12px; padding: 12px; font-size: 13px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-break: break-all; }
         .log-container::-webkit-scrollbar { width: 6px; }
         .log-container::-webkit-scrollbar-thumb { background: #2a3546; border-radius: 8px; }
         .table-dark { background: transparent; }
@@ -43,16 +74,74 @@ HTML_TEMPLATE = '''
         .badge-danger { background: #7a2d3a; }
         .refresh-btn { cursor: pointer; transition: 0.3s; }
         .refresh-btn:hover { transform: rotate(60deg); }
+        .live-badge {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 2px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .status-badge.running { background: #00ffcc22; color: #00ffcc; border: 1px solid #00ffcc55; }
+        .status-badge.waiting { background: #ffcc0022; color: #ffcc00; border: 1px solid #ffcc0055; }
+        .status-badge.error { background: #ff444422; color: #ff6666; border: 1px solid #ff444455; }
+        .status-badge.idle { background: #4444; color: #888; border: 1px solid #4444; }
     </style>
 </head>
 <body>
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v15.5 – Enterprise</small></h1>
+        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v16.0 – Live Stream</small></h1>
         <div>
             <span class="badge bg-secondary me-2" id="liveTime">{{ now }}</span>
             <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()" title="تحديث يدوي"></i>
             <a href="/logout" class="btn btn-sm btn-outline-danger ms-3"><i class="fas fa-sign-out-alt"></i> خروج</a>
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- البث المباشر (Live Stream) -->
+    <!-- ============================================================ -->
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-video text-danger me-2 live-badge"></i> <span class="text-danger fw-bold">LIVE</span> البث المباشر للمتصفح</span>
+                    <span>
+                        <span id="streamStatus" class="status-badge idle">⏸ خامل</span>
+                        <span class="badge bg-dark ms-2" id="streamDuration">00:00:00</span>
+                    </span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="stream-container">
+                        <img id="streamImg" src="/live_stream" alt="البث المباشر">
+                        <div class="stream-overlay">
+                            <div>
+                                <span style="color:#667;font-size:11px;">📌</span>
+                                <span id="overlayProject" style="color:#0af;font-size:13px;">-</span>
+                            </div>
+                            <div>
+                                <span style="color:#667;font-size:11px;">🌍</span>
+                                <span id="overlayRegion" style="color:#0af;font-size:13px;">-</span>
+                            </div>
+                            <div>
+                                <span style="color:#667;font-size:11px;">🍪</span>
+                                <span id="overlayCookies" style="color:#0af;font-size:13px;">-</span>
+                            </div>
+                            <div>
+                                <span id="overlayAction" style="color:#ffcc00;font-size:12px;">في انتظار الرابط</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -100,7 +189,7 @@ HTML_TEMPLATE = '''
                     <span><i class="fas fa-list-ul me-2"></i>آخر النشرات</span>
                     <span class="badge bg-dark" id="historyCount">0</span>
                 </div>
-                <div class="card-body p-0" style="max-height: 420px; overflow-y: auto;">
+                <div class="card-body p-0" style="max-height: 380px; overflow-y: auto;">
                     <table class="table table-dark table-hover mb-0">
                         <thead><tr><th>#</th><th>المنطقة</th><th>النتيجة</th><th>المدة</th><th>التوقيت</th><th>الرابط</th></tr></thead>
                         <tbody id="historyBody"></tbody>
@@ -114,7 +203,7 @@ HTML_TEMPLATE = '''
                 <div class="card-header"><i class="fas fa-screwdriver-wrench me-2"></i>لوحة التصحيح</div>
                 <div class="card-body">
                     <button class="btn btn-outline-primary w-100 mb-2" onclick="testPlaywright()"><i class="fas fa-play me-2"></i>اختبار Playwright</button>
-                    <button class="btn btn-outline-warning w-100 mb-2" onclick="clearCache()"><i class="fas fa-eraser me-2"></i>تنظيف قاعدة البيانات (احتراسي)</button>
+                    <button class="btn btn-outline-warning w-100 mb-2" onclick="clearCache()"><i class="fas fa-eraser me-2"></i>تنظيف السجل (30 يوم)</button>
                     <div class="mt-3 p-2 bg-dark rounded" id="debugOutput" style="font-size:12px; min-height:60px;">🟢 النظام جاهز</div>
                 </div>
             </div>
@@ -126,7 +215,7 @@ HTML_TEMPLATE = '''
         <div class="col-12">
             <div class="card">
                 <div class="card-header d-flex justify-content-between">
-                    <span><i class="fas fa-terminal me-2"></i>سجل الأحداث المباشر (Live Logs)</span>
+                    <span><i class="fas fa-terminal me-2"></i>سجل الأحداث المباشر</span>
                     <span><span class="badge bg-dark" id="logAutoRefresh">تحديث تلقائي</span></span>
                 </div>
                 <div class="card-body">
@@ -140,7 +229,9 @@ HTML_TEMPLATE = '''
 <script>
     const BASE = '';
     let logInterval;
+    let streamReloadInterval;
 
+    // تحديث إحصائيات البطاقات
     function fetchStats() {
         fetch(BASE + '/api/stats').then(r => r.json()).then(d => {
             document.getElementById('totalUsers').innerText = d.total_users;
@@ -150,6 +241,7 @@ HTML_TEMPLATE = '''
         }).catch(e => console.error(e));
     }
 
+    // تحديث جدول السجل
     function fetchHistory() {
         fetch(BASE + '/api/history').then(r => r.json()).then(data => {
             const tbody = document.getElementById('historyBody');
@@ -170,6 +262,7 @@ HTML_TEMPLATE = '''
         });
     }
 
+    // تحديث السجل النصي
     function fetchLogs() {
         fetch(BASE + '/api/logs').then(r => r.text()).then(text => {
             const container = document.getElementById('logContainer');
@@ -178,14 +271,34 @@ HTML_TEMPLATE = '''
         });
     }
 
+    // تحديث حالة البث المباشر
+    function fetchStreamStatus() {
+        fetch(BASE + '/api/stream_status').then(r => r.json()).then(d => {
+            const badge = document.getElementById('streamStatus');
+            if (d.streaming) {
+                badge.textContent = '🔴 بث مباشر';
+                badge.className = 'status-badge running';
+            } else {
+                badge.textContent = '⏸ خامل';
+                badge.className = 'status-badge idle';
+            }
+            document.getElementById('overlayProject').textContent = d.project || '-';
+            document.getElementById('overlayRegion').textContent = d.region || '-';
+            document.getElementById('overlayCookies').textContent = d.cookies || '-';
+            document.getElementById('overlayAction').textContent = d.action || 'في انتظار...';
+            document.getElementById('streamDuration').textContent = d.duration || '00:00:00';
+        }).catch(() => {});
+    }
+
     function fetchAll() {
         fetchStats();
         fetchHistory();
         fetchLogs();
+        fetchStreamStatus();
         document.getElementById('liveTime').innerText = new Date().toLocaleTimeString();
     }
 
-    // Debug Actions
+    // اختبار Playwright
     function testPlaywright() {
         document.getElementById('debugOutput').innerHTML = '⏳ جاري اختبار متصفح Chromium...';
         fetch(BASE + '/api/test_playwright').then(r => r.json()).then(d => {
@@ -194,8 +307,9 @@ HTML_TEMPLATE = '''
         });
     }
 
+    // تنظيف السجل القديم
     function clearCache() {
-        if(!confirm('⚠️ هل أنت متأكد من حذف سجل النشرات القديمة (آخر 30 يوم)؟')) return;
+        if(!confirm('⚠️ هل أنت متأكد من حذف سجل النشرات الأقدم من 30 يوم؟')) return;
         fetch(BASE + '/api/clear_old_history', {method: 'POST'}).then(r => r.json()).then(d => {
             document.getElementById('debugOutput').innerHTML = '🗑️ ' + d.message;
             fetchHistory();
@@ -203,17 +317,26 @@ HTML_TEMPLATE = '''
         });
     }
 
-    // Auto-refresh every 5 seconds
+    // تحميل أولي وتحديث دوري
     fetchAll();
-    logInterval = setInterval(fetchLogs, 4000);
+    logInterval = setInterval(fetchLogs, 3000);
     setInterval(fetchStats, 10000);
     setInterval(fetchHistory, 15000);
+    setInterval(fetchStreamStatus, 2000);
+
+    // إعادة تحميل البث إذا توقف (كحل احتياطي)
+    setInterval(() => {
+        const img = document.getElementById('streamImg');
+        if (img) {
+            img.src = '/live_stream?t=' + Date.now();
+        }
+    }, 5000);
 </script>
 </body>
 </html>
 '''
 
-# ============ دوال المساعدة للـ API ============
+# ============ دوال المساعدة ============
 def get_db_connection():
     return sqlite3.connect(DB_PATH)
 
@@ -225,6 +348,24 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
+# ============ مولد البث المباشر (MJPEG) ============
+def generate_frames():
+    """مولد إطارات MJPEG للبث المباشر."""
+    last_frame = None
+    while True:
+        frame = stream_state.get_last_frame()
+        if frame:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n'
+                   b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
+            last_frame = frame
+        else:
+            # إذا لم توجد صورة، ننتظر قليلاً
+            time.sleep(0.1)
+        # منع الحلقات اللانهائية السريعة جداً
+        time.sleep(0.05)
+
+# ============ Routes ============
 @app.route('/')
 @login_required
 def index():
@@ -250,7 +391,28 @@ def logout():
     session.pop('logged_in', None)
     return redirect(url_for('login'))
 
-# ============ API Endpoints ============
+@app.route('/live_stream')
+@login_required
+def live_stream():
+    """نقطة نهاية البث المباشر بصيغة MJPEG."""
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/stream_status')
+@login_required
+def api_stream_status():
+    """حالة البث المباشر."""
+    status = stream_state.get_status()
+    # حساب المدة التقريبية
+    return jsonify({
+        "streaming": status["streaming"],
+        "project": status["project"],
+        "region": status["region"],
+        "cookies": status["cookies"],
+        "action": status["action"],
+        "duration": "00:00:00"  # يمكن تحسينه لاحقاً
+    })
+
 @app.route('/api/stats')
 @login_required
 def api_stats():
