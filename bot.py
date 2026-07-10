@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v32.0 – BROWSER_FIX_MASTER
-- إصلاح جذري لمشكلة إغلاق المتصفح
-- استخدام async with لإدارة المتصفح
-- إلغاء مهمة البث قبل الإغلاق
-- بث سريع بجودة 40%
-- جميع الميزات السابقة
+SHADOW LEGION v33.0 – ULTIMATE_STABLE
+- إصلاح جذري لمشكلة إغلاق المتصفح (async with, cancel task, Event)
+- بث مباشر سريع مع إيقاف آمن
+- فتح الرابط مباشرة دون استخراج بيانات
+- Z3R0-STEALTH v2
+- MongoDB
+- إعادة محاولة ذكية
+- واجهة بوت مبسطة وغامضة
 """
 
 import os
@@ -67,7 +69,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v32.0 (Browser Fix Master) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v33.0 (Ultimate Stable) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -1009,7 +1011,7 @@ def main():
     app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v32.0 (Browser Fix Master) جاهز")
+    logger.info("🔥 SHADOW LEGION v33.0 (Ultimate Stable) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
