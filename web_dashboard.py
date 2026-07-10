@@ -25,7 +25,7 @@ def create_placeholder_frame(text="⏳ في انتظار البث..."):
         img = Image.new('RGB', (1280, 720), color=(10, 14, 20))
         draw = ImageDraw.Draw(img)
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 60)
         except:
             font = ImageFont.load_default()
         bbox = draw.textbbox((0, 0), text, font=font)
@@ -33,9 +33,10 @@ def create_placeholder_frame(text="⏳ في انتظار البث..."):
         h = bbox[3] - bbox[1]
         draw.text(((1280-w)//2, (720-h)//2), text, fill=(0, 255, 200), font=font)
         buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=80)
+        img.save(buf, format='JPEG', quality=85)
         return buf.getvalue()
-    except:
+    except Exception as e:
+        print(f"خطأ في إنشاء الإطار الافتراضي: {e}")
         return None
 
 PLACEHOLDER_FRAME = create_placeholder_frame()
@@ -52,9 +53,29 @@ HTML_TEMPLATE = '''
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        body { background: #0b0e14; color: #e0e6ed; font-family: system-ui, -apple-system, 'Tahoma', 'Segoe UI', Roboto, sans-serif; }
-        .card { background: #141a24; border: 1px solid #2a3546; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
-        .card-header { background: #1e2736; border-bottom: 1px solid #2a3546; font-weight: 600; }
+        /* تحسين وضوح الخط في كل مكان */
+        body {
+            background: #0b0e14;
+            color: #e0e6ed;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            font-size: 16px;
+            font-weight: 400;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .card {
+            background: #141a24;
+            border: 1px solid #2a3546;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+        }
+        .card-header {
+            background: #1e2736;
+            border-bottom: 1px solid #2a3546;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
         .stat-icon { font-size: 2.5rem; opacity: 0.7; }
         .bg-success-soft { background: #0f2b1a; color: #5be08b; }
         .bg-danger-soft { background: #2b1218; color: #f87171; }
@@ -74,43 +95,71 @@ HTML_TEMPLATE = '''
             object-fit: contain;
             display: block;
         }
-        .stream-overlay {
-            position: absolute;
-            bottom: 12px;
-            left: 12px;
-            right: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: rgba(0,0,0,0.7);
-            padding: 8px 16px;
-            border-radius: 8px;
-            border: 1px solid #2a354688;
-            font-size: 11px;
-            flex-wrap: wrap;
-            gap: 6px;
-            font-family: 'Courier New', monospace;
+        /* تحسين وضوح السجلات */
+        .log-container {
+            height: 200px;
+            overflow-y: auto;
+            background: #0a0d12;
+            border-radius: 12px;
+            padding: 14px 18px;
+            font-size: 14px;
+            font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            line-height: 1.7;
+            color: #c8d0dc;
         }
-        .stream-overlay .info-item { color: #aac; }
-        .stream-overlay .info-value { color: #0ff; font-weight: bold; }
-        .log-container { height: 200px; overflow-y: auto; background: #0a0d12; border-radius: 12px; padding: 12px; font-size: 13px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-break: break-all; }
         .log-container::-webkit-scrollbar { width: 6px; }
         .log-container::-webkit-scrollbar-thumb { background: #2a3546; border-radius: 8px; }
         .table-dark { background: transparent; }
-        .table-dark td, .table-dark th { border-color: #1e2736; }
+        .table-dark td, .table-dark th {
+            border-color: #1e2736;
+            font-size: 14px;
+            padding: 10px 12px;
+        }
         .refresh-btn { cursor: pointer; transition: 0.3s; }
         .refresh-btn:hover { transform: rotate(60deg); }
         .live-badge { animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        .status-badge { display: inline-block; padding: 2px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+        }
         .status-badge.running { background: #00ffcc22; color: #00ffcc; border: 1px solid #00ffcc55; }
         .status-badge.idle { background: #4444; color: #888; border: 1px solid #4444; }
+        /* تحسين النصوص العامة */
+        h1, h2, h3, h4, .fs-3, .fs-6, .badge, .btn {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        }
+        .badge {
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .btn {
+            font-weight: 600;
+        }
+        .text-light {
+            color: #e8edf4 !important;
+        }
+        .text-secondary {
+            color: #9aa8b9 !important;
+        }
+        .card-body {
+            font-size: 15px;
+        }
+        small {
+            font-size: 0.85rem;
+            color: #8a9aad;
+        }
     </style>
 </head>
 <body>
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v28.0 – Recorder</small></h1>
+        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v28.1 – Clear</small></h1>
         <div>
             <span class="badge bg-secondary me-2" id="liveTime">{{ now }}</span>
             <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()"></i>
@@ -131,14 +180,6 @@ HTML_TEMPLATE = '''
                 <div class="card-body p-0">
                     <div class="stream-container">
                         <img id="streamImg" src="/live_stream" alt="البث المباشر">
-                        <div class="stream-overlay">
-                            <div><span class="info-item">📌</span> <span id="overlayProject" class="info-value">-</span></div>
-                            <div><span class="info-item">🌍</span> <span id="overlayRegion" class="info-value">-</span></div>
-                            <div><span class="info-item">🍪</span> <span id="overlayCookies" class="info-value">-</span></div>
-                            <div><span class="info-item">🔑</span> <span id="overlayToken" class="info-value">-</span></div>
-                            <div><span class="info-item">📧</span> <span id="overlayEmail" class="info-value">-</span></div>
-                            <div><span id="overlayAction" style="color:#ffcc00;font-weight:bold;">في انتظار البث</span></div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -170,7 +211,7 @@ HTML_TEMPLATE = '''
                 <div class="card-body">
                     <button class="btn btn-outline-primary w-100 mb-2" onclick="testPlaywright()"><i class="fas fa-play me-2"></i>اختبار Playwright</button>
                     <button class="btn btn-outline-warning w-100 mb-2" onclick="clearCache()"><i class="fas fa-eraser me-2"></i>تنظيف السجل</button>
-                    <div class="mt-3 p-2 bg-dark rounded" id="debugOutput" style="font-size:12px; min-height:60px;">🟢 النظام جاهز</div>
+                    <div class="mt-3 p-2 bg-dark rounded" id="debugOutput" style="font-size:13px; min-height:60px; font-family: monospace; color:#b0c4de;">🟢 النظام جاهز</div>
                 </div>
             </div>
         </div>
@@ -225,12 +266,6 @@ HTML_TEMPLATE = '''
             const badge = document.getElementById('streamStatus');
             if (d.streaming) { badge.textContent = '🔴 بث مباشر'; badge.className = 'status-badge running'; }
             else { badge.textContent = '⏸ خامل'; badge.className = 'status-badge idle'; }
-            document.getElementById('overlayProject').textContent = d.project || '-';
-            document.getElementById('overlayRegion').textContent = d.region || '-';
-            document.getElementById('overlayCookies').textContent = d.cookies || '-';
-            document.getElementById('overlayToken').textContent = d.token || '-';
-            document.getElementById('overlayEmail').textContent = d.email || '-';
-            document.getElementById('overlayAction').textContent = d.action || 'في انتظار البث';
             document.getElementById('streamDuration').textContent = d.duration || '00:00:00';
         }).catch(() => {});
     }
@@ -298,8 +333,8 @@ def login():
     <div style="max-width:400px;margin:100px auto;background:#141a24;padding:40px;border-radius:16px;border:1px solid #2a3546;">
         <h3 class="text-light">🔐 دخول</h3>
         <form method="post">
-            <input type="password" name="pass" placeholder="كلمة المرور" class="form-control bg-dark text-light my-3" style="border:1px solid #2a3546;">
-            <button class="btn btn-primary w-100" type="submit">دخول</button>
+            <input type="password" name="pass" placeholder="كلمة المرور" class="form-control bg-dark text-light my-3" style="border:1px solid #2a3546; font-family:system-ui; font-size:16px;">
+            <button class="btn btn-primary w-100" type="submit" style="font-weight:600;">دخول</button>
         </form>
     </div>
     '''
