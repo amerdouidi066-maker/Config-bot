@@ -1,26 +1,48 @@
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
+# تثبيت اعتماديات النظام الضرورية لتشغيل Chromium
 RUN apt-get update && apt-get install -y \
-    wget curl gnupg \
-    libnss3 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
-    libxi6 libxtst6 libxrandr2 libasound2 libatk-bridge2.0-0 libgtk-3-0 \
-    libgbm1 libxshmfence1 fonts-liberation libappindicator3-1 xdg-utils \
+    wget \
+    gnupg \
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libxkbcommon0 \
+    libgbm1 \
+    libasound2 \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
+# تثبيت Google Chrome (بديل أكثر استقراراً من Chromium)
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list \
+    && apt-get update && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# تثبيت متطلبات Python
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && playwright install chromium
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# تثبيت Playwright مع Chromium (كاحتياطي)
+RUN playwright install chromium
+RUN playwright install-deps
 
+# نسخ ملفات المشروع
+COPY *.py ./
+COPY start.sh ./
+RUN chmod +x start.sh
+
+# متغيرات البيئة
 ENV TOKEN=""
+ENV MONGO_URI=""
 ENV WEB_PASSWORD="shadow2099"
-ENV WEB_SECRET="shadow_legion_secret"
-ENV CLEANUP_DAYS="7"
-ENV TWOCAPTCHA_API_KEY=""
-ENV PROXY_LIST=""
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/playwright-browsers
+ENV PYTHONUNBUFFERED=1
 
+# المنفذ
 EXPOSE 8080
 
-CMD ["python3", "bot.py"]
+# أمر البدء
+CMD ["./start.sh"]
