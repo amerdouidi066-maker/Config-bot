@@ -1,48 +1,88 @@
-FROM python:3.10-slim
+# ===================================================================
+# SHADOW LEGION v38.0 – DOCKERFILE (ARCHITECT_EDITION)
+# ===================================================================
+# القاعدة: Debian 12 (Bookworm) + Python 3.10
+FROM python:3.10-slim AS builder
+
+# تعيين متغيرات البيئة الأساسية (غير حساسة)
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
-# تثبيت اعتماديات النظام الضرورية لتشغيل Chromium
-RUN apt-get update && apt-get install -y \
+# ===================================================================
+# 1. تحديث الحزم وتثبيت الأدوات الأساسية
+# ===================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
+    ca-certificates \
+    curl \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# ===================================================================
+# 2. تثبيت Google Chrome بالطريقة الحديثة (بدون apt-key)
+# ===================================================================
+# تحميل المفتاح وتحويله إلى تنسيق gpg
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+
+# إضافة المستودع مع التوقيع
+RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb stable main" \
+    > /etc/apt/sources.list.d/google-chrome.list
+
+# ===================================================================
+# 3. تثبيت Chrome + تبعيات Playwright الأساسية
+# ===================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    google-chrome-stable \
+    # تبعيات Playwright (Chromium Headless)
     libnss3 \
     libatk-bridge2.0-0 \
     libdrm2 \
     libxkbcommon0 \
     libgbm1 \
     libasound2 \
-    fonts-dejavu-core \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm-dev \
+    libpango-1.0-0 \
+    libcairo2 \
+    libpixman-1-0 \
+    libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
-# تثبيت Google Chrome (بديل أكثر استقراراً من Chromium)
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list \
-    && apt-get update && apt-get install -y google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
-
-# تثبيت متطلبات Python
+# ===================================================================
+# 4. تثبيت الاعتماديات البرمجية (Python)
+# ===================================================================
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# تثبيت Playwright مع Chromium (كاحتياطي)
-RUN playwright install chromium
-RUN playwright install-deps
+# تثبيت Playwright أولاً لتجنب تعارض الإصدارات
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# نسخ ملفات المشروع
-COPY *.py ./
-COPY start.sh ./
-RUN chmod +x start.sh
+# ===================================================================
+# 5. تثبيت متصفحات Playwright (مدمجة) مع تبعياتها
+# ===================================================================
+RUN playwright install chromium && \
+    playwright install-deps
 
-# متغيرات البيئة
-ENV TOKEN=""
-ENV MONGO_URI=""
-ENV WEB_PASSWORD="shadow2099"
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/playwright-browsers
-ENV PYTHONUNBUFFERED=1
+# ===================================================================
+# 6. نسخ الكود المصدري
+# ===================================================================
+COPY . .
 
-# المنفذ
-EXPOSE 8080
+# ===================================================================
+# 7. (اختياري) مستخدم غير جذري لتشغيل آمن
+# ===================================================================
+RUN useradd -m -u 1000 shadow && chown -R shadow:shadow /app
+USER shadow
 
-# أمر البدء
-CMD ["./start.sh"]
+# ===================================================================
+# 8. أمر التشغيل
+# ===================================================================
+CMD ["python", "bot.py"]
