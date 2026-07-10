@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v23.6 – ULTIMATE_LOGIN_BYPASS
-- إصلاح شامل لشاشات Google (Choose account, Sign in, Password)
-- الكوكيز المضمنة مع تحقق من تحميلها
-- معالج اختيار الحساب التلقائي
-- Z3R0-STEALTH v2 النهائي
-- دعم كامل للروابط بدون token
+SHADOW LEGION v25.0 – ULTIMATE_LIVE_MASTER
+- بث مباشر للشاشة في لوحة التحكم (MJPEG)
+- تسجيل دخول تفاعلي متخفي (/login + /done)
+- Z3R0-STEALTH v2
+- كوكيز حية ومضمنة
+- دعم الروابط بدون token
 - لقطات شاشة دائمة
-- تحسينات في انتظار الطرفية وزر Start
+- 5 محاولات ذكية لـ Start Cloud Shell
 """
 
 import os
@@ -40,6 +40,12 @@ from telegram.ext import (
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 # ===================================================================
+# استيراد نظام البث المباشر
+# ===================================================================
+import stream_state
+import web_dashboard
+
+# ===================================================================
 # 1. الإعدادات الأساسية
 # ===================================================================
 TOKEN = os.environ.get("TOKEN")
@@ -52,6 +58,8 @@ SHELL_TIMEOUT = int(os.environ.get("SHELL_TIMEOUT", "600"))
 CLEANUP_DAYS = int(os.environ.get("CLEANUP_DAYS", "7"))
 PROXY_LIST = [p.strip() for p in os.environ.get("PROXY_LIST", "").split(",") if p.strip()]
 TWOCAPTCHA_API_KEY = os.environ.get("TWOCAPTCHA_API_KEY", "")
+COOKIES_FILE = "cookies_live.json"
+ENABLE_LIVE_STREAM = True  # تفعيل البث المباشر
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -62,7 +70,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v23.6 (Ultimate Login Bypass) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v25.0 (Ultimate Live Master) بدأ التشغيل...")
 
 # ===================================================================
 # 2. قوائم عشوائية للتمويه
@@ -79,7 +87,7 @@ TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydne
 LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8", "fr-FR,fr;q=0.9,en;q=0.8"]
 
 # ===================================================================
-# 3. دوال مساعدة متقدمة
+# 3. دوال مساعدة
 # ===================================================================
 def get_random_proxy() -> Optional[str]:
     return random.choice(PROXY_LIST) if PROXY_LIST else None
@@ -246,10 +254,9 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for r in rows]
 
 # ===================================================================
-# 5. المستخرج الذكي V7 – يدعم روابط AddSession
+# 5. المستخرج الذكي V7
 # ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
-    """يستخرج project, token, email من أي رابط (بما فيه AddSession)"""
     link = link.strip()
     decoded = link
     for _ in range(5):
@@ -259,7 +266,6 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     token = None
     email = None
     
-    # 1. استخراج project من معامل continue
     continue_match = re.search(r'[?&]continue=([^&]+)', decoded)
     if continue_match:
         continue_url = urllib.parse.unquote(continue_match.group(1))
@@ -271,20 +277,17 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
             if project_match:
                 project = project_match.group(1)
     
-    # 2. إذا لم نجد، نبحث في المعاملات المباشرة
     if not project:
         parsed = urllib.parse.urlparse(decoded)
         params = urllib.parse.parse_qs(parsed.query)
         project = params.get('project', [None])[0] or params.get('projectId', [None])[0] or params.get('id', [None])[0]
     
-    # 3. استخراج البريد الإلكتروني من جزء # (Fragment)
     if '#' in decoded:
         fragment = decoded.split('#')[1] if len(decoded.split('#')) > 1 else ''
         email_match = re.search(r'[?&]?Email=([^&]+)', fragment)
         if email_match:
             email = urllib.parse.unquote(email_match.group(1))
     
-    # 4. إذا لم نجد، نبحث في النص الكامل
     if not email:
         email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
         all_emails = re.findall(email_pattern, decoded)
@@ -296,7 +299,6 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
             if not email:
                 email = all_emails[0]
     
-    # 5. استخراج token (إن وجد)
     if not token:
         parsed = urllib.parse.urlparse(decoded)
         params = urllib.parse.parse_qs(parsed.query)
@@ -312,7 +314,225 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 6. محرك التخفي Z3R0-STEALTH v2 (مع الكوكيز المضمنة)
+# 6. نظام الجلسة الحية المتخفي (Login / Done)
+# ===================================================================
+login_event = asyncio.Event()
+login_context = None
+login_browser = None
+
+async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global login_context, login_browser, login_event
+    
+    try:
+        login_event.clear()
+        
+        await update.message.reply_text(
+            "🔐 **جاري فتح متصفح متخفي لتسجيل الدخول...**\n"
+            "سيتم فتح نافذة Chrome مع تطبيق Z3R0-STEALTH بالكامل.\n"
+            "قم بتسجيل الدخول إلى حساب Google الخاص بك.\n"
+            "⚠️ لا تغلق المتصفح حتى ترى رسالة 'تم الحفظ'.\n"
+            "بعد تسجيل الدخول، ارسل الأمر `/done`.",
+            parse_mode="Markdown"
+        )
+        
+        fingerprint = generate_random_fingerprint()
+        ua = random.choice(USER_AGENTS)
+        width = random.randint(1800, 1920)
+        height = random.randint(1000, 1080)
+        tz = random.choice(TIMEZONES)
+        lang = random.choice(LANGUAGES)
+        lat = random.uniform(30, 50)
+        lon = random.uniform(-100, -70)
+        
+        async with async_playwright() as p:
+            login_browser = await p.chromium.launch(
+                headless=False,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--disable-web-security",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-component-extensions-with-background-pages",
+                    "--disable-default-apps",
+                    "--disable-extensions",
+                    "--disable-features=TranslateUI",
+                    "--disable-ipc-flooding-protection",
+                    "--disable-popup-blocking",
+                    "--disable-prompt-on-repost",
+                    "--disable-sync",
+                    "--force-color-profile=srgb",
+                    "--metrics-recording-only",
+                    "--no-first-run"
+                ]
+            )
+            
+            login_context = await login_browser.new_context(
+                user_agent=ua,
+                viewport={"width": width, "height": height},
+                locale=lang.split(",")[0],
+                timezone_id=tz,
+                permissions=["geolocation"],
+                geolocation={"latitude": lat, "longitude": lon},
+                extra_http_headers={
+                    "Accept-Language": lang,
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Sec-Ch-Ua": '"Google Chrome";v="126", "Chromium";v="126", "Not?A_Brand";v="99"',
+                    "Sec-Ch-Ua-Mobile": "?0",
+                    "Sec-Ch-Ua-Platform": '"Windows"',
+                    "Upgrade-Insecure-Requests": "1",
+                    "User-Agent": ua,
+                    "Referer": get_random_referer(),
+                    "Origin": "https://console.cloud.google.com"
+                },
+                ignore_https_errors=True,
+                accept_downloads=True,
+                java_script_enabled=True,
+            )
+            
+            # تطبيق Z3R0-STEALTH الكامل
+            await login_context.add_init_script(f"""
+                (() => {{
+                    Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+                    Object.defineProperty(navigator, 'selenium', {{ get: () => undefined }});
+                    delete window.__webdriver_evaluate;
+                    delete window.__webdriver_script_function;
+                    delete window.__webdriver_script_func;
+
+                    if (!window.chrome) {{
+                        window.chrome = {{ runtime: {{}}, loadTimes: () => {{}}, csi: () => {{}}, app: {{}} }};
+                    }}
+
+                    const plugins = [
+                        {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' }},
+                        {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' }},
+                        {{ name: 'Native Client', filename: 'internal-nacl-plugin' }}
+                    ];
+                    plugins.length = 5;
+                    navigator.__defineGetter__('plugins', () => plugins);
+
+                    Object.defineProperty(navigator, 'languages', {{ get: () => ['{lang}', 'en-US', 'en'] }});
+                    Object.defineProperty(navigator, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
+                    Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {fingerprint["device_memory"]} }});
+                    Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {fingerprint["hardware_concurrency"]} }});
+
+                    const realGetParam = WebGLRenderingContext.prototype.getParameter;
+                    WebGLRenderingContext.prototype.getParameter = function(p) {{
+                        if (p === 37445) return '{fingerprint["vendor"]}';
+                        if (p === 37446) return '{fingerprint["renderer"]}';
+                        if (p === 7936) return 'WebGL 1.0';
+                        if (p === 7937) return 'WebGL GLSL ES 1.0';
+                        return realGetParam.call(this, p);
+                    }};
+                    WebGLRenderingContext.prototype.getExtension = function(name) {{
+                        if (name === 'WEBGL_debug_renderer_info') return null;
+                        return WebGLRenderingContext.prototype.getExtension.call(this, name);
+                    }};
+
+                    const canvasNoise = {fingerprint["canvas_noise"]};
+                    const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+                    HTMLCanvasElement.prototype.toDataURL = function(type) {{
+                        if (type === 'image/png' || !type) {{
+                            const ctx = this.getContext('2d');
+                            if (ctx) {{
+                                const imgData = ctx.getImageData(0, 0, this.width, this.height);
+                                for (let i = 0; i < imgData.data.length; i += 4) {{
+                                    if (Math.random() < canvasNoise) {{
+                                        imgData.data[i] ^= (Math.random() > 0.5 ? 1 : 0);
+                                        imgData.data[i+1] ^= (Math.random() > 0.5 ? 1 : 0);
+                                        imgData.data[i+2] ^= (Math.random() > 0.5 ? 1 : 0);
+                                    }}
+                                }}
+                                ctx.putImageData(imgData, 0, 0);
+                            }}
+                        }}
+                        return origToDataURL.apply(this, arguments);
+                    }};
+
+                    const audioNoise = {fingerprint["audio_noise"]};
+                    const origChannel = AudioBuffer.prototype.getChannelData;
+                    AudioBuffer.prototype.getChannelData = function(ch) {{
+                        const data = origChannel.call(this, ch);
+                        for (let i = 0; i < data.length; i += 100) data[i] += (Math.random() - 0.5) * audioNoise;
+                        return data;
+                    }};
+
+                    delete window.__playwright;
+                    delete window.__pw_binding;
+                    delete window.__pw_;
+
+                    if (navigator.userAgent !== '{ua}') {{
+                        Object.defineProperty(navigator, 'userAgent', {{ get: () => '{ua}' }});
+                    }}
+
+                    console.log('[Z3R0] بصمة مخفية بالكامل على جلسة تسجيل الدخول.');
+                }})();
+            """)
+
+            page = await login_context.new_page()
+            await simulate_mouse_movement(page)
+            
+            await page.goto("https://console.cloud.google.com", wait_until="networkidle")
+            
+            await update.message.reply_text(
+                "🌐 **المتصفح المتخفي مفتوح.**\n"
+                "1️⃣ سجل الدخول إلى حساب Google.\n"
+                "2️⃣ اختر الحساب الصحيح (إذا ظهر).\n"
+                "3️⃣ انتظر حتى تظهر صفحة Google Cloud Console.\n"
+                "4️⃣ ارسل الأمر `/done` لحفظ الجلسة.",
+                parse_mode="Markdown"
+            )
+            
+            await login_event.wait()
+            
+    except Exception as e:
+        logger.error(f"فشل تسجيل الدخول التفاعلي: {e}")
+        await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
+        if login_browser:
+            await login_browser.close()
+            login_browser = None
+            login_context = None
+
+async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global login_context, login_browser, login_event
+    
+    try:
+        if login_context is None:
+            await update.message.reply_text("❌ لا توجد جلسة تسجيل دخول نشطة. استخدم /login أولاً.")
+            return
+        
+        cookies = await login_context.cookies()
+        
+        with open(COOKIES_FILE, "w") as f:
+            json.dump(cookies, f, indent=2)
+        
+        logger.info(f"✅ تم حفظ {len(cookies)} كوكي في {COOKIES_FILE}")
+        await update.message.reply_text(
+            f"✅ **تم حفظ الجلسة بنجاح!**\n"
+            f"📦 عدد الكوكيز: {len(cookies)}\n"
+            f"📁 الملف: `{COOKIES_FILE}`\n\n"
+            f"🔄 يمكنك الآن استخدام `/deploy` للنشر تلقائياً.",
+            parse_mode="Markdown"
+        )
+        
+        if login_browser:
+            await login_browser.close()
+        
+        login_context = None
+        login_browser = None
+        login_event.set()
+        
+    except Exception as e:
+        logger.error(f"فشل حفظ الكوكيز: {e}")
+        await update.message.reply_text(f"❌ فشل حفظ الكوكيز: {str(e)[:200]}")
+
+# ===================================================================
+# 7. محرك التخفي الأساسي
 # ===================================================================
 async def check_token_validity(browser, token: str) -> bool:
     if not token:
@@ -335,6 +555,27 @@ async def check_token_validity(browser, token: str) -> bool:
         return True
     except:
         return False
+
+async def load_fallback_cookies(context) -> List[Dict]:
+    fallback_cookies = [
+        {"name": "SAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
+        {"name": "__Secure-1PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "APISID", "value": "RHsaBKVYMtAVWGi2/AlwtRaTi-hYvuaJzP", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "HSID", "value": "Ag53T7geTHHtR8ZHU", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "SSID", "value": "AxpGJl8kyO9o7ySmz", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "SID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDf4E57O0vW0SExPoSYUJtkAACgYKARASARQSFQHGX2MivRer4LjlSHhMOnCsHRjnpBoVAUF8yKqWA_-BJRPIH__yizMU0i_Y0076", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "__Secure-1PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDyTVqDlWj0_CAIo5Xaz4MMgACgYKAdYSARQSFQHGX2Mi4HDwWwlKXUTdtzNAlryTjBoVAUF8yKopZQBh62PiGsSctQRClff00076", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDiKinPT98rTDtiD4-SrNllQACgYKAbYSARQSFQHGX2MiUYFlgGm-fqgsDygOzSn6eRoVAUF8yKqi8zzCQgZxCxRqXq6JKSgU0076", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
+        {"name": "__Secure-1PSIDCC", "value": "AKEyXzViJXJ36O-lTw96y-cCwCBS1VM-LSDfnmZk7go2bLJUaBS7TGGkuJRle4PEdLYresiS", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PSIDCC", "value": "AKEyXzVfy8ccQUdkOIRNeUFnrw-AT-sFT3f_tye2gmtUtg5fP7DaETWkVBG0yg6CoywybhnF", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
+        {"name": "SIDCC", "value": "AKEyXzXyU55lULRK51O_6eOFpZtoBDPCP2L2rzDnAiFrOcrIETQOMYMbFoyJ8I6DcL8DjKB2", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "OSID", "value": "g.a000_wjNRTQakPou7N01ERdPCmrxFmtfLteOihlT7fA8iak2QMuU8AYPIOdsvBgUtc40tcC-UgACgYKAesSARQSFQHGX2Mi_UqTkEfUIeBE-z-D6hvVbBoVAUF8yKpIzivx8pIww0YSMzKPjzzX0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "hostOnly": True},
+        {"name": "__Secure-OSID", "value": "g.a000_wjNRTQakPou7N01ERdPCmrxFmtfLteOihlT7fA8iak2QMuUU-qvZAMkA4JCcQimn5CsawACgYKAXYSARQSFQHGX2MiXvWnBXSHqyx-OmPvM9brPxoVAUF8yKrJSRWueWLjDCccS19HZi1G0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "sameSite": "None", "hostOnly": True},
+        {"name": "__Secure-DIVERSION_ID", "value": "AXzjpddp2zngCu3/Ld53kKQ5lsctSjkF9+i0FbVtwG+6:e", "domain": ".console.cloud.google.com", "path": "/", "secure": True, "httpOnly": True}
+    ]
+    await context.add_cookies(fallback_cookies)
+    return await context.cookies()
 
 async def create_authenticated_context(browser, token: str, email: str, project: str):
     fingerprint = generate_random_fingerprint()
@@ -376,52 +617,36 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     
     context = await browser.new_context(**context_options)
 
-    # ================================================================
-    # 🔥 الكوكيز المضمنة (صالحة حتى 2027)
-    # ================================================================
-    cookies = [
-        {"name": "SAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
-        {"name": "__Secure-1PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "APISID", "value": "RHsaBKVYMtAVWGi2/AlwtRaTi-hYvuaJzP", "domain": ".google.com", "path": "/", "secure": False},
-        {"name": "HSID", "value": "Ag53T7geTHHtR8ZHU", "domain": ".google.com", "path": "/", "secure": False},
-        {"name": "SSID", "value": "AxpGJl8kyO9o7ySmz", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "SID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDf4E57O0vW0SExPoSYUJtkAACgYKARASARQSFQHGX2MivRer4LjlSHhMOnCsHRjnpBoVAUF8yKqWA_-BJRPIH__yizMU0i_Y0076", "domain": ".google.com", "path": "/", "secure": False},
-        {"name": "__Secure-1PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDyTVqDlWj0_CAIo5Xaz4MMgACgYKAdYSARQSFQHGX2Mi4HDwWwlKXUTdtzNAlryTjBoVAUF8yKopZQBh62PiGsSctQRClff00076", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDiKinPT98rTDtiD4-SrNllQACgYKAbYSARQSFQHGX2MiUYFlgGm-fqgsDygOzSn6eRoVAUF8yKqi8zzCQgZxCxRqXq6JKSgU0076", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
-        {"name": "__Secure-1PSIDCC", "value": "AKEyXzViJXJ36O-lTw96y-cCwCBS1VM-LSDfnmZk7go2bLJUaBS7TGGkuJRle4PEdLYresiS", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PSIDCC", "value": "AKEyXzVfy8ccQUdkOIRNeUFnrw-AT-sFT3f_tye2gmtUtg5fP7DaETWkVBG0yg6CoywybhnF", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
-        {"name": "SIDCC", "value": "AKEyXzXyU55lULRK51O_6eOFpZtoBDPCP2L2rzDnAiFrOcrIETQOMYMbFoyJ8I6DcL8DjKB2", "domain": ".google.com", "path": "/", "secure": False},
-        {"name": "OSID", "value": "g.a000_wjNRTQakPou7N01ERdPCmrxFmtfLteOihlT7fA8iak2QMuU8AYPIOdsvBgUtc40tcC-UgACgYKAesSARQSFQHGX2Mi_UqTkEfUIeBE-z-D6hvVbBoVAUF8yKpIzivx8pIww0YSMzKPjzzX0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "hostOnly": True},
-        {"name": "__Secure-OSID", "value": "g.a000_wjNRTQakPou7N01ERdPCmrxFmtfLteOihlT7fA8iak2QMuUU-qvZAMkA4JCcQimn5CsawACgYKAXYSARQSFQHGX2MiXvWnBXSHqyx-OmPvM9brPxoVAUF8yKrJSRWueWLjDCccS19HZi1G0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "sameSite": "None", "hostOnly": True},
-        {"name": "__Secure-DIVERSION_ID", "value": "AXzjpddp2zngCu3/Ld53kKQ5lsctSjkF9+i0FbVtwG+6:e", "domain": ".console.cloud.google.com", "path": "/", "secure": True, "httpOnly": True}
-    ]
-
-    # إضافة الكوكيز
-    await context.add_cookies(cookies)
-    cookies_loaded = await context.cookies()
-    logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي (مضمنة في الكود).")
+    cookies_loaded = []
+    if os.path.exists(COOKIES_FILE):
+        try:
+            with open(COOKIES_FILE, "r") as f:
+                live_cookies = json.load(f)
+            await context.add_cookies(live_cookies)
+            cookies_loaded = await context.cookies()
+            logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي من {COOKIES_FILE} (جلسة حية).")
+        except Exception as e:
+            logger.warning(f"⚠️ فشل تحميل الكوكيز الحية: {e}")
+            cookies_loaded = await load_fallback_cookies(context)
+    else:
+        logger.info("ℹ️ لا يوجد ملف كوكيز حية، استخدام الكوكيز المضمنة.")
+        cookies_loaded = await load_fallback_cookies(context)
+    
     if len(cookies_loaded) < 10:
         logger.warning("⚠️ عدد الكوكيز قليل، قد تكون الجلسة غير مكتملة.")
 
-    # ================================================================
-    # 🔥 Z3R0-STEALTH v2 – سكريبت التخفي الشامل
-    # ================================================================
     await context.add_init_script(f"""
         (() => {{
-            // 1. مسح webdriver بالكامل
             Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
             Object.defineProperty(navigator, 'selenium', {{ get: () => undefined }});
             delete window.__webdriver_evaluate;
             delete window.__webdriver_script_function;
             delete window.__webdriver_script_func;
 
-            // 2. تزوير chrome
             if (!window.chrome) {{
                 window.chrome = {{ runtime: {{}}, loadTimes: () => {{}}, csi: () => {{}}, app: {{}} }};
             }}
 
-            // 3. تزوير plugins
             const plugins = [
                 {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' }},
                 {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' }},
@@ -430,13 +655,11 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             plugins.length = 5;
             navigator.__defineGetter__('plugins', () => plugins);
 
-            // 4. تزوير اللغات والمنصة
             Object.defineProperty(navigator, 'languages', {{ get: () => ['{lang}', 'en-US', 'en'] }});
             Object.defineProperty(navigator, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
             Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {fingerprint["device_memory"]} }});
             Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {fingerprint["hardware_concurrency"]} }});
 
-            // 5. WebGL تزوير البائعين (عميق)
             const realGetParam = WebGLRenderingContext.prototype.getParameter;
             WebGLRenderingContext.prototype.getParameter = function(p) {{
                 if (p === 37445) return '{fingerprint["vendor"]}';
@@ -450,7 +673,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 return WebGLRenderingContext.prototype.getExtension.call(this, name);
             }};
 
-            // 6. Canvas تشويش متسق
             const canvasNoise = {fingerprint["canvas_noise"]};
             const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
             HTMLCanvasElement.prototype.toDataURL = function(type) {{
@@ -471,7 +693,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 return origToDataURL.apply(this, arguments);
             }};
 
-            // 7. Audio تشويش
             const audioNoise = {fingerprint["audio_noise"]};
             const origChannel = AudioBuffer.prototype.getChannelData;
             AudioBuffer.prototype.getChannelData = function(ch) {{
@@ -480,12 +701,10 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 return data;
             }};
 
-            // 8. إخفاء متغيرات Playwright
             delete window.__playwright;
             delete window.__pw_binding;
             delete window.__pw_;
 
-            // 9. مطابقة UserAgent
             if (navigator.userAgent !== '{ua}') {{
                 Object.defineProperty(navigator, 'userAgent', {{ get: () => '{ua}' }});
             }}
@@ -496,12 +715,12 @@ async def create_authenticated_context(browser, token: str, email: str, project:
 
     page = await context.new_page()
     await simulate_mouse_movement(page)
-    logger.info(f"✅ سياق Z3R0-STEALTH v2 جاهز مع {len(cookies_loaded)} كوكي (مضمنة).")
+    logger.info(f"✅ سياق Z3R0-STEALTH v2 جاهز مع {len(cookies_loaded)} كوكي.")
 
     return context, page
 
 # ===================================================================
-# 7. محاكاة حركة الماوس
+# 8. محاكاة حركة الماوس
 # ===================================================================
 async def simulate_mouse_movement(page):
     try:
@@ -516,7 +735,7 @@ async def simulate_mouse_movement(page):
         logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
 
 # ===================================================================
-# 8. الضغط على الأزرار (مع تركيز على Start Cloud Shell)
+# 9. دوال الأزرار والانتظار
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
     if aria_labels is None:
@@ -573,9 +792,6 @@ async def extract_sitekey(page) -> Optional[str]:
     except:
         return None
 
-# ===================================================================
-# 9. معالج الانتظار الذكي – مع دعم شاشات اختيار الحساب
-# ===================================================================
 EXPIRED_KEYWORDS = [
     "expired", "invalid", "session", "access denied", "not found", "404", "410",
     "sign in", "choose an account", "accounts.google.com", "login", "log in",
@@ -587,27 +803,35 @@ EXPIRED_KEYWORDS = [
 async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wait: int = 120) -> Tuple[bool, str]:
     start_time = time.time()
     login_attempted = False
-    
+    last_url = ""
+
     while time.time() - start_time < max_wait:
         current_url = page.url
         page_text = await page.inner_text("body")
         
-        if "console.cloud.google.com" in current_url or "shell.cloud.google.com" in current_url:
-            logger.info("✅ تم الوصول إلى Console/Shell بنجاح.")
-            return True, ""
-        
+        if current_url != last_url:
+            logger.info(f"🔄 URL الحالي: {current_url[:80]}")
+            last_url = current_url
+
+        if ("console.cloud.google.com" in current_url or "shell.cloud.google.com" in current_url):
+            if "sign in" not in page_text.lower() and "email" not in page_text.lower() and "password" not in page_text.lower():
+                logger.info("✅ تم الوصول إلى Console/Shell بنجاح (محتوى حقيقي).")
+                return True, ""
+            else:
+                logger.warning("⚠️ الرابط يحتوي على console.cloud.google.com لكن المحتوى هو شاشة تسجيل دخول.")
+
         if any(kw in page_text.lower() for kw in EXPIRED_KEYWORDS):
-            logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية أو غير صالح.")
-            return False, "⛔ انتهت صلاحية الرابط أو التوكن غير صالح. يرجى الحصول على رابط جديد من Qwiklabs."
-        
+            logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية.")
+            return False, "⛔ انتهت صلاحية الرابط أو التوكن غير صالح."
+
         if "Welcome to your new account" in page_text:
             if await smart_click_button(page, ["Understand", "I understand"]):
                 logger.info("✅ تم الضغط على Understand.")
                 await asyncio.sleep(2)
                 continue
-        
+
         if "recaptcha" in page_text.lower() or "captcha" in page_text.lower():
-            logger.info("🛡️ تم اكتشاف CAPTCHA، جاري الحل عبر 2Captcha...")
+            logger.info("🛡️ تم اكتشاف CAPTCHA، جاري الحل...")
             sitekey = await extract_sitekey(page)
             if sitekey:
                 solution = await solve_captcha_2captcha(page, sitekey)
@@ -615,23 +839,18 @@ async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wa
                     try:
                         await page.fill("#g-recaptcha-response", solution)
                         await page.click("form button[type='submit'], form input[type='submit']")
-                        logger.info("✅ تم حل CAPTCHA بنجاح.")
+                        logger.info("✅ تم حل CAPTCHA.")
                         await asyncio.sleep(2)
                         continue
                     except:
                         pass
-        
-        # ============================================================
-        # معالج شاشات Google المتقدمة (Choose account, Sign in, Password)
-        # ============================================================
-        if "accounts.google.com" in current_url or "Impossible de vous connecter" in page_text:
+
+        if "accounts.google.com" in current_url or "sign in" in page_text.lower() or "Impossible de vous connecter" in page_text:
             logger.info("🔐 شاشة Google – محاولة التجاوز...")
-            
-            # 1. شاشة "اختيار حساب" (Choose an account)
+
             if "choose an account" in page_text.lower() or "pick an account" in page_text.lower():
-                logger.info("🔄 شاشة اختيار حساب مكتشفة – محاولة النقر على الحساب الأول...")
+                logger.info("🔄 شاشة اختيار حساب مكتشفة...")
                 try:
-                    # محاولة النقر على البطاقة التي تحتوي على البريد الإلكتروني مباشرة
                     if email:
                         account_selector = f"div[data-email='{email}'], div:has-text('{email}'), button:has-text('{email}')"
                         btn = await page.query_selector(account_selector)
@@ -640,8 +859,6 @@ async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wa
                             logger.info(f"✅ تم النقر على الحساب: {email}")
                             await asyncio.sleep(2)
                             continue
-                    
-                    # الحل البديل: النقر على أي زر "Continue" أو "التالي"
                     if await smart_click_button(page, ["Continue", "التالي", "Next"]):
                         logger.info("✅ تم الضغط على Continue في شاشة اختيار الحساب.")
                         await asyncio.sleep(2)
@@ -649,8 +866,7 @@ async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wa
                 except Exception as e:
                     logger.warning(f"⚠️ فشل النقر على الحساب: {e}")
 
-            # 2. شاشة إدخال البريد الإلكتروني (تسجيل دخول جديد)
-            elif "sign in" in page_text.lower() or "email" in page_text.lower() or "identifier" in page_text.lower():
+            elif "email" in page_text.lower() or "identifier" in page_text.lower() or "phone" in page_text.lower():
                 logger.info("📧 شاشة إدخال البريد الإلكتروني...")
                 if email and not login_attempted:
                     try:
@@ -667,30 +883,32 @@ async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wa
                     except:
                         pass
                 
-                # إذا لم ينجح، نأخذ لقطة ونطلب تدخل المستخدم
                 screenshot_path = await save_screenshot(page)
                 await send_screenshot(update, screenshot_path, "⛔ شاشة تسجيل دخول تتطلب إدخالاً يدوياً.")
                 return False, "⛔ فشل تسجيل الدخول. يرجى تحديث الكوكيز أو استخدام رابط ضيف."
 
-            # 3. أي شاشة أخرى (مثل طلب كلمة المرور)
+            elif "password" in page_text.lower() or "كلمة المرور" in page_text:
+                logger.warning("🔑 شاشة كلمة المرور – لا يمكن التجاوز.")
+                screenshot_path = await save_screenshot(page)
+                await send_screenshot(update, screenshot_path, "⛔ الرابط يتطلب كلمة مرور. يرجى استخدام رابط ضيف أو تحديث الكوكيز.")
+                return False, "⛔ الرابط يتطلب كلمة مرور (تسجيل دخول يدوي)."
+
             else:
                 logger.warning("⚠️ شاشة غير متوقعة، محاولة إعادة التحميل...")
                 await page.reload()
                 await asyncio.sleep(2)
                 continue
-        
+
         await asyncio.sleep(2)
-    
+
     return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
 
 # ===================================================================
-# 10. دوال إضافية – التركيز على Start Cloud Shell
+# 10. دوال Start Cloud Shell والطرفية
 # ===================================================================
 async def click_start_ultimate(page, max_attempts=5) -> bool:
-    """محاولة الضغط على زر Start Cloud Shell بطرق متعددة وشاملة."""
     logger.info("🔍 البحث عن زر Start Cloud Shell...")
     
-    # محددات دقيقة محدثة
     selectors = [
         "button[aria-label='Start Cloud Shell']",
         "button[data-testid='start-cloud-shell']",
@@ -716,9 +934,7 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
         "button[class*='cloud-shell']",
     ]
 
-    # محاولة في الإطار الرئيسي أولاً
     for attempt in range(max_attempts):
-        # التمرير لأسفل لتظهر العناصر المخفية
         try:
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
             await asyncio.sleep(0.5)
@@ -737,7 +953,6 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
             except:
                 continue
 
-        # البحث في iframes
         try:
             frames = page.frames
             for frame in frames:
@@ -755,7 +970,6 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
         except:
             pass
 
-        # الحل الأخير: JavaScript
         try:
             result = await page.evaluate("""
                 () => {
@@ -855,7 +1069,53 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 11. سكريبت النشر
+# 11. البث المباشر (Live Stream Broadcaster)
+# ===================================================================
+streaming_active = False
+
+async def live_stream_broadcaster(page, duration_seconds=0):
+    """بث مباشر مع تحديث الحالة ودفع الإطارات."""
+    global streaming_active
+    streaming_active = True
+    stream_state.set_streaming(True)
+    start_time = time.time()
+    
+    try:
+        while streaming_active:
+            screenshot = await page.screenshot(type='jpeg', quality=60, full_page=False)
+            
+            stream_state.update_frame(screenshot)
+            
+            elapsed = int(time.time() - start_time)
+            m, s = divmod(elapsed, 60)
+            h, m = divmod(m, 60)
+            duration_str = f"{h:02d}:{m:02d}:{s:02d}"
+            
+            try:
+                cookies = await page.context.cookies()
+                cookie_count = len(cookies)
+            except:
+                cookie_count = 0
+            
+            stream_state.update_status(
+                action=f"جاري التشغيل ({duration_str})",
+                project="مشروع نشط",
+                cookies=cookie_count
+            )
+            
+            if duration_seconds > 0 and elapsed > duration_seconds:
+                break
+                
+            await asyncio.sleep(0.3)
+    except Exception as e:
+        logger.error(f"⚠️ فشل البث المباشر: {e}")
+    finally:
+        streaming_active = False
+        stream_state.set_streaming(False)
+        logger.info("⏹️ تم إيقاف البث المباشر.")
+
+# ===================================================================
+# 12. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
@@ -912,10 +1172,11 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة (مع تحسينات شاشة الدخول)
+# 13. قلب الأتمتة (run_in_cloudshell)
 # ===================================================================
 async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
+    global streaming_active
     start_time = time.time()
     screenshot_path = ""
     last_error = ""
@@ -966,13 +1227,17 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     return False, "", "⛔ التوكن غير صالح أو منتهي الصلاحية. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
                 logger.info("✅ التوكن صالح.")
             else:
-                logger.info("ℹ️ لا يوجد token، سيتم الاعتماد على الكوكيز المضمنة.")
+                logger.info("ℹ️ لا يوجد token، سيتم الاعتماد على الكوكيز الحية.")
             
             context_browser, page = await create_authenticated_context(browser, token, email, project_id)
 
-            # ================================================================
-            # تأكيد تحميل الكوكيز قبل فتح الرابط
-            # ================================================================
+            # ============================================================
+            # تشغيل البث المباشر
+            # ============================================================
+            if ENABLE_LIVE_STREAM:
+                logger.info("📹 بدء البث المباشر...")
+                asyncio.create_task(live_stream_broadcaster(page))
+
             cookies_before = await context_browser.cookies()
             logger.info(f"🍪 عدد الكوكيز المحملة قبل فتح الرابط: {len(cookies_before)}")
             if len(cookies_before) < 5:
@@ -980,48 +1245,43 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 screenshot_path = await save_screenshot(page)
                 await send_screenshot(update, screenshot_path, "⚠️ عدد الكوكيز قليل جداً، قد تكون الجلسة منتهية.")
                 await browser.close()
-                return False, "", "⚠️ الكوكيز غير مكتملة. يرجى تحديث الكوكيز المضمنة.", int(time.time() - start_time), screenshot_path
+                streaming_active = False
+                stream_state.set_streaming(False)
+                return False, "", "⚠️ الكوكيز غير مكتملة. يرجى استخدام /login لتسجيل الدخول مرة أخرى.", int(time.time() - start_time), screenshot_path
 
             logger.info("📌 فتح الرابط...")
             await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
 
-            # ================================================================
-            # معالج إعادة التوجيه مع دعم شاشات الاختيار
-            # ================================================================
             redirect_success, redirect_msg = await wait_for_redirect_auto(update, page, email, max_wait=120)
             if not redirect_success:
                 screenshot_path = await save_screenshot(page)
                 await send_screenshot(update, screenshot_path, redirect_msg)
                 await browser.close()
+                streaming_active = False
+                stream_state.set_streaming(False)
                 return False, "", redirect_msg, int(time.time() - start_time), screenshot_path
 
-            try:
-                await page.wait_for_url(
-                    lambda u: "console.cloud.google.com" in u or "shell.cloud.google.com" in u,
-                    timeout=30000
-                )
-                logger.info("✅ تم تأكيد الوصول إلى Console/Shell.")
-            except:
-                last_error = "❌ لم يتم الوصول إلى Console أو Shell بعد إعادة التوجيه."
+            page_text = await page.inner_text("body")
+            if "sign in" in page_text.lower() or "email" in page_text.lower():
+                logger.error("❌ على الرغم من إعادة التوجيه، الصفحة لا تزال تعرض شاشة تسجيل دخول.")
                 screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, last_error)
+                await send_screenshot(update, screenshot_path, "⛔ فشل التجاوز: الصفحة لا تزال تطلب تسجيل الدخول.")
                 await browser.close()
-                return False, "", last_error, int(time.time() - start_time), screenshot_path
+                streaming_active = False
+                stream_state.set_streaming(False)
+                return False, "", "⛔ فشل التجاوز: الصفحة لا تزال تطلب تسجيل الدخول.", int(time.time() - start_time), screenshot_path
 
-            # تجاوز الأزرار الأولية
+            logger.info("✅ تم تأكيد الوصول إلى Console/Shell (محتوى حقيقي).")
+
             for btn_text in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض", "Got it"]:
                 if await smart_click_button(page, [btn_text], [btn_text]):
                     logger.info(f"✅ تم تجاوز زر: {btn_text}")
                     await asyncio.sleep(random.uniform(1, 2))
 
-            # ================================================================
-            # التوجه إلى Cloud Shell مع انتظار مطول لظهور الزر
-            # ================================================================
             logger.info("🔄 التوجه إلى Cloud Shell...")
             await page.goto("https://shell.cloud.google.com", timeout=90000, wait_until="networkidle")
             logger.info("✅ تم تحميل صفحة Cloud Shell بنجاح.")
             
-            # انتظر حتى يظهر الزر (حتى 30 ثانية إضافية)
             for _ in range(15):
                 await asyncio.sleep(2)
                 found = await page.query_selector("button:has-text('Start Cloud Shell'), button[aria-label='Start Cloud Shell'], button:has-text('Activate Cloud Shell'), button:has-text('بدء Cloud Shell')")
@@ -1052,13 +1312,11 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             else:
                 logger.info("✅ تم الضغط على Start Cloud Shell بنجاح.")
 
-            logger.info("🔍 جاري البحث عن أزرار إضافية...")
             for btn_text in ["Authorize", "تفويض", "Continue", "متابعة", "I understand", "Got it"]:
                 if await smart_click_button(page, [btn_text], [btn_text]):
                     logger.info(f"✅ تم الضغط على زر إضافي: {btn_text}")
                     await asyncio.sleep(2)
 
-            logger.info("⏳ في انتظار ظهور الطرفية (قد يستغرق 6 دقائق)...")
             terminal_ready, terminal_msg = await wait_for_terminal_enhanced(page, timeout_seconds=360)
             if not terminal_ready:
                 last_error = terminal_msg
@@ -1066,6 +1324,8 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 screenshot_path = await save_screenshot(page)
                 await send_screenshot(update, screenshot_path, last_error)
                 await browser.close()
+                streaming_active = False
+                stream_state.set_streaming(False)
                 return False, "", last_error, int(time.time() - start_time), screenshot_path
 
             logger.info("✅ الطرفية ظهرت بنجاح.")
@@ -1137,6 +1397,13 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await page.screenshot(path=screenshot_path, full_page=True)
             await browser.close()
 
+            # ============================================================
+            # إيقاف البث المباشر
+            # ============================================================
+            streaming_active = False
+            stream_state.set_streaming(False)
+            logger.info("⏹️ تم إيقاف البث المباشر.")
+
             cleanup_old_screenshots()
 
             service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', result_content)
@@ -1158,16 +1425,20 @@ async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
         last_error = f"⏰ انتهت المهلة: {str(e)[:200]}"
         if screenshot_path:
             await send_screenshot(update, screenshot_path, last_error)
+        streaming_active = False
+        stream_state.set_streaming(False)
         return False, "", last_error, int(time.time() - start_time), screenshot_path
     except Exception as e:
         logger.exception(f"❌ فشل المحاولة")
         last_error = f"❌ خطأ تقني: {str(e)[:200]}"
         if screenshot_path:
             await send_screenshot(update, screenshot_path, last_error)
+        streaming_active = False
+        stream_state.set_streaming(False)
         return False, "", last_error, int(time.time() - start_time), screenshot_path
 
 # ===================================================================
-# 13. دوال مساعدة للصور
+# 14. دوال الصور
 # ===================================================================
 async def save_screenshot(page) -> str:
     os.makedirs("screenshots", exist_ok=True)
@@ -1207,7 +1478,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 14. واجهة البوت
+# 15. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1246,9 +1517,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     await update.message.reply_text(
-        "📌 **إضافة رابط مختبر GCP**\n"
-        "أرسل رابط Google Skills.\n"
-        "مثال: `https://www.cloudskillsboost.google.com/.../`",
+        "📌 **SHADOW LEGION v25.0**\n\n"
+        "⚡️ نظام نشر آلي متخفي مع بث مباشر.\n\n"
+        "📋 **الأوامر:**\n"
+        "/login – تسجيل الدخول لمرة واحدة (يوصى به أولاً)\n"
+        "/deploy – نشر خدمة جديدة\n"
+        "/retry – إعادة استخدام آخر رابط\n"
+        "/stats – إحصائياتك\n"
+        "/history – سجل النشرات\n"
+        "/help – المساعدة\n\n"
+        "🌐 **لوحة التحكم:** `http://localhost:8080`",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardRemove()
     )
@@ -1278,7 +1556,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_last_link(user_id, text)
     context.user_data.update({"lab_url": text, "project_id": project, "token": token, "email": email})
     
-    token_display = token[:15] if token else "سيتم استخدام الكوكيز المضمنة"
+    token_display = token[:15] if token else "سيتم استخدام الكوكيز الحية"
     await update.message.reply_text(
         f"✅ **تم استخراج البيانات بنجاح**\n🆔 Project: `{project}`\n📧 Email: `{email if email else 'غير موجود'}`\n🔑 Token: `{token_display}`\n\n🌍 اختر المنطقة:",
         parse_mode="Markdown", reply_markup=region_menu()
@@ -1303,7 +1581,7 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ConversationHandler.END
     
     context.user_data.update({"lab_url": last_link, "project_id": project, "token": token, "email": email})
-    token_display = token[:15] if token else "سيتم استخدام الكوكيز المضمنة"
+    token_display = token[:15] if token else "سيتم استخدام الكوكيز الحية"
     await update.message.reply_text(
         f"✅ **تم استخراج البيانات بنجاح**\n🆔 Project: `{project}`\n📧 Email: `{email if email else 'غير موجود'}`\n🔑 Token: `{token_display}`\n\n🌍 اختر المنطقة:",
         parse_mode="Markdown", reply_markup=region_menu()
@@ -1387,6 +1665,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❓ **الأوامر:**\n"
         "/start – القائمة الرئيسية\n"
+        "/login – تسجيل الدخول لمرة واحدة (يحفظ الكوكيز الحية)\n"
         "/deploy – نشر جديدة\n"
         "/retry – إعادة استخدام آخر رابط\n"
         "/stats – إحصائياتك\n"
@@ -1413,18 +1692,17 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 15. التشغيل الرئيسي
+# 16. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
-        from web_dashboard import run_web_server
         import threading
-        thread = threading.Thread(target=run_web_server, kwargs={"port": 8080}, daemon=True)
+        thread = threading.Thread(target=web_dashboard.run_web_server, kwargs={"port": 8080}, daemon=True)
         thread.start()
         logger.info("🌐 لوحة التحكم (Dashboard) تعمل على http://0.0.0.0:8080")
         logger.info("🔑 كلمة المرور الافتراضية: shadow2099 (غيّرها عبر WEB_PASSWORD)")
-    except ImportError:
-        logger.warning("⚠️ web_dashboard.py غير موجود – يتم تشغيل البوت فقط.")
+    except Exception as e:
+        logger.warning(f"⚠️ فشل تشغيل لوحة التحكم: {e}")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -1441,6 +1719,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("login", login_command))
+    app.add_handler(CommandHandler("done", done_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("retry", retry_command))
@@ -1451,7 +1731,9 @@ def main():
 
     start_web_dashboard()
 
-    logger.info("🔥 SHADOW LEGION v23.6 (Ultimate Login Bypass) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v25.0 (Ultimate Live Master) جاهز تماماً...")
+    logger.info("📌 استخدم /login أولاً لتسجيل الدخول وحفظ الجلسة الحية المتخفية.")
+    logger.info("🌐 افتح http://localhost:8080 لمشاهدة البث المباشر.")
     app.run_polling()
 
 if __name__ == "__main__":
