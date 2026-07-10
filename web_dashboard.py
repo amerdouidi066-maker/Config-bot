@@ -182,7 +182,7 @@ HTML_TEMPLATE = '''
 <body>
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v28.2 – Full Page</small></h1>
+        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v29.0 – Stable</small></h1>
         <div>
             <span class="badge bg-secondary me-2" id="liveTime">{{ now }}</span>
             <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()"></i>
@@ -345,7 +345,7 @@ def generate_frames():
             else:
                 time.sleep(0.05)
                 continue
-        time.sleep(0.02)  # سرعة عالية
+        time.sleep(0.02)
 
 @app.route('/')
 @login_required
