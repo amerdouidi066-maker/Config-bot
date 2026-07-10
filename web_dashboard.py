@@ -1,8 +1,7 @@
 # web_dashboard.py
 import os
-import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, Response, render_template_string, jsonify, request, session, redirect, url_for
 from functools import wraps
 from pymongo import MongoClient
@@ -14,13 +13,11 @@ PASSWORD = os.environ.get("WEB_PASSWORD", "shadow2099")
 MONGO_URI = os.environ.get("MONGO_URI")
 MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "shadow_legion")
 
-# اتصال MongoDB
 client = MongoClient(MONGO_URI)
 db = client[MONGO_DB_NAME]
 users_collection = db["users"]
 history_collection = db["deploy_history"]
 
-# ============ HTML قالب (نفس السابق) ============
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html dir="ltr" lang="en">
@@ -74,10 +71,6 @@ HTML_TEMPLATE = '''
         .log-container::-webkit-scrollbar-thumb { background: #2a3546; border-radius: 8px; }
         .table-dark { background: transparent; }
         .table-dark td, .table-dark th { border-color: #1e2736; }
-        .btn-outline-telegram { border-color: #2a7de1; color: #2a7de1; }
-        .btn-outline-telegram:hover { background: #2a7de1; color: #fff; }
-        .badge-success { background: #2d7a4a; }
-        .badge-danger { background: #7a2d3a; }
         .refresh-btn { cursor: pointer; transition: 0.3s; }
         .refresh-btn:hover { transform: rotate(60deg); }
         .live-badge { animation: pulse 1.5s infinite; }
@@ -87,25 +80,35 @@ HTML_TEMPLATE = '''
         .status-badge.waiting { background: #ffcc0022; color: #ffcc00; border: 1px solid #ffcc0055; }
         .status-badge.error { background: #ff444422; color: #ff6666; border: 1px solid #ff444455; }
         .status-badge.idle { background: #4444; color: #888; border: 1px solid #4444; }
+        .placeholder-text {
+            color: #00ffcc;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            background: #0b0e14;
+        }
     </style>
 </head>
 <body>
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v26.0 – MongoDB</small></h1>
+        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v26.3 – Live</small></h1>
         <div>
             <span class="badge bg-secondary me-2" id="liveTime">{{ now }}</span>
-            <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()" title="تحديث يدوي"></i>
+            <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()"></i>
             <a href="/logout" class="btn btn-sm btn-outline-danger ms-3"><i class="fas fa-sign-out-alt"></i> خروج</a>
         </div>
     </div>
 
-    <!-- البث المباشر -->
     <div class="row g-4 mb-4">
         <div class="col-12">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="fas fa-video text-danger me-2 live-badge"></i> <span class="text-danger fw-bold">LIVE</span> البث المباشر للمتصفح</span>
+                    <span><i class="fas fa-video text-danger me-2 live-badge"></i> <span class="text-danger fw-bold">LIVE</span> البث المباشر</span>
                     <span>
                         <span id="streamStatus" class="status-badge idle">⏸ خامل</span>
                         <span class="badge bg-dark ms-2" id="streamDuration">00:00:00</span>
@@ -118,7 +121,7 @@ HTML_TEMPLATE = '''
                             <div><span style="color:#667;font-size:11px;">📌</span> <span id="overlayProject" style="color:#0af;font-size:13px;">-</span></div>
                             <div><span style="color:#667;font-size:11px;">🌍</span> <span id="overlayRegion" style="color:#0af;font-size:13px;">-</span></div>
                             <div><span style="color:#667;font-size:11px;">🍪</span> <span id="overlayCookies" style="color:#0af;font-size:13px;">-</span></div>
-                            <div><span id="overlayAction" style="color:#ffcc00;font-size:12px;">في انتظار الرابط</span></div>
+                            <div><span id="overlayAction" style="color:#ffcc00;font-size:12px;">في انتظار البث</span></div>
                         </div>
                     </div>
                 </div>
@@ -126,7 +129,6 @@ HTML_TEMPLATE = '''
         </div>
     </div>
 
-    <!-- Stats Cards -->
     <div class="row g-4 mb-4" id="statsCards">
         <div class="col-md-3"><div class="card p-3 bg-primary-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-users stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="totalUsers">0</span><br><small>المستخدمين</small></div></div></div></div>
         <div class="col-md-3"><div class="card p-3 bg-success-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-rocket stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="totalDeploys">0</span><br><small>إجمالي النشرات</small></div></div></div></div>
@@ -151,7 +153,7 @@ HTML_TEMPLATE = '''
                 <div class="card-header"><i class="fas fa-screwdriver-wrench me-2"></i>لوحة التصحيح</div>
                 <div class="card-body">
                     <button class="btn btn-outline-primary w-100 mb-2" onclick="testPlaywright()"><i class="fas fa-play me-2"></i>اختبار Playwright</button>
-                    <button class="btn btn-outline-warning w-100 mb-2" onclick="clearCache()"><i class="fas fa-eraser me-2"></i>تنظيف السجل (30 يوم)</button>
+                    <button class="btn btn-outline-warning w-100 mb-2" onclick="clearCache()"><i class="fas fa-eraser me-2"></i>تنظيف السجل</button>
                     <div class="mt-3 p-2 bg-dark rounded" id="debugOutput" style="font-size:12px; min-height:60px;">🟢 النظام جاهز</div>
                 </div>
             </div>
@@ -161,8 +163,8 @@ HTML_TEMPLATE = '''
     <div class="row mt-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header d-flex justify-content-between"><span><i class="fas fa-terminal me-2"></i>سجل الأحداث المباشر</span><span class="badge bg-dark">تحديث تلقائي</span></div>
-                <div class="card-body"><div class="log-container" id="logContainer">⏳ جاري تحميل السجلات...</div></div>
+                <div class="card-header"><span><i class="fas fa-terminal me-2"></i>سجل الأحداث</span></div>
+                <div class="card-body"><div class="log-container" id="logContainer">⏳ جاري التحميل...</div></div>
             </div>
         </div>
     </div>
@@ -210,7 +212,7 @@ HTML_TEMPLATE = '''
             document.getElementById('overlayProject').textContent = d.project || '-';
             document.getElementById('overlayRegion').textContent = d.region || '-';
             document.getElementById('overlayCookies').textContent = d.cookies || '-';
-            document.getElementById('overlayAction').textContent = d.action || 'في انتظار...';
+            document.getElementById('overlayAction').textContent = d.action || 'في انتظار البث';
             document.getElementById('streamDuration').textContent = d.duration || '00:00:00';
         }).catch(() => {});
     }
@@ -218,32 +220,39 @@ HTML_TEMPLATE = '''
     function fetchAll() { fetchStats(); fetchHistory(); fetchLogs(); fetchStreamStatus(); document.getElementById('liveTime').innerText = new Date().toLocaleTimeString(); }
 
     function testPlaywright() {
-        document.getElementById('debugOutput').innerHTML = '⏳ جاري اختبار متصفح Chromium...';
+        document.getElementById('debugOutput').innerHTML = '⏳ جاري الاختبار...';
         fetch(BASE + '/api/test_playwright').then(r => r.json()).then(d => {
             document.getElementById('debugOutput').innerHTML = d.status === 'ok' ? '✅ ' + d.message : '❌ ' + d.message;
         });
     }
 
     function clearCache() {
-        if(!confirm('⚠️ هل أنت متأكد من حذف سجل النشرات الأقدم من 30 يوم؟')) return;
+        if(!confirm('⚠️ حذف السجلات الأقدم من 30 يوم؟')) return;
         fetch(BASE + '/api/clear_old_history', {method: 'POST'}).then(r => r.json()).then(d => {
             document.getElementById('debugOutput').innerHTML = '🗑️ ' + d.message;
             fetchHistory(); fetchStats();
         });
     }
 
+    // تحميل أولي
     fetchAll();
-    logInterval = setInterval(fetchLogs, 3000);
+
+    // تحديثات دورية
+    setInterval(fetchLogs, 3000);
     setInterval(fetchStats, 10000);
     setInterval(fetchHistory, 15000);
     setInterval(fetchStreamStatus, 2000);
-    setInterval(() => { const img = document.getElementById('streamImg'); if (img) img.src = '/live_stream?t=' + Date.now(); }, 3000);
+
+    // إعادة تحميل البث (للحفاظ على الاتصال)
+    setInterval(() => {
+        const img = document.getElementById('streamImg');
+        if (img) img.src = '/live_stream?t=' + Date.now();
+    }, 3000);
 </script>
 </body>
 </html>
 '''
 
-# ============ دوال المساعدة ============
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -252,12 +261,51 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-# ============ مولد البث المباشر ============
 def generate_frames():
+    """مولد إطارات MJPEG مع دعم الإطارات الاحتياطية."""
+    last_frame = None
+    fallback_frame = None
+    
     while True:
         frame = stream_state.get_last_frame()
+        
         if frame:
-            yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n'
+                   b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
+            last_frame = frame
+        else:
+            # إرسال إطار أسود مع نص "في انتظار البث" إذا لم يوجد بث
+            if not fallback_frame:
+                try:
+                    from PIL import Image, ImageDraw, ImageFont
+                    import io
+                    img = Image.new('RGB', (1280, 720), color=(10, 14, 20))
+                    draw = ImageDraw.Draw(img)
+                    try:
+                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+                    except:
+                        font = ImageFont.load_default()
+                    text = "⏳ في انتظار البث المباشر..."
+                    bbox = draw.textbbox((0, 0), text, font=font)
+                    w = bbox[2] - bbox[0]
+                    h = bbox[3] - bbox[1]
+                    draw.text(((1280-w)//2, (720-h)//2), text, fill=(0, 255, 200), font=font)
+                    buf = io.BytesIO()
+                    img.save(buf, format='JPEG', quality=70)
+                    fallback_frame = buf.getvalue()
+                except:
+                    fallback_frame = None
+            
+            if fallback_frame:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n'
+                       b'Content-Length: ' + str(len(fallback_frame)).encode() + b'\r\n\r\n' + fallback_frame + b'\r\n')
+            else:
+                # إرجاع إطار فارغ مع تأخير
+                time.sleep(0.1)
+                continue
+        
         time.sleep(0.05)
 
 # ============ Routes ============
@@ -273,7 +321,7 @@ def login():
         return redirect(url_for('index'))
     return '''
     <div style="max-width:400px;margin:100px auto;background:#141a24;padding:40px;border-radius:16px;border:1px solid #2a3546;">
-        <h3 class="text-light">🔐 دخول لوحة التحكم</h3>
+        <h3 class="text-light">🔐 دخول</h3>
         <form method="post">
             <input type="password" name="pass" placeholder="كلمة المرور" class="form-control bg-dark text-light my-3" style="border:1px solid #2a3546;">
             <button class="btn btn-primary w-100" type="submit">دخول</button>
@@ -344,7 +392,7 @@ def api_logs():
             lines = f.readlines()
             return "\n".join(lines[-100:]) or "📭 السجل فارغ."
     except:
-        return "⚠️ ملف السجل غير موجود (bot.log). تأكد من تفعيل التسجيل."
+        return "⚠️ ملف السجل غير موجود."
 
 @app.route('/api/test_playwright')
 @login_required
@@ -374,7 +422,6 @@ def api_clear_old():
     result = history_collection.delete_many({"deployed_at": {"$lt": cutoff.isoformat()}})
     return jsonify({"message": f"تم حذف {result.deleted_count} سجل قديم."})
 
-# ============ تشغيل الخادم ============
 def run_web_server(port=None):
     if port is None:
         port = int(os.environ.get("PORT", 8080))
