@@ -808,16 +808,22 @@ def cleanup_old_recordings():
 WAITING_LINK, WAITING_REGION = range(2)
 
 KNOWN_REGIONS = {
-    "us-central1": "🇺🇸 Iowa",
-    "us-east1": "🇺🇸 S. Carolina",
-    "us-west1": "🇺🇸 Oregon",
-    "europe-west1": "🇧🇪 Belgium",
-    "europe-west2": "🇬🇧 London",
-    "europe-west3": "🇩🇪 Frankfurt",
-    "asia-east1": "🇹🇼 Taiwan",
-    "asia-northeast1": "🇯🇵 Tokyo",
-    "asia-southeast1": "🇸🇬 Singapore",
-    "australia-southeast1": "🇦🇺 Sydney",
+    "us-central1": "🇺🇸 أيوا (Iowa)",
+    "us-east1": "🇺🇸 ساوث كارولينا (S. Carolina)",
+    "us-east4": "🇺🇸 شمال فيرجينيا (N. Virginia)",
+    "us-west1": "🇺🇸 أوريغون (Oregon)",
+    "europe-west1": "🇧🇪 بلجيكا (Belgium)",
+    "europe-west2": "🇬🇧 لندن (London)",
+    "europe-west3": "🇩🇪 فرانكفورت (Frankfurt)",
+    "europe-west4": "🇳🇱 هولندا (Netherlands)",
+    "europe-west6": "🇨🇭 سويسرا (Switzerland)",
+    "europe-west8": "🇮🇹 إيطاليا (Italy)",
+    "europe-north1": "🇸🇪 السويد (Sweden)",
+    "asia-east1": "🇹🇼 تايوان (Taiwan)",
+    "asia-northeast1": "🇯🇵 طوكيو (Tokyo)",
+    "asia-southeast1": "🇸🇬 سنغافورة (Singapore)",
+    "australia-southeast1": "🇦🇺 سيدني (Sydney)",
+    "southamerica-east1": "🇧🇷 ساو باولو (Sao Paulo)",
 }
 
 def region_menu():
