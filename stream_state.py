@@ -1,51 +1,44 @@
-# stream_state.py
-import threading
+import time
+from threading import Lock
 
 _last_frame = None
-_frame_lock = threading.Lock()
-_streaming_active = False
-_current_action = "في انتظار البث"
-_current_project = "-"
-_current_region = "-"
-_cookie_count = 0
-_current_token = "-"
-_current_email = "-"
+_streaming = False
+_status = {"project": "-", "streaming": False, "duration": "00:00:00"}
+_lock = Lock()
+_start_time = None
 
-def update_frame(frame_bytes):
+def update_frame(frame_data):
     global _last_frame
-    with _frame_lock:
-        _last_frame = frame_bytes
+    with _lock:
+        _last_frame = frame_data
 
 def get_last_frame():
-    with _frame_lock:
+    with _lock:
         return _last_frame
 
-def update_status(action=None, project=None, region=None, cookies=None, token=None, email=None):
-    global _current_action, _current_project, _current_region, _cookie_count, _current_token, _current_email
-    if action is not None:
-        _current_action = action
-    if project is not None:
-        _current_project = project
-    if region is not None:
-        _current_region = region
-    if cookies is not None:
-        _cookie_count = cookies
-    if token is not None:
-        _current_token = token
-    if email is not None:
-        _current_email = email
+def set_streaming(status):
+    global _streaming, _start_time
+    with _lock:
+        _streaming = status
+        if status:
+            _start_time = time.time()
+        else:
+            _start_time = None
+        _status["streaming"] = status
+
+def update_status(**kwargs):
+    global _status
+    with _lock:
+        for key, value in kwargs.items():
+            _status[key] = value
+        if _start_time:
+            elapsed = int(time.time() - _start_time)
+            _status["duration"] = f"{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}"
 
 def get_status():
-    return {
-        "action": _current_action,
-        "project": _current_project,
-        "region": _current_region,
-        "cookies": _cookie_count,
-        "token": _current_token,
-        "email": _current_email,
-        "streaming": _streaming_active
-    }
-
-def set_streaming(status: bool):
-    global _streaming_active
-    _streaming_active = status
+    with _lock:
+        s = _status.copy()
+        if _start_time:
+            elapsed = int(time.time() - _start_time)
+            s["duration"] = f"{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}"
+        return s
