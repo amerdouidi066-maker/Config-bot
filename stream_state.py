@@ -4,7 +4,7 @@ import threading
 _last_frame = None
 _frame_lock = threading.Lock()
 _streaming_active = False
-_current_action = "في انتظار الرابط"
+_current_action = "في انتظار البث"
 _current_project = "-"
 _current_region = "-"
 _cookie_count = 0
