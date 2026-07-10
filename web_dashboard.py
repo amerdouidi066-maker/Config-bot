@@ -6,6 +6,8 @@ from flask import Flask, Response, render_template_string, jsonify, request, ses
 from functools import wraps
 from pymongo import MongoClient
 import stream_state
+import io
+from PIL import Image, ImageDraw, ImageFont
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("WEB_SECRET", "shadow_legion_secret_key_2099")
@@ -18,6 +20,28 @@ db = client[MONGO_DB_NAME]
 users_collection = db["users"]
 history_collection = db["deploy_history"]
 
+def create_placeholder_frame(text="⏳ في انتظار البث..."):
+    try:
+        img = Image.new('RGB', (1280, 720), color=(10, 14, 20))
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
+        except:
+            font = ImageFont.load_default()
+        bbox = draw.textbbox((0, 0), text, font=font)
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
+        draw.text(((1280-w)//2, (720-h)//2), text, fill=(0, 255, 200), font=font)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=80)
+        return buf.getvalue()
+    except:
+        return None
+
+PLACEHOLDER_FRAME = create_placeholder_frame()
+if PLACEHOLDER_FRAME:
+    stream_state.update_frame(PLACEHOLDER_FRAME)
+
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html dir="ltr" lang="en">
@@ -28,7 +52,7 @@ HTML_TEMPLATE = '''
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        body { background: #0b0e14; color: #e0e6ed; font-family: 'Segoe UI', monospace; }
+        body { background: #0b0e14; color: #e0e6ed; font-family: system-ui, -apple-system, 'Tahoma', 'Segoe UI', Roboto, sans-serif; }
         .card { background: #141a24; border: 1px solid #2a3546; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
         .card-header { background: #1e2736; border-bottom: 1px solid #2a3546; font-weight: 600; }
         .stat-icon { font-size: 2.5rem; opacity: 0.7; }
@@ -62,10 +86,13 @@ HTML_TEMPLATE = '''
             padding: 8px 16px;
             border-radius: 8px;
             border: 1px solid #2a354688;
-            font-size: 12px;
+            font-size: 11px;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 6px;
+            font-family: 'Courier New', monospace;
         }
+        .stream-overlay .info-item { color: #aac; }
+        .stream-overlay .info-value { color: #0ff; font-weight: bold; }
         .log-container { height: 200px; overflow-y: auto; background: #0a0d12; border-radius: 12px; padding: 12px; font-size: 13px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-break: break-all; }
         .log-container::-webkit-scrollbar { width: 6px; }
         .log-container::-webkit-scrollbar-thumb { background: #2a3546; border-radius: 8px; }
@@ -77,26 +104,13 @@ HTML_TEMPLATE = '''
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
         .status-badge { display: inline-block; padding: 2px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; }
         .status-badge.running { background: #00ffcc22; color: #00ffcc; border: 1px solid #00ffcc55; }
-        .status-badge.waiting { background: #ffcc0022; color: #ffcc00; border: 1px solid #ffcc0055; }
-        .status-badge.error { background: #ff444422; color: #ff6666; border: 1px solid #ff444455; }
         .status-badge.idle { background: #4444; color: #888; border: 1px solid #4444; }
-        .placeholder-text {
-            color: #00ffcc;
-            font-size: 24px;
-            font-weight: bold;
-            text-align: center;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            background: #0b0e14;
-        }
     </style>
 </head>
 <body>
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v26.3 – Live</small></h1>
+        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v28.0 – Recorder</small></h1>
         <div>
             <span class="badge bg-secondary me-2" id="liveTime">{{ now }}</span>
             <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()"></i>
@@ -118,10 +132,12 @@ HTML_TEMPLATE = '''
                     <div class="stream-container">
                         <img id="streamImg" src="/live_stream" alt="البث المباشر">
                         <div class="stream-overlay">
-                            <div><span style="color:#667;font-size:11px;">📌</span> <span id="overlayProject" style="color:#0af;font-size:13px;">-</span></div>
-                            <div><span style="color:#667;font-size:11px;">🌍</span> <span id="overlayRegion" style="color:#0af;font-size:13px;">-</span></div>
-                            <div><span style="color:#667;font-size:11px;">🍪</span> <span id="overlayCookies" style="color:#0af;font-size:13px;">-</span></div>
-                            <div><span id="overlayAction" style="color:#ffcc00;font-size:12px;">في انتظار البث</span></div>
+                            <div><span class="info-item">📌</span> <span id="overlayProject" class="info-value">-</span></div>
+                            <div><span class="info-item">🌍</span> <span id="overlayRegion" class="info-value">-</span></div>
+                            <div><span class="info-item">🍪</span> <span id="overlayCookies" class="info-value">-</span></div>
+                            <div><span class="info-item">🔑</span> <span id="overlayToken" class="info-value">-</span></div>
+                            <div><span class="info-item">📧</span> <span id="overlayEmail" class="info-value">-</span></div>
+                            <div><span id="overlayAction" style="color:#ffcc00;font-weight:bold;">في انتظار البث</span></div>
                         </div>
                     </div>
                 </div>
@@ -212,6 +228,8 @@ HTML_TEMPLATE = '''
             document.getElementById('overlayProject').textContent = d.project || '-';
             document.getElementById('overlayRegion').textContent = d.region || '-';
             document.getElementById('overlayCookies').textContent = d.cookies || '-';
+            document.getElementById('overlayToken').textContent = d.token || '-';
+            document.getElementById('overlayEmail').textContent = d.email || '-';
             document.getElementById('overlayAction').textContent = d.action || 'في انتظار البث';
             document.getElementById('streamDuration').textContent = d.duration || '00:00:00';
         }).catch(() => {});
@@ -234,20 +252,12 @@ HTML_TEMPLATE = '''
         });
     }
 
-    // تحميل أولي
     fetchAll();
-
-    // تحديثات دورية
     setInterval(fetchLogs, 3000);
     setInterval(fetchStats, 10000);
     setInterval(fetchHistory, 15000);
     setInterval(fetchStreamStatus, 2000);
-
-    // إعادة تحميل البث (للحفاظ على الاتصال)
-    setInterval(() => {
-        const img = document.getElementById('streamImg');
-        if (img) img.src = '/live_stream?t=' + Date.now();
-    }, 3000);
+    setInterval(() => { const img = document.getElementById('streamImg'); if (img) img.src = '/live_stream?t=' + Date.now(); }, 2000);
 </script>
 </body>
 </html>
@@ -262,53 +272,18 @@ def login_required(f):
     return decorated
 
 def generate_frames():
-    """مولد إطارات MJPEG مع دعم الإطارات الاحتياطية."""
-    last_frame = None
-    fallback_frame = None
-    
     while True:
         frame = stream_state.get_last_frame()
-        
         if frame:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n'
-                   b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
-            last_frame = frame
+            yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
         else:
-            # إرسال إطار أسود مع نص "في انتظار البث" إذا لم يوجد بث
-            if not fallback_frame:
-                try:
-                    from PIL import Image, ImageDraw, ImageFont
-                    import io
-                    img = Image.new('RGB', (1280, 720), color=(10, 14, 20))
-                    draw = ImageDraw.Draw(img)
-                    try:
-                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
-                    except:
-                        font = ImageFont.load_default()
-                    text = "⏳ في انتظار البث المباشر..."
-                    bbox = draw.textbbox((0, 0), text, font=font)
-                    w = bbox[2] - bbox[0]
-                    h = bbox[3] - bbox[1]
-                    draw.text(((1280-w)//2, (720-h)//2), text, fill=(0, 255, 200), font=font)
-                    buf = io.BytesIO()
-                    img.save(buf, format='JPEG', quality=70)
-                    fallback_frame = buf.getvalue()
-                except:
-                    fallback_frame = None
-            
-            if fallback_frame:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n'
-                       b'Content-Length: ' + str(len(fallback_frame)).encode() + b'\r\n\r\n' + fallback_frame + b'\r\n')
+            if PLACEHOLDER_FRAME:
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(PLACEHOLDER_FRAME)).encode() + b'\r\n\r\n' + PLACEHOLDER_FRAME + b'\r\n')
             else:
-                # إرجاع إطار فارغ مع تأخير
                 time.sleep(0.1)
                 continue
-        
         time.sleep(0.05)
 
-# ============ Routes ============
 @app.route('/')
 @login_required
 def index():
@@ -344,12 +319,14 @@ def live_stream():
 def api_stream_status():
     s = stream_state.get_status()
     return jsonify({
-        "streaming": s["streaming"],
-        "project": s["project"],
-        "region": s["region"],
-        "cookies": s["cookies"],
-        "action": s["action"],
-        "duration": "00:00:00"
+        "streaming": s.get("streaming", False),
+        "project": s.get("project", "-"),
+        "region": s.get("region", "-"),
+        "cookies": s.get("cookies", 0),
+        "token": s.get("token", "-"),
+        "email": s.get("email", "-"),
+        "action": s.get("action", "في انتظار البث"),
+        "duration": s.get("duration", "00:00:00")
     })
 
 @app.route('/api/stats')
