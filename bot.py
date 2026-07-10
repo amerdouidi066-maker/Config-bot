@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v28.0 – FULL_LIVE_RECORDER
-- بث مباشر شامل مع تراكب معلومات
-- تسجيل فيديو تلقائي للجلسة
-- عرض الرابط والتوكن (جزئياً) والمراحل
-- إعادة محاولة المتصفح
-- MongoDB
+SHADOW LEGION v28.1 – CLEAR_FONT_NO_OVERLAY
+- إزالة التراكب من البث المباشر
+- تحسين وضوح الخط في لوحة التحكم والسجلات
+- جميع ميزات v28.0
 """
 
 import os
@@ -59,7 +57,7 @@ PROXY_LIST = [p.strip() for p in os.environ.get("PROXY_LIST", "").split(",") if 
 TWOCAPTCHA_API_KEY = os.environ.get("TWOCAPTCHA_API_KEY", "")
 COOKIES_FILE = "cookies_live.json"
 ENABLE_LIVE_STREAM = True
-ENABLE_VIDEO_RECORDING = True  # تفعيل تسجيل الفيديو
+ENABLE_VIDEO_RECORDING = True
 RAILWAY_PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
 
 logging.basicConfig(
@@ -71,7 +69,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v28.0 (Full Live Recorder) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v28.1 (Clear Font) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -88,7 +86,7 @@ except Exception as e:
     raise
 
 # ===================================================================
-# 3. دوال قاعدة البيانات (نفس السابق)
+# 3. دوال قاعدة البيانات
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     doc = users_collection.find_one({"_id": user_id})
@@ -168,7 +166,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     return result
 
 # ===================================================================
-# 4. دوال مساعدة (نفس السابق)
+# 4. دوال مساعدة
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -292,7 +290,7 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 5. نظام الجلسة الحية (نفس السابق)
+# 5. نظام الجلسة الحية
 # ===================================================================
 login_event = asyncio.Event()
 login_context = None
@@ -474,7 +472,7 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
 
 # ===================================================================
-# 6. محرك التخفي الأساسي (مع إعدادات تسجيل الفيديو)
+# 6. محرك التخفي الأساسي
 # ===================================================================
 async def check_token_validity(browser, token: str) -> bool:
     if not token:
@@ -556,11 +554,10 @@ async def create_authenticated_context(browser, token: str, email: str, project:
         context_options["proxy"] = {"server": proxy}
         logger.info(f"🌐 استخدام Proxy: {proxy[:30]}...")
     
-    # تفعيل تسجيل الفيديو إذا كان مطلوباً
     if ENABLE_VIDEO_RECORDING:
         os.makedirs("recordings", exist_ok=True)
         context_options["record_video_dir"] = "recordings"
-        logger.info("📹 تم تفعيل تسجيل الفيديو لهذه الجلسة.")
+        logger.info("📹 تم تفعيل تسجيل الفيديو.")
     
     context = await browser.new_context(**context_options)
 
@@ -673,7 +670,7 @@ async def simulate_mouse_movement(page):
         logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
 
 # ===================================================================
-# 8. دوال الأزرار والانتظار (نفس السابق)
+# 8. دوال الأزرار والانتظار (مع تحسين Start Cloud Shell)
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
     if aria_labels is None:
@@ -820,13 +817,17 @@ async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wa
     return False, "⛔ انتهت المهلة (120 ثانية)."
 
 # ===================================================================
-# 9. دوال Start Cloud Shell والطرفية (نفس السابق)
+# 9. دوال Start Cloud Shell والطرفية (محسّنة)
 # ===================================================================
-async def click_start_ultimate(page, max_attempts=5) -> bool:
-    logger.info("🔍 البحث عن زر Start Cloud Shell...")
+async def click_start_ultimate(page, max_attempts=8) -> bool:
+    logger.info("🔍 البحث عن زر Start Cloud Shell (محاولات متعددة)...")
+    
     selectors = [
+        "button[data-testid='cloud-shell-launch-button']",
+        "button[data-testid='cloud-shell-start']",
+        "button.gcp-shell-launch",
         "button[aria-label='Start Cloud Shell']",
-        "button[data-testid='start-cloud-shell']",
+        "button[aria-label='Open Cloud Shell']",
         "button:has-text('Start Cloud Shell')",
         "button:has-text('Activate Cloud Shell')",
         "button:has-text('Launch Cloud Shell')",
@@ -835,36 +836,41 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
         "button:has-text('Start')",
         "button:has-text('Launch')",
         "button:has-text('Activate')",
-        "div[role='button']:has-text('Start Cloud Shell')",
-        "div[role='button']:has-text('Activate Cloud Shell')",
-        "div[role='button']:has-text('Launch Cloud Shell')",
+        "button:has-text('بدء')",
+        "button:has-text('تشغيل')",
+        "button:has-text('تفعيل')",
         "button#start-cloud-shell",
         "button.gcloud-start-button",
         "button[data-command='start']",
         "button[data-action='start']",
         ".cloud-shell-start-button",
         ".start-cloud-shell-btn",
-        "button[aria-describedby='start-cloud-shell-description']",
         "button[class*='start']",
         "button[class*='cloud-shell']",
+        "div[role='button']:has-text('Start Cloud Shell')",
+        "div[role='button']:has-text('Activate Cloud Shell')",
+        "div[role='button']:has-text('Launch Cloud Shell')",
     ]
+    
     for attempt in range(max_attempts):
         try:
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.6)")
             await asyncio.sleep(0.5)
         except:
             pass
+        
         for selector in selectors:
             try:
                 btn = await page.query_selector(selector)
                 if btn and await btn.is_visible():
                     await btn.scroll_into_view_if_needed()
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.5)
                     await btn.click()
                     logger.info(f"✅ تم الضغط على الزر باستخدام: {selector}")
                     return True
             except:
                 continue
+        
         try:
             frames = page.frames
             for frame in frames:
@@ -873,7 +879,7 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
                         btn = await frame.query_selector(selector)
                         if btn and await btn.is_visible():
                             await btn.scroll_into_view_if_needed()
-                            await asyncio.sleep(0.3)
+                            await asyncio.sleep(0.5)
                             await btn.click()
                             logger.info(f"✅ تم الضغط على الزر في iframe: {selector}")
                             return True
@@ -881,13 +887,15 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
                         continue
         except:
             pass
+        
         try:
             result = await page.evaluate("""
                 () => {
+                    const keywords = ['start', 'launch', 'activate', 'بدء', 'تشغيل', 'تفعيل', 'run', 'open'];
                     const btns = document.querySelectorAll('button, div[role="button"], a[role="button"]');
                     for (let btn of btns) {
                         const text = (btn.innerText || btn.getAttribute('aria-label') || '').toLowerCase();
-                        if (text.includes('start cloud shell') || text.includes('activate cloud shell') || text.includes('launch cloud shell') || text.includes('بدء cloud shell') || text.includes('تفعيل cloud shell') || text.includes('start')) {
+                        if (keywords.some(k => text.includes(k))) {
                             btn.scrollIntoView();
                             btn.click();
                             return true;
@@ -897,13 +905,15 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
                 }
             """)
             if result:
-                logger.info("✅ تم الضغط على الزر عبر JavaScript.")
+                logger.info("✅ تم الضغط على الزر عبر JavaScript الشامل.")
                 return True
         except:
             pass
+        
         logger.warning(f"⚠️ لم يتم العثور على زر Start في المحاولة {attempt+1}/{max_attempts}")
-        await asyncio.sleep(4)
-    logger.error("❌ فشل العثور على زر Start Cloud Shell.")
+        await asyncio.sleep(5)
+    
+    logger.error("❌ فشل العثور على زر Start Cloud Shell بعد عدة محاولات.")
     return False
 
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
@@ -969,7 +979,7 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 10. البث المباشر مع تراكب معلومات متقدم
+# 10. البث المباشر (بدون تراكب)
 # ===================================================================
 streaming_active = False
 stream_start_time = None
@@ -987,30 +997,20 @@ async def live_stream_broadcaster(page, duration_seconds=0, lab_url="", token=""
     current_url = lab_url[:80] if lab_url else ""
     current_token_masked = mask_token(token) if token else "غير موجود"
     current_email = email if email else "غير موجود"
-    logger.info("📹 بدء البث المباشر مع تراكب معلومات...")
+    logger.info("📹 بدء البث المباشر (بدون تراكب)...")
     
     try:
         while streaming_active:
             try:
-                # التقاط لقطة للشاشة
                 screenshot = await page.screenshot(type='jpeg', quality=60, full_page=False)
                 if screenshot:
-                    # إضافة تراكب المعلومات على الصورة (اختياري، يمكن تركه للواجهة الأمامية)
                     stream_state.update_frame(screenshot)
                 
-                # تحديث المعلومات الحية
                 elapsed = int(time.time() - stream_start_time)
                 m, s = divmod(elapsed, 60)
                 h, m = divmod(m, 60)
                 duration_str = f"{h:02d}:{m:02d}:{s:02d}"
                 
-                # تحديث الرابط الحالي
-                try:
-                    current_url = page.url[:80] if page.url else lab_url[:80]
-                except:
-                    pass
-                
-                # تحديث عدد الكوكيز
                 try:
                     cookies = await page.context.cookies()
                     cookie_count = len(cookies)
@@ -1040,7 +1040,6 @@ async def live_stream_broadcaster(page, duration_seconds=0, lab_url="", token=""
         logger.info("⏹️ تم إيقاف البث المباشر.")
 
 def mask_token(token: str) -> str:
-    """إخفاء التوكن مع إظهار أول 4 وآخر 4 أحرف فقط."""
     if not token:
         return "غير موجود"
     if len(token) <= 8:
@@ -1048,7 +1047,7 @@ def mask_token(token: str) -> str:
     return f"{token[:4]}...{token[-4:]}"
 
 # ===================================================================
-# 11. سكريبت النشر (نفس السابق)
+# 11. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
@@ -1095,7 +1094,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة مع تسجيل الفيديو والتراكب
+# 12. قلب الأتمتة (بدون لقطات، مع تسجيل فيديو)
 # ===================================================================
 async def _run_browser_session(update, context, lab_url, project_id, token, email, region, start_time):
     global streaming_active, stream_start_time, current_step
@@ -1149,7 +1148,7 @@ async def _run_browser_session(update, context, lab_url, project_id, token, emai
         context_browser, page = await create_authenticated_context(browser, token, email, project_id)
         
         if ENABLE_LIVE_STREAM:
-            logger.info("📹 بدء البث المباشر مع التراكب...")
+            logger.info("📹 بدء البث المباشر...")
             asyncio.create_task(live_stream_broadcaster(page, lab_url=lab_url, token=token, email=email))
         
         cookies_before = await context_browser.cookies()
@@ -1195,14 +1194,15 @@ async def _run_browser_session(update, context, lab_url, project_id, token, emai
         await page.goto("https://shell.cloud.google.com", timeout=90000, wait_until="networkidle")
         logger.info("✅ تم تحميل صفحة Cloud Shell.")
         
-        for _ in range(15):
+        # انتظار أطول لظهور الزر
+        for _ in range(20):
             await asyncio.sleep(2)
             found = await page.query_selector("button:has-text('Start Cloud Shell'), button[aria-label='Start Cloud Shell'], button:has-text('Activate Cloud Shell'), button:has-text('بدء Cloud Shell')")
             if found:
                 logger.info("✅ تم التأكد من ظهور زر Start.")
                 break
         
-        await asyncio.sleep(random.uniform(2, 4))
+        await asyncio.sleep(random.uniform(4, 8))
         current_step = "البحث عن زر Start..."
         logger.info("🔍 جاري البحث عن زر 'Start Cloud Shell'...")
         
@@ -1301,7 +1301,6 @@ async def _run_browser_session(update, context, lab_url, project_id, token, emai
             except:
                 pass
         
-        # استخراج مسار الفيديو المسجل
         if ENABLE_VIDEO_RECORDING:
             try:
                 video = await context_browser.video
@@ -1378,7 +1377,7 @@ def cleanup_old_recordings():
         logger.warning(f"⚠️ فشل تنظيف التسجيلات: {e}")
 
 # ===================================================================
-# 14. واجهة البوت
+# 14. واجهة البوت (نفس السابق)
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1616,7 +1615,7 @@ def main():
     app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v28.0 (Full Live Recorder) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v28.1 (Clear Font) جاهز تماماً...")
     logger.info("📌 استخدم /login أولاً لتسجيل الدخول وحفظ الجلسة.")
     if RAILWAY_PUBLIC_DOMAIN:
         logger.info(f"🌐 لوحة التحكم متاحة على: {RAILWAY_PUBLIC_DOMAIN}")
