@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v28.1 – CLEAR_FONT_NO_OVERLAY
-- إزالة التراكب من البث المباشر
-- تحسين وضوح الخط في لوحة التحكم والسجلات
-- جميع ميزات v28.0
+SHADOW LEGION v28.2 – FULL_PAGE_DISPLAY
+- التقاط الصفحة بأكملها (full_page=True)
+- عرض الرابط الحالي في لوحة التحكم
+- تحسين سرعة البث وجودة الصورة
+- جميع ميزات v28.1
 """
 
 import os
@@ -69,10 +70,10 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v28.1 (Clear Font) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v28.2 (Full Page Display) بدأ التشغيل...")
 
 # ===================================================================
-# 2. اتصال MongoDB
+# 2. اتصال MongoDB (نفس السابق، اختصاراً)
 # ===================================================================
 try:
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
@@ -86,7 +87,7 @@ except Exception as e:
     raise
 
 # ===================================================================
-# 3. دوال قاعدة البيانات
+# 3. دوال قاعدة البيانات (نفس السابق، اختصاراً)
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     doc = users_collection.find_one({"_id": user_id})
@@ -166,7 +167,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     return result
 
 # ===================================================================
-# 4. دوال مساعدة
+# 4. دوال مساعدة (نفس السابق، اختصاراً)
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -290,7 +291,7 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 5. نظام الجلسة الحية
+# 5. نظام الجلسة الحية (نفس السابق)
 # ===================================================================
 login_event = asyncio.Event()
 login_context = None
@@ -472,7 +473,7 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
 
 # ===================================================================
-# 6. محرك التخفي الأساسي
+# 6. محرك التخفي الأساسي (نفس السابق)
 # ===================================================================
 async def check_token_validity(browser, token: str) -> bool:
     if not token:
@@ -670,7 +671,7 @@ async def simulate_mouse_movement(page):
         logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
 
 # ===================================================================
-# 8. دوال الأزرار والانتظار (مع تحسين Start Cloud Shell)
+# 8. دوال الأزرار والانتظار (محسّنة للبحث عن Start)
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
     if aria_labels is None:
@@ -979,7 +980,7 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 10. البث المباشر (بدون تراكب)
+# 10. البث المباشر (صفحة كاملة + عرض الرابط)
 # ===================================================================
 streaming_active = False
 stream_start_time = None
@@ -997,14 +998,20 @@ async def live_stream_broadcaster(page, duration_seconds=0, lab_url="", token=""
     current_url = lab_url[:80] if lab_url else ""
     current_token_masked = mask_token(token) if token else "غير موجود"
     current_email = email if email else "غير موجود"
-    logger.info("📹 بدء البث المباشر (بدون تراكب)...")
+    logger.info("📹 بدء البث المباشر (صفحة كاملة)...")
     
     try:
         while streaming_active:
             try:
-                screenshot = await page.screenshot(type='jpeg', quality=60, full_page=False)
+                # التقاط الصفحة بأكملها (مع التمرير) بجودة عالية
+                screenshot = await page.screenshot(type='jpeg', quality=75, full_page=True)
                 if screenshot:
                     stream_state.update_frame(screenshot)
+                    # تحديث الرابط الحالي
+                    try:
+                        current_url = page.url[:100]
+                    except:
+                        pass
                 
                 elapsed = int(time.time() - stream_start_time)
                 m, s = divmod(elapsed, 60)
@@ -1017,9 +1024,10 @@ async def live_stream_broadcaster(page, duration_seconds=0, lab_url="", token=""
                 except:
                     cookie_count = 0
                 
+                # تحديث الحالة مع الرابط الحالي
                 stream_state.update_status(
                     action=f"🟢 {current_step} ({duration_str})",
-                    project=f"URL: {current_url[:50]}...",
+                    project=f"URL: {current_url}",
                     cookies=cookie_count,
                     token=current_token_masked,
                     email=current_email
@@ -1027,7 +1035,7 @@ async def live_stream_broadcaster(page, duration_seconds=0, lab_url="", token=""
                 
                 if duration_seconds > 0 and elapsed > duration_seconds:
                     break
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.2)  # 5 إطارات/ثانية
             except Exception as e:
                 logger.warning(f"⚠️ خطأ في حلقة البث: {e}")
                 await asyncio.sleep(0.5)
@@ -1047,7 +1055,7 @@ def mask_token(token: str) -> str:
     return f"{token[:4]}...{token[-4:]}"
 
 # ===================================================================
-# 11. سكريبت النشر
+# 11. سكريبت النشر (نفس السابق)
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
@@ -1094,7 +1102,7 @@ print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة (بدون لقطات، مع تسجيل فيديو)
+# 12. قلب الأتمتة (نفس السابق)
 # ===================================================================
 async def _run_browser_session(update, context, lab_url, project_id, token, email, region, start_time):
     global streaming_active, stream_start_time, current_step
@@ -1148,7 +1156,7 @@ async def _run_browser_session(update, context, lab_url, project_id, token, emai
         context_browser, page = await create_authenticated_context(browser, token, email, project_id)
         
         if ENABLE_LIVE_STREAM:
-            logger.info("📹 بدء البث المباشر...")
+            logger.info("📹 بدء البث المباشر (صفحة كاملة)...")
             asyncio.create_task(live_stream_broadcaster(page, lab_url=lab_url, token=token, email=email))
         
         cookies_before = await context_browser.cookies()
@@ -1615,7 +1623,7 @@ def main():
     app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v28.1 (Clear Font) جاهز تماماً...")
+    logger.info("🔥 SHADOW LEGION v28.2 (Full Page Display) جاهز تماماً...")
     logger.info("📌 استخدم /login أولاً لتسجيل الدخول وحفظ الجلسة.")
     if RAILWAY_PUBLIC_DOMAIN:
         logger.info(f"🌐 لوحة التحكم متاحة على: {RAILWAY_PUBLIC_DOMAIN}")
