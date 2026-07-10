@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v26.0 – MONGODB_MASTER
-- قاعدة بيانات MongoDB بدلاً من SQLite
-- بث مباشر للشاشة في لوحة التحكم
-- تسجيل دخول تفاعلي متخفي (/login + /done)
-- Z3R0-STEALTH v2
-- دعم الروابط بدون token
-- لقطات شاشة دائمة
-- 5 محاولات ذكية لـ Start Cloud Shell
+SHADOW LEGION v26.3 – LIVE_STREAM_FIX
+- إصلاح الشاشة السوداء في لوحة التحكم
+- إضافة إطار انتظار عند عدم وجود بث
+- تحسينات في استقرار البث المباشر
+- رسالة /start مستقبلية مع أزرار متطورة
 """
 
 import os
@@ -37,11 +34,8 @@ from telegram.ext import (
 )
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
-
-# ===================================================================
-# استيراد MongoDB و stream_state
-# ===================================================================
 from pymongo import MongoClient
+
 import stream_state
 
 # ===================================================================
@@ -49,11 +43,11 @@ import stream_state
 # ===================================================================
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
-    raise ValueError("❌ TOKEN غير موجود (ضعه في متغيرات البيئة)")
+    raise ValueError("❌ TOKEN غير موجود")
 
 MONGO_URI = os.environ.get("MONGO_URI")
 if not MONGO_URI:
-    raise ValueError("❌ MONGO_URI غير موجود (ضعه في متغيرات البيئة)")
+    raise ValueError("❌ MONGO_URI غير موجود")
 
 MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "shadow_legion")
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "1"))
@@ -63,8 +57,8 @@ PROXY_LIST = [p.strip() for p in os.environ.get("PROXY_LIST", "").split(",") if 
 TWOCAPTCHA_API_KEY = os.environ.get("TWOCAPTCHA_API_KEY", "")
 COOKIES_FILE = "cookies_live.json"
 ENABLE_LIVE_STREAM = True
+RAILWAY_PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "https://your-app.railway.app")
 
-# إعدادات التسجيل
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -74,7 +68,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v26.0 (MongoDB Master) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v26.3 (Live Stream Fix) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -84,7 +78,6 @@ try:
     db = client[MONGO_DB_NAME]
     users_collection = db["users"]
     history_collection = db["deploy_history"]
-    # تأكيد الاتصال
     client.admin.command('ping')
     logger.info("✅ الاتصال بـ MongoDB ناجح.")
 except Exception as e:
@@ -117,7 +110,8 @@ def create_or_update_user(user_id: int, username: str = None, first_name: str = 
             "username": username,
             "first_name": first_name,
             "last_name": last_name,
-            "last_active": now
+            "last_active": now,
+            "joined_at": now
         }},
         upsert=True
     )
@@ -171,7 +165,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     return result
 
 # ===================================================================
-# 4. دوال مساعدة (تمويه، كابتشا، إلخ)
+# 4. دوال مساعدة
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -237,9 +231,6 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
     except:
         return None
 
-# ===================================================================
-# 5. المستخرج الذكي V7
-# ===================================================================
 def smart_extract(link: str) -> Dict[str, Optional[str]]:
     link = link.strip()
     decoded = link
@@ -298,7 +289,7 @@ def smart_extract(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 # ===================================================================
-# 6. نظام الجلسة الحية المتخفي (Login / Done)
+# 5. نظام الجلسة الحية
 # ===================================================================
 login_event = asyncio.Event()
 login_context = None
@@ -306,19 +297,13 @@ login_browser = None
 
 async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global login_context, login_browser, login_event
-    
     try:
         login_event.clear()
-        
         await update.message.reply_text(
             "🔐 **جاري فتح متصفح متخفي لتسجيل الدخول...**\n"
-            "سيتم فتح نافذة Chrome مع تطبيق Z3R0-STEALTH بالكامل.\n"
-            "قم بتسجيل الدخول إلى حساب Google الخاص بك.\n"
-            "⚠️ لا تغلق المتصفح حتى ترى رسالة 'تم الحفظ'.\n"
-            "بعد تسجيل الدخول، ارسل الأمر `/done`.",
+            "قم بتسجيل الدخول إلى Google ثم ارسل `/done`.",
             parse_mode="Markdown"
         )
-        
         fingerprint = generate_random_fingerprint()
         ua = random.choice(USER_AGENTS)
         width = random.randint(1800, 1920)
@@ -355,7 +340,6 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "--no-first-run"
                 ]
             )
-            
             login_context = await login_browser.new_context(
                 user_agent=ua,
                 viewport={"width": width, "height": height},
@@ -378,8 +362,6 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 accept_downloads=True,
                 java_script_enabled=True,
             )
-            
-            # تطبيق Z3R0-STEALTH الكامل على جلسة تسجيل الدخول
             await login_context.add_init_script(f"""
                 (() => {{
                     Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
@@ -387,11 +369,9 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     delete window.__webdriver_evaluate;
                     delete window.__webdriver_script_function;
                     delete window.__webdriver_script_func;
-
                     if (!window.chrome) {{
                         window.chrome = {{ runtime: {{}}, loadTimes: () => {{}}, csi: () => {{}}, app: {{}} }};
                     }}
-
                     const plugins = [
                         {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' }},
                         {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' }},
@@ -399,12 +379,10 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ];
                     plugins.length = 5;
                     navigator.__defineGetter__('plugins', () => plugins);
-
                     Object.defineProperty(navigator, 'languages', {{ get: () => ['{lang}', 'en-US', 'en'] }});
                     Object.defineProperty(navigator, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
                     Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {fingerprint["device_memory"]} }});
                     Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {fingerprint["hardware_concurrency"]} }});
-
                     const realGetParam = WebGLRenderingContext.prototype.getParameter;
                     WebGLRenderingContext.prototype.getParameter = function(p) {{
                         if (p === 37445) return '{fingerprint["vendor"]}';
@@ -417,7 +395,6 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if (name === 'WEBGL_debug_renderer_info') return null;
                         return WebGLRenderingContext.prototype.getExtension.call(this, name);
                     }};
-
                     const canvasNoise = {fingerprint["canvas_noise"]};
                     const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
                     HTMLCanvasElement.prototype.toDataURL = function(type) {{
@@ -437,7 +414,6 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         }}
                         return origToDataURL.apply(this, arguments);
                     }};
-
                     const audioNoise = {fingerprint["audio_noise"]};
                     const origChannel = AudioBuffer.prototype.getChannelData;
                     AudioBuffer.prototype.getChannelData = function(ch) {{
@@ -445,37 +421,26 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         for (let i = 0; i < data.length; i += 100) data[i] += (Math.random() - 0.5) * audioNoise;
                         return data;
                     }};
-
                     delete window.__playwright;
                     delete window.__pw_binding;
                     delete window.__pw_;
-
                     if (navigator.userAgent !== '{ua}') {{
                         Object.defineProperty(navigator, 'userAgent', {{ get: () => '{ua}' }});
                     }}
-
-                    console.log('[Z3R0] بصمة مخفية بالكامل على جلسة تسجيل الدخول.');
+                    console.log('[Z3R0] بصمة مخفية بالكامل.');
                 }})();
             """)
-
             page = await login_context.new_page()
             await simulate_mouse_movement(page)
-            
             await page.goto("https://console.cloud.google.com", wait_until="networkidle")
-            
             await update.message.reply_text(
                 "🌐 **المتصفح المتخفي مفتوح.**\n"
-                "1️⃣ سجل الدخول إلى حساب Google.\n"
-                "2️⃣ اختر الحساب الصحيح (إذا ظهر).\n"
-                "3️⃣ انتظر حتى تظهر صفحة Google Cloud Console.\n"
-                "4️⃣ ارسل الأمر `/done` لحفظ الجلسة.",
+                "سجل الدخول ثم ارسل `/done`.",
                 parse_mode="Markdown"
             )
-            
             await login_event.wait()
-            
     except Exception as e:
-        logger.error(f"فشل تسجيل الدخول التفاعلي: {e}")
+        logger.error(f"فشل تسجيل الدخول: {e}")
         await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
         if login_browser:
             await login_browser.close()
@@ -484,39 +449,29 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global login_context, login_browser, login_event
-    
     try:
         if login_context is None:
-            await update.message.reply_text("❌ لا توجد جلسة تسجيل دخول نشطة. استخدم /login أولاً.")
+            await update.message.reply_text("❌ لا توجد جلسة نشطة. استخدم /login أولاً.")
             return
-        
         cookies = await login_context.cookies()
-        
         with open(COOKIES_FILE, "w") as f:
             json.dump(cookies, f, indent=2)
-        
         logger.info(f"✅ تم حفظ {len(cookies)} كوكي في {COOKIES_FILE}")
         await update.message.reply_text(
-            f"✅ **تم حفظ الجلسة بنجاح!**\n"
-            f"📦 عدد الكوكيز: {len(cookies)}\n"
-            f"📁 الملف: `{COOKIES_FILE}`\n\n"
-            f"🔄 يمكنك الآن استخدام `/deploy` للنشر تلقائياً.",
+            f"✅ **تم حفظ الجلسة!**\n📦 {len(cookies)} كوكي\n📁 `{COOKIES_FILE}`",
             parse_mode="Markdown"
         )
-        
         if login_browser:
             await login_browser.close()
-        
         login_context = None
         login_browser = None
         login_event.set()
-        
     except Exception as e:
         logger.error(f"فشل حفظ الكوكيز: {e}")
-        await update.message.reply_text(f"❌ فشل حفظ الكوكيز: {str(e)[:200]}")
+        await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
 
 # ===================================================================
-# 7. محرك التخفي الأساسي
+# 6. محرك التخفي الأساسي
 # ===================================================================
 async def check_token_validity(browser, token: str) -> bool:
     if not token:
@@ -534,9 +489,7 @@ async def check_token_validity(browser, token: str) -> bool:
         await page.goto("https://myaccount.google.com/", timeout=10000, wait_until="domcontentloaded")
         current_url = page.url
         await context.close()
-        if "accounts.google.com" in current_url:
-            return False
-        return True
+        return "accounts.google.com" not in current_url
     except:
         return False
 
@@ -592,6 +545,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
         "ignore_https_errors": True,
         "accept_downloads": True,
         "java_script_enabled": True,
+        "bypass_csp": True,
     }
     
     proxy = get_random_proxy()
@@ -608,7 +562,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 live_cookies = json.load(f)
             await context.add_cookies(live_cookies)
             cookies_loaded = await context.cookies()
-            logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي من {COOKIES_FILE} (جلسة حية).")
+            logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي من {COOKIES_FILE}")
         except Exception as e:
             logger.warning(f"⚠️ فشل تحميل الكوكيز الحية: {e}")
             cookies_loaded = await load_fallback_cookies(context)
@@ -626,11 +580,9 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             delete window.__webdriver_evaluate;
             delete window.__webdriver_script_function;
             delete window.__webdriver_script_func;
-
             if (!window.chrome) {{
                 window.chrome = {{ runtime: {{}}, loadTimes: () => {{}}, csi: () => {{}}, app: {{}} }};
             }}
-
             const plugins = [
                 {{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' }},
                 {{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' }},
@@ -638,12 +590,10 @@ async def create_authenticated_context(browser, token: str, email: str, project:
             ];
             plugins.length = 5;
             navigator.__defineGetter__('plugins', () => plugins);
-
             Object.defineProperty(navigator, 'languages', {{ get: () => ['{lang}', 'en-US', 'en'] }});
             Object.defineProperty(navigator, 'platform', {{ get: () => '{fingerprint["platform"]}' }});
             Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {fingerprint["device_memory"]} }});
             Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {fingerprint["hardware_concurrency"]} }});
-
             const realGetParam = WebGLRenderingContext.prototype.getParameter;
             WebGLRenderingContext.prototype.getParameter = function(p) {{
                 if (p === 37445) return '{fingerprint["vendor"]}';
@@ -656,7 +606,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 if (name === 'WEBGL_debug_renderer_info') return null;
                 return WebGLRenderingContext.prototype.getExtension.call(this, name);
             }};
-
             const canvasNoise = {fingerprint["canvas_noise"]};
             const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
             HTMLCanvasElement.prototype.toDataURL = function(type) {{
@@ -676,7 +625,6 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 }}
                 return origToDataURL.apply(this, arguments);
             }};
-
             const audioNoise = {fingerprint["audio_noise"]};
             const origChannel = AudioBuffer.prototype.getChannelData;
             AudioBuffer.prototype.getChannelData = function(ch) {{
@@ -684,15 +632,12 @@ async def create_authenticated_context(browser, token: str, email: str, project:
                 for (let i = 0; i < data.length; i += 100) data[i] += (Math.random() - 0.5) * audioNoise;
                 return data;
             }};
-
             delete window.__playwright;
             delete window.__pw_binding;
             delete window.__pw_;
-
             if (navigator.userAgent !== '{ua}') {{
                 Object.defineProperty(navigator, 'userAgent', {{ get: () => '{ua}' }});
             }}
-
             console.log('[Z3R0] بصمة مخفية بالكامل.');
         }})();
     """)
@@ -704,7 +649,7 @@ async def create_authenticated_context(browser, token: str, email: str, project:
     return context, page
 
 # ===================================================================
-# 8. محاكاة حركة الماوس
+# 7. محاكاة حركة الماوس
 # ===================================================================
 async def simulate_mouse_movement(page):
     try:
@@ -719,12 +664,11 @@ async def simulate_mouse_movement(page):
         logger.warning(f"⚠️ فشل محاكاة حركة الماوس: {e}")
 
 # ===================================================================
-# 9. دوال الأزرار والانتظار (مختصرة للمساحة، نفس الكود السابق)
+# 8. دوال الأزرار والانتظار
 # ===================================================================
 async def smart_click_button(page, text_keywords: List[str], aria_labels: List[str] = None) -> bool:
     if aria_labels is None:
         aria_labels = text_keywords
-    
     for text in text_keywords:
         try:
             btn = await page.query_selector(f"button:has-text('{text}'), div[role='button']:has-text('{text}')")
@@ -734,7 +678,6 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
                 return True
         except:
             pass
-    
     for label in aria_labels:
         try:
             btn = await page.query_selector(f"button[aria-label*='{label}'], div[role='button'][aria-label*='{label}']")
@@ -744,7 +687,6 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
                 return True
         except:
             pass
-    
     try:
         buttons = await page.query_selector_all("button, div[role='button'], a[role='button']")
         for btn in buttons:
@@ -760,7 +702,6 @@ async def smart_click_button(page, text_keywords: List[str], aria_labels: List[s
                         return True
     except:
         pass
-    
     return False
 
 async def extract_sitekey(page) -> Optional[str]:
@@ -788,34 +729,28 @@ async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wa
     start_time = time.time()
     login_attempted = False
     last_url = ""
-
     while time.time() - start_time < max_wait:
         current_url = page.url
         page_text = await page.inner_text("body")
-        
         if current_url != last_url:
             logger.info(f"🔄 URL الحالي: {current_url[:80]}")
             last_url = current_url
-
         if ("console.cloud.google.com" in current_url or "shell.cloud.google.com" in current_url):
             if "sign in" not in page_text.lower() and "email" not in page_text.lower() and "password" not in page_text.lower():
-                logger.info("✅ تم الوصول إلى Console/Shell بنجاح (محتوى حقيقي).")
+                logger.info("✅ تم الوصول إلى Console/Shell بنجاح.")
                 return True, ""
             else:
-                logger.warning("⚠️ الرابط يحتوي على console.cloud.google.com لكن المحتوى هو شاشة تسجيل دخول.")
-
+                logger.warning("⚠️ المحتوى هو شاشة تسجيل دخول.")
         if any(kw in page_text.lower() for kw in EXPIRED_KEYWORDS):
-            logger.warning("⛔ تم الكشف عن رابط منتهي الصلاحية.")
-            return False, "⛔ انتهت صلاحية الرابط أو التوكن غير صالح."
-
+            logger.warning("⛔ رابط منتهي الصلاحية.")
+            return False, "⛔ انتهت صلاحية الرابط."
         if "Welcome to your new account" in page_text:
             if await smart_click_button(page, ["Understand", "I understand"]):
                 logger.info("✅ تم الضغط على Understand.")
                 await asyncio.sleep(2)
                 continue
-
         if "recaptcha" in page_text.lower() or "captcha" in page_text.lower():
-            logger.info("🛡️ تم اكتشاف CAPTCHA، جاري الحل...")
+            logger.info("🛡️ CAPTCHA مكتشفة...")
             sitekey = await extract_sitekey(page)
             if sitekey:
                 solution = await solve_captcha_2captcha(page, sitekey)
@@ -828,12 +763,10 @@ async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wa
                         continue
                     except:
                         pass
-
         if "accounts.google.com" in current_url or "sign in" in page_text.lower() or "Impossible de vous connecter" in page_text:
             logger.info("🔐 شاشة Google – محاولة التجاوز...")
-
             if "choose an account" in page_text.lower() or "pick an account" in page_text.lower():
-                logger.info("🔄 شاشة اختيار حساب مكتشفة...")
+                logger.info("🔄 شاشة اختيار حساب...")
                 try:
                     if email:
                         account_selector = f"div[data-email='{email}'], div:has-text('{email}'), button:has-text('{email}')"
@@ -844,14 +777,13 @@ async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wa
                             await asyncio.sleep(2)
                             continue
                     if await smart_click_button(page, ["Continue", "التالي", "Next"]):
-                        logger.info("✅ تم الضغط على Continue في شاشة اختيار الحساب.")
+                        logger.info("✅ تم الضغط على Continue.")
                         await asyncio.sleep(2)
                         continue
                 except Exception as e:
                     logger.warning(f"⚠️ فشل النقر على الحساب: {e}")
-
             elif "email" in page_text.lower() or "identifier" in page_text.lower() or "phone" in page_text.lower():
-                logger.info("📧 شاشة إدخال البريد الإلكتروني...")
+                logger.info("📧 شاشة إدخال البريد...")
                 if email and not login_attempted:
                     try:
                         email_input = await page.wait_for_selector("input[type='email'], input[type='text'][name='identifier']", timeout=5000)
@@ -866,33 +798,27 @@ async def wait_for_redirect_auto(update: Update, page, email: str = None, max_wa
                                 continue
                     except:
                         pass
-                
                 screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, "⛔ شاشة تسجيل دخول تتطلب إدخالاً يدوياً.")
-                return False, "⛔ فشل تسجيل الدخول. يرجى تحديث الكوكيز أو استخدام رابط ضيف."
-
+                await send_screenshot(update, screenshot_path, "⛔ شاشة تسجيل دخول.")
+                return False, "⛔ فشل تسجيل الدخول."
             elif "password" in page_text.lower() or "كلمة المرور" in page_text:
                 logger.warning("🔑 شاشة كلمة المرور – لا يمكن التجاوز.")
                 screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, "⛔ الرابط يتطلب كلمة مرور. يرجى استخدام رابط ضيف أو تحديث الكوكيز.")
-                return False, "⛔ الرابط يتطلب كلمة مرور (تسجيل دخول يدوي)."
-
+                await send_screenshot(update, screenshot_path, "⛔ الرابط يتطلب كلمة مرور.")
+                return False, "⛔ الرابط يتطلب كلمة مرور."
             else:
-                logger.warning("⚠️ شاشة غير متوقعة، محاولة إعادة التحميل...")
+                logger.warning("⚠️ شاشة غير متوقعة، إعادة التحميل...")
                 await page.reload()
                 await asyncio.sleep(2)
                 continue
-
         await asyncio.sleep(2)
-
-    return False, "⛔ انتهت مهلة إعادة التوجيه (120 ثانية)."
+    return False, "⛔ انتهت المهلة (120 ثانية)."
 
 # ===================================================================
-# 10. دوال Start Cloud Shell والطرفية
+# 9. دوال Start Cloud Shell والطرفية
 # ===================================================================
 async def click_start_ultimate(page, max_attempts=5) -> bool:
     logger.info("🔍 البحث عن زر Start Cloud Shell...")
-    
     selectors = [
         "button[aria-label='Start Cloud Shell']",
         "button[data-testid='start-cloud-shell']",
@@ -917,14 +843,12 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
         "button[class*='start']",
         "button[class*='cloud-shell']",
     ]
-
     for attempt in range(max_attempts):
         try:
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
             await asyncio.sleep(0.5)
         except:
             pass
-
         for selector in selectors:
             try:
                 btn = await page.query_selector(selector)
@@ -932,11 +856,10 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
                     await btn.scroll_into_view_if_needed()
                     await asyncio.sleep(0.3)
                     await btn.click()
-                    logger.info(f"✅ تم الضغط على الزر باستخدام المحدد: {selector}")
+                    logger.info(f"✅ تم الضغط على الزر باستخدام: {selector}")
                     return True
             except:
                 continue
-
         try:
             frames = page.frames
             for frame in frames:
@@ -947,13 +870,12 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
                             await btn.scroll_into_view_if_needed()
                             await asyncio.sleep(0.3)
                             await btn.click()
-                            logger.info(f"✅ تم الضغط على الزر في iframe باستخدام: {selector}")
+                            logger.info(f"✅ تم الضغط على الزر في iframe: {selector}")
                             return True
                     except:
                         continue
         except:
             pass
-
         try:
             result = await page.evaluate("""
                 () => {
@@ -974,11 +896,9 @@ async def click_start_ultimate(page, max_attempts=5) -> bool:
                 return True
         except:
             pass
-
         logger.warning(f"⚠️ لم يتم العثور على زر Start في المحاولة {attempt+1}/{max_attempts}")
         await asyncio.sleep(4)
-
-    logger.error("❌ فشل العثور على زر Start Cloud Shell بعد عدة محاولات.")
+    logger.error("❌ فشل العثور على زر Start Cloud Shell.")
     return False
 
 async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
@@ -992,27 +912,21 @@ async def execute_command_robust(page, cmd: str, max_retries: int = 3) -> bool:
                     break
                 except:
                     continue
-            
             await asyncio.sleep(0.3)
-            
             for ch in cmd:
                 await page.keyboard.type(ch, delay=random.randint(10, 25))
-            
             await page.keyboard.press("Enter")
             await asyncio.sleep(random.uniform(1.5, 3))
             return True
-            
         except Exception as e:
-            logger.error(f"فشل تنفيذ الأمر في المحاولة {attempt+1}: {e}")
+            logger.error(f"فشل الأمر في المحاولة {attempt+1}: {e}")
             await asyncio.sleep(2)
-    
-    logger.error(f"❌ فشل تنفيذ الأمر بعد {max_retries} محاولات: {cmd[:60]}")
+    logger.error(f"❌ فشل تنفيذ الأمر بعد {max_retries} محاولات.")
     return False
 
 async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, str]:
     logger.info(f"⏳ في انتظار الطرفية (مهلة {timeout_seconds} ثانية)...")
     start_time = time.time()
-    
     selectors = [
         ".xterm", ".xterm-helper-textarea", ".xterm-screen", ".terminal",
         "[role='textbox']", "textarea", ".terminal-active", ".xterm-viewport"
@@ -1020,11 +934,10 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
     for selector in selectors:
         try:
             await page.wait_for_selector(selector, timeout=20000, state="visible")
-            logger.info(f"✅ تم العثور على الطرفية باستخدام المحدد: {selector}")
+            logger.info(f"✅ تم العثور على الطرفية باستخدام: {selector}")
             return True, ""
         except:
             continue
-    
     try:
         frames = page.frames
         for frame in frames:
@@ -1032,98 +945,122 @@ async def wait_for_terminal_enhanced(page, timeout_seconds=360) -> Tuple[bool, s
                 try:
                     elem = await frame.wait_for_selector(selector, timeout=5000, state="visible")
                     if elem:
-                        logger.info(f"✅ تم العثور على الطرفية داخل iframe باستخدام: {selector}")
+                        logger.info(f"✅ تم العثور على الطرفية داخل iframe: {selector}")
                         return True, ""
                 except:
                     continue
     except Exception as e:
         logger.warning(f"⚠️ فشل البحث في iframes: {e}")
-    
     while time.time() - start_time < timeout_seconds:
         for selector in selectors:
             try:
                 element = await page.query_selector(selector)
                 if element and await element.is_visible():
-                    logger.info(f"✅ الطرفية ظهرت (حلقة احتياطية) – المحدد: {selector}")
+                    logger.info(f"✅ الطرفية ظهرت (حلقة احتياطية) – {selector}")
                     return True, ""
             except:
                 pass
         await asyncio.sleep(1)
-    
     return False, f"⏰ انتهت مهلة انتظار الطرفية ({timeout_seconds} ثانية)."
 
 # ===================================================================
-# 11. البث المباشر (Live Stream Broadcaster)
+# 10. البث المباشر (الإصدار المحسّن)
 # ===================================================================
 streaming_active = False
+stream_start_time = None
 
 async def live_stream_broadcaster(page, duration_seconds=0):
-    global streaming_active
+    global streaming_active, stream_start_time
     streaming_active = True
     stream_state.set_streaming(True)
-    start_time = time.time()
+    stream_start_time = time.time()
+    logger.info("📹 بدء البث المباشر...")
     
     try:
+        # إرسال إطار بداية (شاشة انتظار)
+        await stream_state.update_frame(await generate_placeholder_frame("⏳ جاري تحميل البث..."))
+        
         while streaming_active:
-            screenshot = await page.screenshot(type='jpeg', quality=60, full_page=False)
-            
-            stream_state.update_frame(screenshot)
-            
-            elapsed = int(time.time() - start_time)
-            m, s = divmod(elapsed, 60)
-            h, m = divmod(m, 60)
-            duration_str = f"{h:02d}:{m:02d}:{s:02d}"
-            
             try:
-                cookies = await page.context.cookies()
-                cookie_count = len(cookies)
-            except:
-                cookie_count = 0
-            
-            stream_state.update_status(
-                action=f"جاري التشغيل ({duration_str})",
-                project="مشروع نشط",
-                cookies=cookie_count
-            )
-            
-            if duration_seconds > 0 and elapsed > duration_seconds:
-                break
+                screenshot = await page.screenshot(type='jpeg', quality=60, full_page=False)
+                if screenshot:
+                    stream_state.update_frame(screenshot)
+                    logger.debug("📸 إطار جديد تم تحديثه")
                 
-            await asyncio.sleep(0.3)
+                elapsed = int(time.time() - stream_start_time)
+                m, s = divmod(elapsed, 60)
+                h, m = divmod(m, 60)
+                duration_str = f"{h:02d}:{m:02d}:{s:02d}"
+                
+                try:
+                    cookies = await page.context.cookies()
+                    cookie_count = len(cookies)
+                except:
+                    cookie_count = 0
+                
+                stream_state.update_status(
+                    action=f"🟢 بث مباشر ({duration_str})",
+                    project="جلسة نشطة",
+                    cookies=cookie_count
+                )
+                
+                if duration_seconds > 0 and elapsed > duration_seconds:
+                    break
+                await asyncio.sleep(0.25)
+            except Exception as e:
+                logger.warning(f"⚠️ خطأ في حلقة البث: {e}")
+                await asyncio.sleep(0.5)
     except Exception as e:
         logger.error(f"⚠️ فشل البث المباشر: {e}")
     finally:
         streaming_active = False
         stream_state.set_streaming(False)
+        # إرسال إطار "انتهى البث"
+        await stream_state.update_frame(await generate_placeholder_frame("⏹️ انتهى البث المباشر"))
         logger.info("⏹️ تم إيقاف البث المباشر.")
 
+async def generate_placeholder_frame(text: str = "⏳ في انتظار البث..."):
+    """إنشاء إطار نصي لاستخدامه عند عدم وجود بث."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        img = Image.new('RGB', (1280, 720), color=(10, 14, 20))
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
+        except:
+            font = ImageFont.load_default()
+        bbox = draw.textbbox((0, 0), text, font=font)
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
+        draw.text(((1280-w)//2, (720-h)//2), text, fill=(0, 255, 200), font=font)
+        import io
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=70)
+        return buf.getvalue()
+    except:
+        return None
+
 # ===================================================================
-# 12. سكريبت النشر
+# 11. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, token: str, region: str, email: str) -> str:
     service_name = f"shadow-svc-{random.randint(1000, 9999)}-{project_id[:4]}"
     return f'''
 import os, time, requests, subprocess, sys, json, base64, hashlib, random
-
 PROJECT_ID = "{project_id}"
 TOKEN = "{token}"
 REGION = "{region}"
 EMAIL = "{email}"
 SERVICE_NAME = "{service_name}"
-
 print("🚀 بدء النشر المتقدم على GCP...")
 print(f"📌 المشروع: {{PROJECT_ID}}")
 print(f"🌍 المنطقة: {{REGION}}")
 print(f"🔧 اسم الخدمة: {{SERVICE_NAME}}")
-
 subprocess.run("apt-get update && apt-get install google-cloud-sdk -y", shell=True, capture_output=True)
-
 cmd_setup = f"gcloud config set project {{PROJECT_ID}}"
 subprocess.run(cmd_setup, shell=True, capture_output=True)
-
 cmd_enable = "gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com"
 subprocess.run(cmd_enable, shell=True, capture_output=True)
-
 cmd_deploy = f"""
 gcloud run deploy {{SERVICE_NAME}} \\
     --region {{REGION}} \\
@@ -1134,7 +1071,6 @@ gcloud run deploy {{SERVICE_NAME}} \\
 """
 result = subprocess.run(cmd_deploy, shell=True, capture_output=True, text=True)
 print(result.stdout)
-
 service_url = None
 if "Service URL" in result.stdout:
     match = re.search(r'Service URL[ :]+(https://[a-zA-Z0-9\\-]+\\.run\\.app)', result.stdout)
@@ -1142,286 +1078,273 @@ if "Service URL" in result.stdout:
         service_url = match.group(1)
 if not service_url:
     service_url = f"https://{{SERVICE_NAME}}-{{PROJECT_ID[:8]}}.run.app"
-
 vless_link = f"vless://{{PROJECT_ID}}@example.com:443?security=tls&sni=example.com"
-
 with open("/tmp/result.txt", "w") as f:
     f.write(f"SERVICE_URL: {{service_url}}\\n")
     f.write(f"VLESS: {{vless_link}}\\n")
-
 print("✅ تمت الكتابة إلى /tmp/result.txt")
 print(f"🌐 SERVICE_URL: {{service_url}}")
 print(f"🔗 VLESS: {{vless_link}}")
 '''
 
 # ===================================================================
-# 13. قلب الأتمتة (run_in_cloudshell)
+# 12. قلب الأتمتة (مع إعادة محاولة المتصفح)
 # ===================================================================
-async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                            lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
-    global streaming_active
-    start_time = time.time()
+async def _run_browser_session(update, context, lab_url, project_id, token, email, region, start_time):
+    global streaming_active, stream_start_time
     screenshot_path = ""
     last_error = ""
-
-    try:
-        logger.info(f"🔄 بدء محاولة وحيدة (مهلة {SHELL_TIMEOUT} ثانية)...")
-        logger.info(f"📧 البريد الإلكتروني المستخرج: {email}")
-        if token:
-            logger.info(f"🔑 التوكن: {token[:10]}...{token[-10:]}")
-        else:
-            logger.info("ℹ️ الرابط لا يحتوي على token.")
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-gpu",
-                    "--disable-software-rasterizer",
-                    "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-web-security",
-                    "--disable-features=BlockInsecurePrivateNetworkRequests",
-                    "--disable-features=OutOfBlinkCors",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-component-extensions-with-background-pages",
-                    "--disable-default-apps",
-                    "--disable-extensions",
-                    "--disable-features=TranslateUI",
-                    "--disable-ipc-flooding-protection",
-                    "--disable-popup-blocking",
-                    "--disable-prompt-on-repost",
-                    "--disable-renderer-backgrounding",
-                    "--disable-sync",
-                    "--force-color-profile=srgb",
-                    "--metrics-recording-only",
-                    "--no-first-run"
-                ]
-            )
-            
-            if token:
-                logger.info("🔍 جاري التحقق من صلاحية التوكن...")
-                token_valid = await check_token_validity(browser, token)
-                if not token_valid:
-                    await browser.close()
-                    return False, "", "⛔ التوكن غير صالح أو منتهي الصلاحية. يرجى الحصول على رابط جديد من Qwiklabs.", int(time.time() - start_time), ""
-                logger.info("✅ التوكن صالح.")
-            else:
-                logger.info("ℹ️ لا يوجد token، سيتم الاعتماد على الكوكيز الحية.")
-            
-            context_browser, page = await create_authenticated_context(browser, token, email, project_id)
-
-            # ============================================================
-            # تشغيل البث المباشر
-            # ============================================================
-            if ENABLE_LIVE_STREAM:
-                logger.info("📹 بدء البث المباشر...")
-                asyncio.create_task(live_stream_broadcaster(page))
-
-            cookies_before = await context_browser.cookies()
-            logger.info(f"🍪 عدد الكوكيز المحملة قبل فتح الرابط: {len(cookies_before)}")
-            if len(cookies_before) < 5:
-                logger.warning("⚠️ عدد الكوكيز قليل، قد تكون الجلسة غير مكتملة.")
-                screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, "⚠️ عدد الكوكيز قليل جداً، قد تكون الجلسة منتهية.")
-                await browser.close()
-                streaming_active = False
-                stream_state.set_streaming(False)
-                return False, "", "⚠️ الكوكيز غير مكتملة. يرجى استخدام /login لتسجيل الدخول مرة أخرى.", int(time.time() - start_time), screenshot_path
-
-            logger.info("📌 فتح الرابط...")
-            await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
-
-            redirect_success, redirect_msg = await wait_for_redirect_auto(update, page, email, max_wait=120)
-            if not redirect_success:
-                screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, redirect_msg)
-                await browser.close()
-                streaming_active = False
-                stream_state.set_streaming(False)
-                return False, "", redirect_msg, int(time.time() - start_time), screenshot_path
-
-            page_text = await page.inner_text("body")
-            if "sign in" in page_text.lower() or "email" in page_text.lower():
-                logger.error("❌ على الرغم من إعادة التوجيه، الصفحة لا تزال تعرض شاشة تسجيل دخول.")
-                screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, "⛔ فشل التجاوز: الصفحة لا تزال تطلب تسجيل الدخول.")
-                await browser.close()
-                streaming_active = False
-                stream_state.set_streaming(False)
-                return False, "", "⛔ فشل التجاوز: الصفحة لا تزال تطلب تسجيل الدخول.", int(time.time() - start_time), screenshot_path
-
-            logger.info("✅ تم تأكيد الوصول إلى Console/Shell (محتوى حقيقي).")
-
-            for btn_text in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض", "Got it"]:
-                if await smart_click_button(page, [btn_text], [btn_text]):
-                    logger.info(f"✅ تم تجاوز زر: {btn_text}")
-                    await asyncio.sleep(random.uniform(1, 2))
-
-            logger.info("🔄 التوجه إلى Cloud Shell...")
-            await page.goto("https://shell.cloud.google.com", timeout=90000, wait_until="networkidle")
-            logger.info("✅ تم تحميل صفحة Cloud Shell بنجاح.")
-            
-            for _ in range(15):
-                await asyncio.sleep(2)
-                found = await page.query_selector("button:has-text('Start Cloud Shell'), button[aria-label='Start Cloud Shell'], button:has-text('Activate Cloud Shell'), button:has-text('بدء Cloud Shell')")
-                if found:
-                    logger.info("✅ تم التأكد من ظهور زر Start.")
-                    break
-            else:
-                logger.warning("⚠️ لم يظهر زر Start بعد المهلة، سيتم المحاولة على أي حال.")
-            
-            await asyncio.sleep(random.uniform(2, 4))
-
-            logger.info("🔍 جاري البحث عن زر 'Start Cloud Shell'...")
-            start_clicked = False
-            for attempt in range(5):
-                logger.info(f"🔄 محاولة الضغط على Start (محاولة {attempt+1}/5)...")
-                start_clicked = await click_start_ultimate(page, max_attempts=1)
-                if start_clicked:
-                    logger.info(f"✅ تم الضغط على زر Start في المحاولة {attempt+1}.")
-                    break
-                logger.warning(f"⚠️ فشلت المحاولة {attempt+1}، الانتظار 6 ثوانٍ وإعادة المحاولة...")
-                await asyncio.sleep(6)
-
-            if not start_clicked:
-                last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell بعد 5 محاولات."
-                logger.warning(last_error)
-                screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, last_error)
-            else:
-                logger.info("✅ تم الضغط على Start Cloud Shell بنجاح.")
-
-            for btn_text in ["Authorize", "تفويض", "Continue", "متابعة", "I understand", "Got it"]:
-                if await smart_click_button(page, [btn_text], [btn_text]):
-                    logger.info(f"✅ تم الضغط على زر إضافي: {btn_text}")
-                    await asyncio.sleep(2)
-
-            terminal_ready, terminal_msg = await wait_for_terminal_enhanced(page, timeout_seconds=360)
-            if not terminal_ready:
-                last_error = terminal_msg
-                logger.warning(f"⏰ {last_error}")
-                screenshot_path = await save_screenshot(page)
-                await send_screenshot(update, screenshot_path, last_error)
-                await browser.close()
-                streaming_active = False
-                stream_state.set_streaming(False)
-                return False, "", last_error, int(time.time() - start_time), screenshot_path
-
-            logger.info("✅ الطرفية ظهرت بنجاح.")
-            await asyncio.sleep(random.uniform(2, 4))
-
-            deploy_script = generate_deploy_script(project_id, token, region, email)
-            b64_script = base64.b64encode(deploy_script.encode()).decode()
-            
-            commands = [
-                f"echo '{b64_script}' | base64 -d > deploy.py",
-                "python3 deploy.py"
+    logger.info(f"🔄 بدء جلسة المتصفح (مهلة {SHELL_TIMEOUT} ثانية)...")
+    logger.info(f"📧 البريد الإلكتروني: {email}")
+    
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-web-security",
+                "--disable-features=BlockInsecurePrivateNetworkRequests",
+                "--disable-features=OutOfBlinkCors",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-component-extensions-with-background-pages",
+                "--disable-default-apps",
+                "--disable-extensions",
+                "--disable-features=TranslateUI",
+                "--disable-ipc-flooding-protection",
+                "--disable-popup-blocking",
+                "--disable-prompt-on-repost",
+                "--disable-renderer-backgrounding",
+                "--disable-sync",
+                "--force-color-profile=srgb",
+                "--metrics-recording-only",
+                "--no-first-run"
             ]
-
-            for idx, cmd in enumerate(commands):
-                logger.info(f"📝 تنفيذ الأمر {idx+1}/{len(commands)}...")
-                success_cmd = await execute_command_robust(page, cmd, max_retries=3)
-                if not success_cmd:
-                    last_error = f"⚠️ فشل تنفيذ الأمر رقم {idx+1} (بعد 3 محاولات): {cmd[:30]}..."
-                    logger.warning(last_error)
-                await asyncio.sleep(random.uniform(2, 3))
-
-            logger.info("📖 محاولة قراءة /tmp/result.txt...")
-            result_content = ""
-            
-            await execute_command_robust(page, "cat /tmp/result.txt", max_retries=2)
+        )
+        
+        if token:
+            logger.info("🔍 جاري التحقق من صلاحية التوكن...")
+            token_valid = await check_token_validity(browser, token)
+            if not token_valid:
+                await browser.close()
+                return False, "", "⛔ التوكن غير صالح.", int(time.time() - start_time), ""
+            logger.info("✅ التوكن صالح.")
+        else:
+            logger.info("ℹ️ لا يوجد token، سيتم الاعتماد على الكوكيز الحية.")
+        
+        context_browser, page = await create_authenticated_context(browser, token, email, project_id)
+        
+        # تشغيل البث المباشر
+        if ENABLE_LIVE_STREAM:
+            logger.info("📹 بدء البث المباشر...")
+            asyncio.create_task(live_stream_broadcaster(page))
+        
+        cookies_before = await context_browser.cookies()
+        logger.info(f"🍪 عدد الكوكيز المحملة: {len(cookies_before)}")
+        
+        if len(cookies_before) < 5:
+            logger.warning("⚠️ عدد الكوكيز قليل.")
+            screenshot_path = await save_screenshot(page)
+            await send_screenshot(update, screenshot_path, "⚠️ عدد الكوكيز قليل جداً.")
+            await browser.close()
+            streaming_active = False
+            stream_state.set_streaming(False)
+            return False, "", "⚠️ الكوكيز غير مكتملة.", int(time.time() - start_time), screenshot_path
+        
+        logger.info("📌 فتح الرابط...")
+        await page.goto(lab_url, timeout=min(SHELL_TIMEOUT * 1000, 180000), wait_until="networkidle")
+        
+        redirect_success, redirect_msg = await wait_for_redirect_auto(update, page, email, max_wait=120)
+        if not redirect_success:
+            screenshot_path = await save_screenshot(page)
+            await send_screenshot(update, screenshot_path, redirect_msg)
+            await browser.close()
+            streaming_active = False
+            stream_state.set_streaming(False)
+            return False, "", redirect_msg, int(time.time() - start_time), screenshot_path
+        
+        page_text = await page.inner_text("body")
+        if "sign in" in page_text.lower() or "email" in page_text.lower():
+            logger.error("❌ الصفحة لا تزال تعرض شاشة تسجيل دخول.")
+            screenshot_path = await save_screenshot(page)
+            await send_screenshot(update, screenshot_path, "⛔ فشل التجاوز: لا تزال شاشة تسجيل الدخول.")
+            await browser.close()
+            streaming_active = False
+            stream_state.set_streaming(False)
+            return False, "", "⛔ فشل التجاوز.", int(time.time() - start_time), screenshot_path
+        
+        logger.info("✅ تم تأكيد الوصول إلى Console/Shell.")
+        
+        for btn_text in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "تفويض", "Got it"]:
+            if await smart_click_button(page, [btn_text], [btn_text]):
+                logger.info(f"✅ تم تجاوز زر: {btn_text}")
+                await asyncio.sleep(random.uniform(1, 2))
+        
+        logger.info("🔄 التوجه إلى Cloud Shell...")
+        await page.goto("https://shell.cloud.google.com", timeout=90000, wait_until="networkidle")
+        logger.info("✅ تم تحميل صفحة Cloud Shell.")
+        
+        for _ in range(15):
+            await asyncio.sleep(2)
+            found = await page.query_selector("button:has-text('Start Cloud Shell'), button[aria-label='Start Cloud Shell'], button:has-text('Activate Cloud Shell'), button:has-text('بدء Cloud Shell')")
+            if found:
+                logger.info("✅ تم التأكد من ظهور زر Start.")
+                break
+        
+        await asyncio.sleep(random.uniform(2, 4))
+        logger.info("🔍 جاري البحث عن زر 'Start Cloud Shell'...")
+        
+        start_clicked = False
+        for attempt in range(5):
+            logger.info(f"🔄 محاولة الضغط على Start (محاولة {attempt+1}/5)...")
+            start_clicked = await click_start_ultimate(page, max_attempts=1)
+            if start_clicked:
+                logger.info(f"✅ تم الضغط على زر Start في المحاولة {attempt+1}.")
+                break
+            logger.warning(f"⚠️ فشلت المحاولة {attempt+1}، الانتظار 6 ثوانٍ...")
+            await asyncio.sleep(6)
+        
+        if not start_clicked:
+            last_error = "⚠️ لم يتم العثور على زر Start Cloud Shell بعد 5 محاولات."
+            logger.warning(last_error)
+            screenshot_path = await save_screenshot(page)
+            await send_screenshot(update, screenshot_path, last_error)
+        else:
+            logger.info("✅ تم الضغط على Start Cloud Shell بنجاح.")
+        
+        for btn_text in ["Authorize", "تفويض", "Continue", "متابعة", "I understand", "Got it"]:
+            if await smart_click_button(page, [btn_text], [btn_text]):
+                logger.info(f"✅ تم الضغط على زر إضافي: {btn_text}")
+                await asyncio.sleep(2)
+        
+        terminal_ready, terminal_msg = await wait_for_terminal_enhanced(page, timeout_seconds=360)
+        if not terminal_ready:
+            last_error = terminal_msg
+            logger.warning(f"⏰ {last_error}")
+            screenshot_path = await save_screenshot(page)
+            await send_screenshot(update, screenshot_path, last_error)
+            await browser.close()
+            streaming_active = False
+            stream_state.set_streaming(False)
+            return False, "", last_error, int(time.time() - start_time), screenshot_path
+        
+        logger.info("✅ الطرفية ظهرت بنجاح.")
+        await asyncio.sleep(random.uniform(2, 4))
+        
+        deploy_script = generate_deploy_script(project_id, token, region, email)
+        b64_script = base64.b64encode(deploy_script.encode()).decode()
+        commands = [
+            f"echo '{b64_script}' | base64 -d > deploy.py",
+            "python3 deploy.py"
+        ]
+        
+        for idx, cmd in enumerate(commands):
+            logger.info(f"📝 تنفيذ الأمر {idx+1}/{len(commands)}...")
+            success_cmd = await execute_command_robust(page, cmd, max_retries=3)
+            if not success_cmd:
+                last_error = f"⚠️ فشل تنفيذ الأمر رقم {idx+1}."
+                logger.warning(last_error)
+            await asyncio.sleep(random.uniform(2, 3))
+        
+        logger.info("📖 محاولة قراءة /tmp/result.txt...")
+        result_content = ""
+        await execute_command_robust(page, "cat /tmp/result.txt", max_retries=2)
+        await asyncio.sleep(2)
+        
+        try:
+            term = await page.query_selector(".xterm, .terminal, [role='textbox']")
+            if term:
+                terminal_text = await term.inner_text()
+            else:
+                terminal_text = await page.inner_text("body")
+            lines = terminal_text.split('\n')
+            relevant = '\n'.join(lines[-30:])
+            result_content = relevant
+            logger.info("✅ تم قراءة الطرفية.")
+        except Exception as e:
+            last_error = f"⚠️ فشل قراءة الطرفية: {str(e)[:100]}"
+            logger.warning(last_error)
+        
+        if not result_content or "SERVICE_URL" not in result_content:
+            await execute_command_robust(page, "cat /tmp/result.txt | grep SERVICE_URL", max_retries=2)
             await asyncio.sleep(2)
             try:
                 term = await page.query_selector(".xterm, .terminal, [role='textbox']")
                 if term:
                     terminal_text = await term.inner_text()
-                else:
-                    terminal_text = await page.inner_text("body")
-                lines = terminal_text.split('\n')
-                relevant = '\n'.join(lines[-30:])
-                result_content = relevant
-                logger.info("✅ تم قراءة الطرفية بنجاح.")
-            except Exception as e:
-                last_error = f"⚠️ فشل قراءة الطرفية: {str(e)[:100]}"
-                logger.warning(last_error)
-
-            if not result_content or "SERVICE_URL" not in result_content:
-                logger.info("📖 محاولة grep SERVICE_URL...")
-                await execute_command_robust(page, "cat /tmp/result.txt | grep SERVICE_URL", max_retries=2)
-                await asyncio.sleep(2)
-                try:
-                    term = await page.query_selector(".xterm, .terminal, [role='textbox']")
-                    if term:
-                        terminal_text = await term.inner_text()
-                        if "SERVICE_URL" in terminal_text:
-                            result_content = terminal_text
-                except:
-                    pass
-
-            if not result_content or "SERVICE_URL" not in result_content:
-                logger.info("📖 محاولة grep VLESS...")
-                await execute_command_robust(page, "cat /tmp/result.txt | grep VLESS", max_retries=2)
-                await asyncio.sleep(2)
-                try:
-                    term = await page.query_selector(".xterm, .terminal, [role='textbox']")
-                    if term:
-                        terminal_text = await term.inner_text()
-                        if "VLESS" in terminal_text:
-                            result_content = terminal_text
-                except:
-                    pass
-
-            os.makedirs("screenshots", exist_ok=True)
-            screenshot_path = f"screenshots/{int(time.time())}.png"
-            await page.screenshot(path=screenshot_path, full_page=True)
-            await browser.close()
-
-            # ============================================================
-            # إيقاف البث المباشر
-            # ============================================================
-            streaming_active = False
-            stream_state.set_streaming(False)
-            logger.info("⏹️ تم إيقاف البث المباشر.")
-
-            cleanup_old_screenshots()
-
-            service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', result_content)
-            vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', result_content)
-
-            if service_match and vless_match:
-                await send_screenshot(update, screenshot_path, "✅ تم النشر بنجاح")
-                return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time), screenshot_path
+                    if "SERVICE_URL" in terminal_text:
+                        result_content = terminal_text
+            except:
+                pass
+        
+        if not result_content or "SERVICE_URL" not in result_content:
+            await execute_command_robust(page, "cat /tmp/result.txt | grep VLESS", max_retries=2)
+            await asyncio.sleep(2)
+            try:
+                term = await page.query_selector(".xterm, .terminal, [role='textbox']")
+                if term:
+                    terminal_text = await term.inner_text()
+                    if "VLESS" in terminal_text:
+                        result_content = terminal_text
+            except:
+                pass
+        
+        os.makedirs("screenshots", exist_ok=True)
+        screenshot_path = f"screenshots/{int(time.time())}.png"
+        await page.screenshot(path=screenshot_path, full_page=True)
+        await browser.close()
+        
+        streaming_active = False
+        stream_state.set_streaming(False)
+        logger.info("⏹️ تم إيقاف البث المباشر.")
+        cleanup_old_screenshots()
+        
+        service_match = re.search(r'SERVICE_URL:\s*(https://[a-zA-Z0-9\-]+\.run\.app)', result_content)
+        vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', result_content)
+        
+        if service_match and vless_match:
+            await send_screenshot(update, screenshot_path, "✅ تم النشر بنجاح")
+            return True, service_match.group(1), vless_match.group(1), int(time.time() - start_time), screenshot_path
+        else:
+            if not result_content:
+                error_detail = "❌ لم يتم الحصول على أي مخرجات من الطرفية."
             else:
-                if not result_content:
-                    error_detail = "❌ لم يتم الحصول على أي مخرجات من الطرفية. قد يكون السكريبت لم ينفذ."
-                else:
-                    error_detail = f"⚠️ لم يتم العثور على النتيجة.\nالمحتوى المسترجع:\n{result_content[-500:]}"
-                await send_screenshot(update, screenshot_path, error_detail)
-                return False, "", error_detail, int(time.time() - start_time), screenshot_path
+                error_detail = f"⚠️ لم يتم العثور على النتيجة.\n{result_content[-500:]}"
+            await send_screenshot(update, screenshot_path, error_detail)
+            return False, "", error_detail, int(time.time() - start_time), screenshot_path
 
-    except PlaywrightTimeout as e:
-        logger.exception("⏰ انتهت مهلة Playwright")
-        last_error = f"⏰ انتهت المهلة: {str(e)[:200]}"
-        if screenshot_path:
-            await send_screenshot(update, screenshot_path, last_error)
-        streaming_active = False
-        stream_state.set_streaming(False)
-        return False, "", last_error, int(time.time() - start_time), screenshot_path
-    except Exception as e:
-        logger.exception(f"❌ فشل المحاولة")
-        last_error = f"❌ خطأ تقني: {str(e)[:200]}"
-        if screenshot_path:
-            await send_screenshot(update, screenshot_path, last_error)
-        streaming_active = False
-        stream_state.set_streaming(False)
-        return False, "", last_error, int(time.time() - start_time), screenshot_path
+async def run_in_cloudshell(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                            lab_url: str, project_id: str, token: str, email: str, region: str) -> Tuple[bool, str, str, int, str]:
+    start_time = time.time()
+    for attempt in range(3):
+        try:
+            return await _run_browser_session(update, context, lab_url, project_id, token, email, region, start_time)
+        except PlaywrightTimeout as e:
+            logger.error(f"⏰ انتهت مهلة Playwright في المحاولة {attempt+1}: {e}")
+            if attempt < 2:
+                logger.info("🔄 إعادة محاولة تشغيل المتصفح...")
+                await asyncio.sleep(3)
+                continue
+            else:
+                return False, "", f"⏰ انتهت المهلة بعد 3 محاولات: {str(e)[:200]}", int(time.time() - start_time), ""
+        except Exception as e:
+            logger.error(f"❌ فشل الجلسة في المحاولة {attempt+1}: {e}")
+            if "closed" in str(e).lower() and attempt < 2:
+                logger.info("🔄 إعادة محاولة تشغيل المتصفح (تم إغلاقه)...")
+                await asyncio.sleep(3)
+                continue
+            else:
+                return False, "", f"❌ خطأ تقني: {str(e)[:200]}", int(time.time() - start_time), ""
+    return False, "", "❌ فشل بعد 3 محاولات", int(time.time() - start_time), ""
 
 # ===================================================================
-# 14. دوال الصور
+# 13. دوال الصور
 # ===================================================================
 async def save_screenshot(page) -> str:
     os.makedirs("screenshots", exist_ok=True)
@@ -1434,12 +1357,12 @@ async def save_screenshot(page) -> str:
         logger.warning(f"⚠️ فشل حفظ اللقطة: {e}")
         return ""
 
-async def send_screenshot(update: Update, path: str, caption: str = "📸 لقطة للفحص"):
+async def send_screenshot(update: Update, path: str, caption: str = "📸 لقطة"):
     if not path or not os.path.exists(path):
         return
     try:
         with open(path, 'rb') as photo:
-            await update.effective_message.reply_photo(photo, caption=f"{caption}\n\n🔄 يمكنك استخدام زر 'إعادة المحاولة' لتجربة الرابط نفسه مرة أخرى.")
+            await update.effective_message.reply_photo(photo, caption=f"{caption}\n\n🔄 استخدم /retry لإعادة المحاولة.")
         logger.info(f"📤 تم إرسال الصورة: {path}")
     except Exception as e:
         logger.warning(f"⚠️ فشل إرسال الصورة: {e}")
@@ -1461,7 +1384,7 @@ def cleanup_old_screenshots():
         logger.warning(f"⚠️ فشل تنظيف اللقطات: {e}")
 
 # ===================================================================
-# 15. واجهة البوت
+# 14. واجهة البوت (رسالة /start المستقبلية)
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -1499,19 +1422,43 @@ def region_menu():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
+    
+    message = (
+        "🔷 **SHADOW LEGION v26.3 — ACTIVE**\n"
+        "═════════════════════════════════════╗\n"
+        "  ⚡️ **نظام التشغيل الآلي المتخفي**\n"
+        "  🛡️ حماية متقدمة  |  📡 بث مباشر  |  🧠 ذكاء اصطناعي\n\n"
+        "  ✅ الجلسة: <b>جاهزة</b>\n"
+        f"  🌐 اللوحة: <a href='{RAILWAY_PUBLIC_DOMAIN}'>رابط التحكم</a>\n"
+        f"  📦 المستخدم: <b>{u.first_name or 'مستخدم'}</b>\n\n"
+        "  🚀 اختر وجهتك من الأزرار أدناه:\n"
+        "╚════════════════════════════════════╝"
+    )
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("🔐 تسجيل الدخول", callback_data="login"),
+            InlineKeyboardButton("🚀 نشر جديد", callback_data="deploy")
+        ],
+        [
+            InlineKeyboardButton("🔄 إعادة المحاولة", callback_data="retry"),
+            InlineKeyboardButton("📊 الإحصائيات", callback_data="stats")
+        ],
+        [
+            InlineKeyboardButton("📜 سجل النشرات", callback_data="history"),
+            InlineKeyboardButton("❓ مساعدة", callback_data="help")
+        ],
+        [
+            InlineKeyboardButton("🌐 لوحة التحكم", url=RAILWAY_PUBLIC_DOMAIN),
+            InlineKeyboardButton("📹 البث المباشر", url=f"{RAILWAY_PUBLIC_DOMAIN}/live_stream")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     await update.message.reply_text(
-        "📌 **SHADOW LEGION v26.0**\n\n"
-        "⚡️ نظام نشر آلي متخفي مع بث مباشر وقاعدة بيانات MongoDB.\n\n"
-        "📋 **الأوامر:**\n"
-        "/login – تسجيل الدخول لمرة واحدة (يوصى به أولاً)\n"
-        "/deploy – نشر خدمة جديدة\n"
-        "/retry – إعادة استخدام آخر رابط\n"
-        "/stats – إحصائياتك\n"
-        "/history – سجل النشرات\n"
-        "/help – المساعدة\n\n"
-        "🌐 **لوحة التحكم:** متاحة على الرابط العام للتطبيق",
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardRemove()
+        message,
+        parse_mode="HTML",
+        reply_markup=reply_markup
     )
 
 async def deploy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1550,7 +1497,7 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_id = update.effective_user.id
     user_data = get_user(user_id)
     if not user_data or not user_data.get("last_link"):
-        await update.message.reply_text("📭 لا يوجد رابط سابق لإعادة المحاولة.", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("📭 لا يوجد رابط سابق.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     last_link = user_data["last_link"]
     await update.message.reply_text(f"🔄 جاري إعادة استخدام الرابط السابق:", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
@@ -1558,11 +1505,9 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     project = extracted.get("project_id")
     token = extracted.get("token")
     email = extracted.get("email")
-    
     if not project:
         await update.message.reply_text("❌ الرابط المخزن لا يحتوي على project.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
-    
     context.user_data.update({"lab_url": last_link, "project_id": project, "token": token, "email": email})
     token_display = token[:15] if token else "سيتم استخدام الكوكيز الحية"
     await update.message.reply_text(
@@ -1593,14 +1538,14 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not proj:
         await q.edit_message_text("❌ انتهت الجلسة. أعد الإرسال.")
         return
-
+    
     region_name = KNOWN_REGIONS.get(region, region)
     await q.edit_message_text(f"🚀 جاري النشر على {region_name} ... (قد يستغرق 3-6 دقائق)")
-
+    
     success, service, vless, duration, screenshot = await run_in_cloudshell(
         update, context, lab, proj, tok, email, region
     )
-
+    
     if success:
         increment_deploy_count(user_id)
         add_history(user_id, lab, service, vless, region, success=1, duration=duration, screenshot=screenshot)
@@ -1614,7 +1559,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"❌ **فشل النشر**\n\n```\n{vless}\n```",
             parse_mode="Markdown"
         )
-
     context.user_data.clear()
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1657,6 +1601,29 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+# ===================================================================
+# 15. معالج الأزرار
+# ===================================================================
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    
+    if data == "login":
+        await login_command(update, context)
+    elif data == "deploy":
+        await deploy_command(update, context)
+    elif data == "retry":
+        await retry_command(update, context)
+    elif data == "stats":
+        await stats_command(update, context)
+    elif data == "history":
+        await history_command(update, context)
+    elif data == "help":
+        await help_command(update, context)
+    else:
+        await query.edit_message_text("⚠️ خيار غير معروف.")
+
 async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text == "🚀 نشر جديدة":
@@ -1678,7 +1645,6 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 16. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
-    """تشغيل خادم Flask مع المنفذ الديناميكي."""
     try:
         import threading
         import web_dashboard
@@ -1696,7 +1662,7 @@ def start_web_dashboard():
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
+    
     conv = ConversationHandler(
         entry_points=[CommandHandler("deploy", deploy_command), MessageHandler(filters.Regex("^🚀 نشر جديدة$"), deploy_command)],
         states={
@@ -1706,7 +1672,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
     )
-
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("login", login_command))
@@ -1717,13 +1683,14 @@ def main():
     app.add_handler(conv)
     app.add_handler(CallbackQueryHandler(region_callback, pattern="^region_"))
     app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
+    app.add_handler(CallbackQueryHandler(button_callback, pattern="^(login|deploy|retry|stats|history|help)$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
-
+    
     start_web_dashboard()
-
-    logger.info("🔥 SHADOW LEGION v26.0 (MongoDB Master) جاهز تماماً...")
+    
+    logger.info("🔥 SHADOW LEGION v26.3 (Live Stream Fix) جاهز تماماً...")
     logger.info("📌 استخدم /login أولاً لتسجيل الدخول وحفظ الجلسة.")
-    logger.info("🌐 لوحة التحكم متاحة على الرابط العام للتطبيق.")
+    logger.info(f"🌐 لوحة التحكم متاحة على: {RAILWAY_PUBLIC_DOMAIN}")
     app.run_polling()
 
 if __name__ == "__main__":
