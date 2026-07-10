@@ -1,4 +1,7 @@
-FROM mcr.microsoft.com/playwright:python-3.10
+# ===================================================================
+# SHADOW LEGION v38.0 – DOCKERFILE (PLAYWRIGHT OFFICIAL)
+# ===================================================================
+FROM mcr.microsoft.com/playwright/python:3.10
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
