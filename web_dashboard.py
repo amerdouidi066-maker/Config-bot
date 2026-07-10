@@ -53,7 +53,6 @@ HTML_TEMPLATE = '''
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* تحسين وضوح الخط في كل مكان */
         body {
             background: #0b0e14;
             color: #e0e6ed;
@@ -95,7 +94,32 @@ HTML_TEMPLATE = '''
             object-fit: contain;
             display: block;
         }
-        /* تحسين وضوح السجلات */
+        .url-bar {
+            background: #0a0d12;
+            padding: 6px 16px;
+            border-radius: 0 0 12px 12px;
+            border: 1px solid #2a3546;
+            border-top: none;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 13px;
+            color: #8ab4f8;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .url-bar .label {
+            color: #667;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .url-bar .url-text {
+            color: #0ff;
+            word-break: break-all;
+            font-weight: 500;
+        }
         .log-container {
             height: 200px;
             overflow-y: auto;
@@ -130,7 +154,6 @@ HTML_TEMPLATE = '''
         }
         .status-badge.running { background: #00ffcc22; color: #00ffcc; border: 1px solid #00ffcc55; }
         .status-badge.idle { background: #4444; color: #888; border: 1px solid #4444; }
-        /* تحسين النصوص العامة */
         h1, h2, h3, h4, .fs-3, .fs-6, .badge, .btn {
             font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
         }
@@ -159,7 +182,7 @@ HTML_TEMPLATE = '''
 <body>
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v28.1 – Clear</small></h1>
+        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v28.2 – Full Page</small></h1>
         <div>
             <span class="badge bg-secondary me-2" id="liveTime">{{ now }}</span>
             <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()"></i>
@@ -180,6 +203,10 @@ HTML_TEMPLATE = '''
                 <div class="card-body p-0">
                     <div class="stream-container">
                         <img id="streamImg" src="/live_stream" alt="البث المباشر">
+                    </div>
+                    <div class="url-bar">
+                        <span class="label">🔗 الرابط الحالي</span>
+                        <span class="url-text" id="currentUrl">-</span>
                     </div>
                 </div>
             </div>
@@ -267,6 +294,7 @@ HTML_TEMPLATE = '''
             if (d.streaming) { badge.textContent = '🔴 بث مباشر'; badge.className = 'status-badge running'; }
             else { badge.textContent = '⏸ خامل'; badge.className = 'status-badge idle'; }
             document.getElementById('streamDuration').textContent = d.duration || '00:00:00';
+            document.getElementById('currentUrl').textContent = d.project || '-';
         }).catch(() => {});
     }
 
@@ -315,9 +343,9 @@ def generate_frames():
             if PLACEHOLDER_FRAME:
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(PLACEHOLDER_FRAME)).encode() + b'\r\n\r\n' + PLACEHOLDER_FRAME + b'\r\n')
             else:
-                time.sleep(0.1)
+                time.sleep(0.05)
                 continue
-        time.sleep(0.05)
+        time.sleep(0.02)  # سرعة عالية
 
 @app.route('/')
 @login_required
