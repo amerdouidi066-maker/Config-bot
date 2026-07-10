@@ -1,9 +1,3 @@
-
-───────────────────────────────────────────────────────────────
-[3] FILE: web_dashboard.py  (UNCHANGED – BUT CONFIRMED)
-───────────────────────────────────────────────────────────────
-*(Copy exactly as you sent it – it's correct. Paste it into web_dashboard.py)*
-```python
 import os
 import time
 from datetime import datetime, timedelta
@@ -54,140 +48,47 @@ HTML_TEMPLATE = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🛡️ Shadow Legion – Live Dashboard</title>
+    <title>Shadow Legion – Live Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        body {
-            background: #0b0e14;
-            color: #e0e6ed;
-            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-            font-size: 16px;
-            font-weight: 400;
-            line-height: 1.6;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
-        .card {
-            background: #141a24;
-            border: 1px solid #2a3546;
-            border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-        }
-        .card-header {
-            background: #1e2736;
-            border-bottom: 1px solid #2a3546;
-            font-weight: 600;
-            font-size: 1.1rem;
-        }
+        body { background: #0b0e14; color: #e0e6ed; font-family: system-ui, sans-serif; }
+        .card { background: #141a24; border: 1px solid #2a3546; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
+        .card-header { background: #1e2736; border-bottom: 1px solid #2a3546; font-weight: 600; }
         .stat-icon { font-size: 2.5rem; opacity: 0.7; }
         .bg-success-soft { background: #0f2b1a; color: #5be08b; }
         .bg-danger-soft { background: #2b1218; color: #f87171; }
         .bg-primary-soft { background: #122238; color: #60a5fa; }
         .bg-warning-soft { background: #2b2412; color: #fbbf24; }
-        .stream-container {
-            background: #000;
-            border-radius: 12px;
-            overflow: hidden;
-            aspect-ratio: 16/9;
-            border: 1px solid #2a3546;
-            position: relative;
-        }
-        .stream-container img {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            display: block;
-        }
-        .url-bar {
-            background: #0a0d12;
-            padding: 6px 16px;
-            border-radius: 0 0 12px 12px;
-            border: 1px solid #2a3546;
-            border-top: none;
-            font-family: 'JetBrains Mono', 'Courier New', monospace;
-            font-size: 13px;
-            color: #8ab4f8;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .url-bar .label {
-            color: #667;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .url-bar .url-text {
-            color: #0ff;
-            word-break: break-all;
-            font-weight: 500;
-        }
-        .log-container {
-            height: 200px;
-            overflow-y: auto;
-            background: #0a0d12;
-            border-radius: 12px;
-            padding: 14px 18px;
-            font-size: 14px;
-            font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
-            white-space: pre-wrap;
-            word-break: break-all;
-            line-height: 1.7;
-            color: #c8d0dc;
-        }
+        .stream-container { background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; border: 1px solid #2a3546; position: relative; }
+        .stream-container img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        .url-bar { background: #0a0d12; padding: 6px 16px; border-radius: 0 0 12px 12px; border: 1px solid #2a3546; border-top: none; font-family: monospace; font-size: 13px; color: #8ab4f8; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+        .url-bar .label { color: #667; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .url-bar .url-text { color: #0ff; word-break: break-all; font-weight: 500; }
+        .log-container { height: 200px; overflow-y: auto; background: #0a0d12; border-radius: 12px; padding: 14px 18px; font-size: 14px; font-family: monospace; white-space: pre-wrap; word-break: break-all; line-height: 1.7; color: #c8d0dc; }
         .log-container::-webkit-scrollbar { width: 6px; }
         .log-container::-webkit-scrollbar-thumb { background: #2a3546; border-radius: 8px; }
         .table-dark { background: transparent; }
-        .table-dark td, .table-dark th {
-            border-color: #1e2736;
-            font-size: 14px;
-            padding: 10px 12px;
-        }
+        .table-dark td, .table-dark th { border-color: #1e2736; font-size: 14px; padding: 10px 12px; }
         .refresh-btn { cursor: pointer; transition: 0.3s; }
         .refresh-btn:hover { transform: rotate(60deg); }
         .live-badge { animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        .status-badge {
-            display: inline-block;
-            padding: 4px 14px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 700;
-        }
+        .status-badge { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; }
         .status-badge.running { background: #00ffcc22; color: #00ffcc; border: 1px solid #00ffcc55; }
         .status-badge.idle { background: #4444; color: #888; border: 1px solid #4444; }
-        h1, h2, h3, h4, .fs-3, .fs-6, .badge, .btn {
-            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-        }
-        .badge {
-            font-weight: 600;
-            font-size: 0.85rem;
-        }
-        .btn {
-            font-weight: 600;
-        }
-        .text-light {
-            color: #e8edf4 !important;
-        }
-        .text-secondary {
-            color: #9aa8b9 !important;
-        }
-        .card-body {
-            font-size: 15px;
-        }
-        small {
-            font-size: 0.85rem;
-            color: #8a9aad;
-        }
+        .badge { font-weight: 600; }
+        .btn { font-weight: 600; }
+        .text-light { color: #e8edf4 !important; }
+        .text-secondary { color: #9aa8b9 !important; }
+        .card-body { font-size: 15px; }
+        small { font-size: 0.85rem; color: #8a9aad; }
     </style>
 </head>
 <body>
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v29.0 – Stable</small></h1>
+        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v29.0</small></h1>
         <div>
             <span class="badge bg-secondary me-2" id="liveTime">{{ now }}</span>
             <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()"></i>
@@ -277,7 +178,7 @@ HTML_TEMPLATE = '''
             const tbody = document.getElementById('historyBody');
             tbody.innerHTML = '';
             data.forEach((row, i) => {
-                const status = row.success ? '<span class="badge badge-success">✅ نجاح</span>' : '<span class="badge badge-danger">❌ فشل</span>';
+                const status = row.success ? '<span class="badge bg-success">✅ نجاح</span>' : '<span class="badge bg-danger">❌ فشل</span>';
                 const link = row.vless_link ? `<a href="${row.vless_link}" target="_blank" class="text-info small">🔗</a>` : '-';
                 tbody.innerHTML += `<tr><td>${i+1}</td><td>${row.region_used || 'N/A'}</td><td>${status}</td><td>${row.duration_seconds || 0}s</td><td>${row.deployed_at.slice(0,16)}</td><td>${link}</td></tr>`;
             });
@@ -366,8 +267,8 @@ def login():
     <div style="max-width:400px;margin:100px auto;background:#141a24;padding:40px;border-radius:16px;border:1px solid #2a3546;">
         <h3 class="text-light">🔐 دخول</h3>
         <form method="post">
-            <input type="password" name="pass" placeholder="كلمة المرور" class="form-control bg-dark text-light my-3" style="border:1px solid #2a3546; font-family:system-ui; font-size:16px;">
-            <button class="btn btn-primary w-100" type="submit" style="font-weight:600;">دخول</button>
+            <input type="password" name="pass" placeholder="كلمة المرور" class="form-control bg-dark text-light my-3" style="border:1px solid #2a3546;">
+            <button class="btn btn-primary w-100" type="submit">دخول</button>
         </form>
     </div>
     '''
