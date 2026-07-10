@@ -1,0 +1,8 @@
+*.pyc
+__pycache__/
+bot.log
+screenshots/
+recordings/
+cookies_live.json
+*.db
+.env
