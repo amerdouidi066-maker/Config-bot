@@ -1,11 +1,9 @@
-import os
-import time
+import os, time, json
 from datetime import datetime, timedelta
 from flask import Flask, Response, render_template_string, jsonify, request, session, redirect, url_for
 from functools import wraps
 from pymongo import MongoClient
-import stream_state
-import io
+import stream_state, io
 from PIL import Image, ImageDraw, ImageFont
 
 app = Flask(__name__)
@@ -18,6 +16,7 @@ client = MongoClient(MONGO_URI)
 db = client[MONGO_DB_NAME]
 users_collection = db["users"]
 history_collection = db["deploy_history"]
+cookies_collection = db["cookies"]
 
 def create_placeholder_frame(text="⏳ في انتظار البث..."):
     try:
@@ -44,192 +43,33 @@ if PLACEHOLDER_FRAME:
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
-<html dir="ltr" lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shadow Legion – Live Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <style>
-        body { background: #0b0e14; color: #e0e6ed; font-family: system-ui, sans-serif; }
-        .card { background: #141a24; border: 1px solid #2a3546; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
-        .card-header { background: #1e2736; border-bottom: 1px solid #2a3546; font-weight: 600; }
-        .stat-icon { font-size: 2.5rem; opacity: 0.7; }
-        .bg-success-soft { background: #0f2b1a; color: #5be08b; }
-        .bg-danger-soft { background: #2b1218; color: #f87171; }
-        .bg-primary-soft { background: #122238; color: #60a5fa; }
-        .bg-warning-soft { background: #2b2412; color: #fbbf24; }
-        .stream-container { background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; border: 1px solid #2a3546; position: relative; }
-        .stream-container img { width: 100%; height: 100%; object-fit: contain; display: block; }
-        .url-bar { background: #0a0d12; padding: 6px 16px; border-radius: 0 0 12px 12px; border: 1px solid #2a3546; border-top: none; font-family: monospace; font-size: 13px; color: #8ab4f8; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-        .url-bar .label { color: #667; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .url-bar .url-text { color: #0ff; word-break: break-all; font-weight: 500; }
-        .log-container { height: 200px; overflow-y: auto; background: #0a0d12; border-radius: 12px; padding: 14px 18px; font-size: 14px; font-family: monospace; white-space: pre-wrap; word-break: break-all; line-height: 1.7; color: #c8d0dc; }
-        .log-container::-webkit-scrollbar { width: 6px; }
-        .log-container::-webkit-scrollbar-thumb { background: #2a3546; border-radius: 8px; }
-        .table-dark { background: transparent; }
-        .table-dark td, .table-dark th { border-color: #1e2736; font-size: 14px; padding: 10px 12px; }
-        .refresh-btn { cursor: pointer; transition: 0.3s; }
-        .refresh-btn:hover { transform: rotate(60deg); }
-        .live-badge { animation: pulse 1.5s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        .status-badge { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-        .status-badge.running { background: #00ffcc22; color: #00ffcc; border: 1px solid #00ffcc55; }
-        .status-badge.idle { background: #4444; color: #888; border: 1px solid #4444; }
-        .badge { font-weight: 600; }
-        .btn { font-weight: 600; }
-        .text-light { color: #e8edf4 !important; }
-        .text-secondary { color: #9aa8b9 !important; }
-        .card-body { font-size: 15px; }
-        small { font-size: 0.85rem; color: #8a9aad; }
-    </style>
-</head>
-<body>
+<html><head><meta charset="UTF-8"><title>Shadow Legion – Debug Dashboard</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<style>
+body{background:#0b0e14;color:#e0e6ed;font-family:system-ui}.card{background:#141a24;border:1px solid #2a3546;border-radius:16px}.card-header{background:#1e2736}.stream-container{background:#000;border-radius:12px;aspect-ratio:16/9}.stream-container img{width:100%;height:100%;object-fit:contain}.log-container{height:200px;overflow-y:auto;background:#0a0d12;padding:14px 18px;font-family:monospace;white-space:pre-wrap}.log-container .error{color:#f87171}.log-container .warning{color:#fbbf24}.cookie-textarea{font-family:monospace;background:#0a0d12;color:#b0c4de;border:1px solid #2a3546;border-radius:8px;width:100%;padding:10px;height:120px}.refresh-btn{cursor:pointer}.refresh-btn:hover{transform:rotate(60deg)}
+</style>
+</head><body>
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v29.0</small></h1>
-        <div>
-            <span class="badge bg-secondary me-2" id="liveTime">{{ now }}</span>
-            <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()"></i>
-            <a href="/logout" class="btn btn-sm btn-outline-danger ms-3"><i class="fas fa-sign-out-alt"></i> خروج</a>
-        </div>
-    </div>
-
-    <div class="row g-4 mb-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="fas fa-video text-danger me-2 live-badge"></i> <span class="text-danger fw-bold">LIVE</span> البث المباشر</span>
-                    <span>
-                        <span id="streamStatus" class="status-badge idle">⏸ خامل</span>
-                        <span class="badge bg-dark ms-2" id="streamDuration">00:00:00</span>
-                    </span>
-                </div>
-                <div class="card-body p-0">
-                    <div class="stream-container">
-                        <img id="streamImg" src="/live_stream" alt="البث المباشر">
-                    </div>
-                    <div class="url-bar">
-                        <span class="label">🔗 الرابط الحالي</span>
-                        <span class="url-text" id="currentUrl">-</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-4 mb-4" id="statsCards">
-        <div class="col-md-3"><div class="card p-3 bg-primary-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-users stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="totalUsers">0</span><br><small>المستخدمين</small></div></div></div></div>
-        <div class="col-md-3"><div class="card p-3 bg-success-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-rocket stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="totalDeploys">0</span><br><small>إجمالي النشرات</small></div></div></div></div>
-        <div class="col-md-3"><div class="card p-3 bg-warning-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-percent stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="successRate">0%</span><br><small>نسبة النجاح</small></div></div></div></div>
-        <div class="col-md-3"><div class="card p-3 bg-danger-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-clock stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="avgDuration">0s</span><br><small>متوسط المدة</small></div></div></div></div>
-    </div>
-
-    <div class="row g-4">
-        <div class="col-lg-8">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between"><span><i class="fas fa-list-ul me-2"></i>آخر النشرات</span><span class="badge bg-dark" id="historyCount">0</span></div>
-                <div class="card-body p-0" style="max-height: 380px; overflow-y: auto;">
-                    <table class="table table-dark table-hover mb-0">
-                        <thead><tr><th>#</th><th>المنطقة</th><th>النتيجة</th><th>المدة</th><th>التوقيت</th><th>الرابط</th></tr></thead>
-                        <tbody id="historyBody"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="card">
-                <div class="card-header"><i class="fas fa-screwdriver-wrench me-2"></i>لوحة التصحيح</div>
-                <div class="card-body">
-                    <button class="btn btn-outline-primary w-100 mb-2" onclick="testPlaywright()"><i class="fas fa-play me-2"></i>اختبار Playwright</button>
-                    <button class="btn btn-outline-warning w-100 mb-2" onclick="clearCache()"><i class="fas fa-eraser me-2"></i>تنظيف السجل</button>
-                    <div class="mt-3 p-2 bg-dark rounded" id="debugOutput" style="font-size:13px; min-height:60px; font-family: monospace; color:#b0c4de;">🟢 النظام جاهز</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header"><span><i class="fas fa-terminal me-2"></i>سجل الأحداث</span></div>
-                <div class="card-body"><div class="log-container" id="logContainer">⏳ جاري التحميل...</div></div>
-            </div>
-        </div>
-    </div>
+<div class="d-flex justify-content-between"><h1><i class="fas fa-shield-halved text-primary"></i> Shadow Legion <small class="text-secondary">v40.0-Debug</small></h1><div><span id="liveTime"></span> <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()"></i> <a href="/logout" class="btn btn-sm btn-outline-danger">خروج</a></div></div>
+<div class="row g-4"><div class="col-12"><div class="card"><div class="card-header"><i class="fas fa-video text-danger"></i> LIVE <span id="streamStatus" class="badge bg-secondary">⏸ خامل</span></div><div class="stream-container"><img id="streamImg" src="/live_stream"></div><div class="url-bar bg-dark p-2"><span>🔗 <span id="currentUrl">-</span></span></div></div></div></div>
+<div class="row g-4 mt-2"><div class="col-md-3"><div class="card p-3 bg-primary-soft"><span id="totalUsers">0</span><br><small>المستخدمين</small></div></div><div class="col-md-3"><div class="card p-3 bg-success-soft"><span id="totalDeploys">0</span><br><small>النشرات</small></div></div><div class="col-md-3"><div class="card p-3 bg-warning-soft"><span id="successRate">0%</span><br><small>نسبة النجاح</small></div></div><div class="col-md-3"><div class="card p-3 bg-danger-soft"><span id="avgDuration">0s</span><br><small>متوسط المدة</small></div></div></div>
+<div class="row g-4 mt-2"><div class="col-lg-8"><div class="card"><div class="card-header">آخر النشرات <span id="historyCount">0</span></div><div class="card-body p-0" style="max-height:380px;overflow-y:auto"><table class="table table-dark"><thead><tr><th>#</th><th>المنطقة</th><th>النتيجة</th><th>المدة</th><th>التوقيت</th></tr></thead><tbody id="historyBody"></tbody></table></div></div></div>
+<div class="col-lg-4"><div class="card"><div class="card-header">رفع الكوكيز</div><div class="card-body"><textarea id="cookieInput" class="cookie-textarea" placeholder='[{"name":"SAPISID","value":"..."}]'></textarea><button class="btn btn-success w-100 mt-2" onclick="uploadCookies()">رفع</button><div id="cookieStatus"></div></div></div>
+<div class="card mt-2"><div class="card-header">اختبار</div><div class="card-body"><button class="btn btn-outline-primary w-100" onclick="testPlaywright()">اختبار Playwright</button><div id="debugOutput" class="mt-2 p-2 bg-dark rounded" style="min-height:40px"></div></div></div></div></div>
+<div class="row mt-4"><div class="col-12"><div class="card"><div class="card-header">سجل الأحداث</div><div class="card-body"><div class="log-container" id="logContainer">⏳ جاري التحميل...</div></div></div></div></div>
 </div>
-
 <script>
-    const BASE = '';
-    let logInterval;
-
-    function fetchStats() {
-        fetch(BASE + '/api/stats').then(r => r.json()).then(d => {
-            document.getElementById('totalUsers').innerText = d.total_users;
-            document.getElementById('totalDeploys').innerText = d.total_deploys;
-            document.getElementById('successRate').innerText = d.success_rate + '%';
-            document.getElementById('avgDuration').innerText = d.avg_duration + 's';
-        }).catch(e => console.error(e));
-    }
-
-    function fetchHistory() {
-        fetch(BASE + '/api/history').then(r => r.json()).then(data => {
-            const tbody = document.getElementById('historyBody');
-            tbody.innerHTML = '';
-            data.forEach((row, i) => {
-                const status = row.success ? '<span class="badge bg-success">✅ نجاح</span>' : '<span class="badge bg-danger">❌ فشل</span>';
-                const link = row.vless_link ? `<a href="${row.vless_link}" target="_blank" class="text-info small">🔗</a>` : '-';
-                tbody.innerHTML += `<tr><td>${i+1}</td><td>${row.region_used || 'N/A'}</td><td>${status}</td><td>${row.duration_seconds || 0}s</td><td>${row.deployed_at.slice(0,16)}</td><td>${link}</td></tr>`;
-            });
-            document.getElementById('historyCount').innerText = data.length;
-        });
-    }
-
-    function fetchLogs() {
-        fetch(BASE + '/api/logs').then(r => r.text()).then(text => {
-            const container = document.getElementById('logContainer');
-            container.innerText = text || '📭 لا توجد سجلات.';
-            container.scrollTop = container.scrollHeight;
-        });
-    }
-
-    function fetchStreamStatus() {
-        fetch(BASE + '/api/stream_status').then(r => r.json()).then(d => {
-            const badge = document.getElementById('streamStatus');
-            if (d.streaming) { badge.textContent = '🔴 بث مباشر'; badge.className = 'status-badge running'; }
-            else { badge.textContent = '⏸ خامل'; badge.className = 'status-badge idle'; }
-            document.getElementById('streamDuration').textContent = d.duration || '00:00:00';
-            document.getElementById('currentUrl').textContent = d.project || '-';
-        }).catch(() => {});
-    }
-
-    function fetchAll() { fetchStats(); fetchHistory(); fetchLogs(); fetchStreamStatus(); document.getElementById('liveTime').innerText = new Date().toLocaleTimeString(); }
-
-    function testPlaywright() {
-        document.getElementById('debugOutput').innerHTML = '⏳ جاري الاختبار...';
-        fetch(BASE + '/api/test_playwright').then(r => r.json()).then(d => {
-            document.getElementById('debugOutput').innerHTML = d.status === 'ok' ? '✅ ' + d.message : '❌ ' + d.message;
-        });
-    }
-
-    function clearCache() {
-        if(!confirm('⚠️ حذف السجلات الأقدم من 30 يوم؟')) return;
-        fetch(BASE + '/api/clear_old_history', {method: 'POST'}).then(r => r.json()).then(d => {
-            document.getElementById('debugOutput').innerHTML = '🗑️ ' + d.message;
-            fetchHistory(); fetchStats();
-        });
-    }
-
-    fetchAll();
-    setInterval(fetchLogs, 3000);
-    setInterval(fetchStats, 10000);
-    setInterval(fetchHistory, 15000);
-    setInterval(fetchStreamStatus, 2000);
-    setInterval(() => { const img = document.getElementById('streamImg'); if (img) img.src = '/live_stream?t=' + Date.now(); }, 2000);
+function fetchAll(){fetchStats();fetchHistory();fetchLogs();fetchStreamStatus();document.getElementById('liveTime').innerText=new Date().toLocaleTimeString()}
+function fetchStats(){fetch('/api/stats').then(r=>r.json()).then(d=>{document.getElementById('totalUsers').innerText=d.total_users;document.getElementById('totalDeploys').innerText=d.total_deploys;document.getElementById('successRate').innerText=d.success_rate+'%';document.getElementById('avgDuration').innerText=d.avg_duration+'s'})}
+function fetchHistory(){fetch('/api/history').then(r=>r.json()).then(data=>{let tbody=document.getElementById('historyBody');tbody.innerHTML='';data.forEach((row,i)=>{let status=row.success?'<span class="badge bg-success">✅</span>':'<span class="badge bg-danger">❌</span>';tbody.innerHTML+='<tr><td>'+(i+1)+'</td><td>'+(row.region_used||'N/A')+'</td><td>'+status+'</td><td>'+(row.duration_seconds||0)+'s</td><td>'+(row.deployed_at||'').slice(0,16)+'</td></tr>'});document.getElementById('historyCount').innerText=data.length})}
+function fetchLogs(){fetch('/api/logs').then(r=>r.text()).then(text=>{let container=document.getElementById('logContainer');let html=text||'📭 لا توجد سجلات.';html=html.replace(/ERROR/g,'<span class="error">ERROR</span>').replace(/WARNING/g,'<span class="warning">WARNING</span>');container.innerHTML=html;container.scrollTop=container.scrollHeight})}
+function fetchStreamStatus(){fetch('/api/stream_status').then(r=>r.json()).then(d=>{document.getElementById('currentUrl').innerText=d.project||'-';document.getElementById('streamStatus').innerText=d.streaming?'🔴 بث مباشر':'⏸ خامل'})}
+function uploadCookies(){let raw=document.getElementById('cookieInput').value.trim();if(!raw){document.getElementById('cookieStatus').innerHTML='⚠️ الرجاء لصق الكوكيز';return}try{let cookies=JSON.parse(raw);if(!Array.isArray(cookies))throw new Error('يجب أن يكون مصفوفة');document.getElementById('cookieStatus').innerHTML='⏳ جاري الرفع...';fetch('/api/upload_cookies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies:cookies})}).then(r=>r.json()).then(d=>{document.getElementById('cookieStatus').innerHTML='✅ '+d.message;document.getElementById('cookieInput').value=''}).catch(e=>{document.getElementById('cookieStatus').innerHTML='❌ فشل: '+e.message})}catch(e){document.getElementById('cookieStatus').innerHTML='❌ خطأ في JSON: '+e.message}}
+function testPlaywright(){document.getElementById('debugOutput').innerHTML='⏳ جاري الاختبار...';fetch('/api/test_playwright').then(r=>r.json()).then(d=>{document.getElementById('debugOutput').innerHTML=d.status==='ok'?'✅ '+d.message:'❌ '+d.message})}
+fetchAll();setInterval(fetchLogs,4000);setInterval(fetchStats,10000);setInterval(fetchHistory,15000);setInterval(fetchStreamStatus,2000);setInterval(()=>{let img=document.getElementById('streamImg');if(img)img.src='/live_stream?t='+Date.now()},2000)
 </script>
-</body>
-</html>
+</body></html>
 '''
 
 def login_required(f):
@@ -290,11 +130,6 @@ def api_stream_status():
     return jsonify({
         "streaming": s.get("streaming", False),
         "project": s.get("project", "-"),
-        "region": s.get("region", "-"),
-        "cookies": s.get("cookies", 0),
-        "token": s.get("token", "-"),
-        "email": s.get("email", "-"),
-        "action": s.get("action", "في انتظار البث"),
         "duration": s.get("duration", "00:00:00")
     })
 
@@ -308,35 +143,35 @@ def api_stats():
     pipeline = [{"$match": {"success": 1}}, {"$group": {"_id": None, "avg": {"$avg": "$duration_seconds"}}}]
     avg_result = list(history_collection.aggregate(pipeline))
     avg = avg_result[0]["avg"] if avg_result else 0
-    return jsonify({
-        "total_users": total_users,
-        "total_deploys": total_deploys,
-        "success_rate": rate,
-        "avg_duration": round(avg, 1)
-    })
+    return jsonify({"total_users": total_users, "total_deploys": total_deploys, "success_rate": rate, "avg_duration": round(avg, 1)})
 
 @app.route('/api/history')
 @login_required
 def api_history():
     docs = history_collection.find({}, sort=[("deployed_at", -1)], limit=20)
-    result = []
-    for doc in docs:
-        result.append({
-            "region_used": doc.get("region_used"),
-            "success": doc.get("success", 0),
-            "duration_seconds": doc.get("duration_seconds", 0),
-            "deployed_at": doc.get("deployed_at", ""),
-            "vless_link": doc.get("vless_link", "")
-        })
+    result = [{"region_used": d.get("region_used"), "success": d.get("success", 0), "duration_seconds": d.get("duration_seconds", 0), "deployed_at": d.get("deployed_at", "")} for d in docs]
     return jsonify(result)
+
+@app.route('/api/upload_cookies', methods=['POST'])
+@login_required
+def api_upload_cookies():
+    try:
+        data = request.get_json()
+        cookies = data.get('cookies')
+        if not cookies or not isinstance(cookies, list):
+            return jsonify({"status": "error", "message": "بيانات غير صالحة"}), 400
+        user_id = session.get('user_id', 0)
+        cookies_collection.update_one({"_id": user_id}, {"$set": {"data": json.dumps(cookies, default=str), "updated_at": datetime.now().isoformat()}}, upsert=True)
+        return jsonify({"status": "success", "message": f"تم حفظ {len(cookies)} كوكي بنجاح"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/logs')
 @login_required
 def api_logs():
     try:
         with open("bot.log", "r") as f:
-            lines = f.readlines()
-            return "\n".join(lines[-100:]) or "📭 السجل فارغ."
+            return "\n".join(f.readlines()[-150:]) or "📭 السجل فارغ."
     except:
         return "⚠️ ملف السجل غير موجود."
 
@@ -360,13 +195,6 @@ def api_test_playwright():
         return jsonify({"status": "ok", "message": result})
     except Exception as e:
         return jsonify({"status": "error", "message": f"❌ فشل: {str(e)}"})
-
-@app.route('/api/clear_old_history', methods=['POST'])
-@login_required
-def api_clear_old():
-    cutoff = datetime.now() - timedelta(days=30)
-    result = history_collection.delete_many({"deployed_at": {"$lt": cutoff.isoformat()}})
-    return jsonify({"message": f"تم حذف {result.deleted_count} سجل قديم."})
 
 def run_web_server(port=None):
     if port is None:
