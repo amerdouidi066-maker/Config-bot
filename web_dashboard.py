@@ -1,22 +1,26 @@
 # web_dashboard.py
 import os
 import json
-import sqlite3
-import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from flask import Flask, Response, render_template_string, jsonify, request, session, redirect, url_for
 from functools import wraps
-
-# استيراد حالة البث المباشر
+from pymongo import MongoClient
 import stream_state
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("WEB_SECRET", "shadow_legion_secret_key_2099")
-DB_PATH = os.environ.get("DB_PATH", "shadow_legion.db")
 PASSWORD = os.environ.get("WEB_PASSWORD", "shadow2099")
+MONGO_URI = os.environ.get("MONGO_URI")
+MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "shadow_legion")
 
-# ============ HTML قالب متكامل مع البث المباشر ============
+# اتصال MongoDB
+client = MongoClient(MONGO_URI)
+db = client[MONGO_DB_NAME]
+users_collection = db["users"]
+history_collection = db["deploy_history"]
+
+# ============ HTML قالب (نفس السابق) ============
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html dir="ltr" lang="en">
@@ -62,6 +66,8 @@ HTML_TEMPLATE = '''
             border-radius: 8px;
             border: 1px solid #2a354688;
             font-size: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
         }
         .log-container { height: 200px; overflow-y: auto; background: #0a0d12; border-radius: 12px; padding: 12px; font-size: 13px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-break: break-all; }
         .log-container::-webkit-scrollbar { width: 6px; }
@@ -74,21 +80,9 @@ HTML_TEMPLATE = '''
         .badge-danger { background: #7a2d3a; }
         .refresh-btn { cursor: pointer; transition: 0.3s; }
         .refresh-btn:hover { transform: rotate(60deg); }
-        .live-badge {
-            animation: pulse 1.5s infinite;
-        }
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.3; }
-            100% { opacity: 1; }
-        }
-        .status-badge {
-            display: inline-block;
-            padding: 2px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: bold;
-        }
+        .live-badge { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        .status-badge { display: inline-block; padding: 2px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; }
         .status-badge.running { background: #00ffcc22; color: #00ffcc; border: 1px solid #00ffcc55; }
         .status-badge.waiting { background: #ffcc0022; color: #ffcc00; border: 1px solid #ffcc0055; }
         .status-badge.error { background: #ff444422; color: #ff6666; border: 1px solid #ff444455; }
@@ -98,7 +92,7 @@ HTML_TEMPLATE = '''
 <body>
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v16.0 – Live Stream</small></h1>
+        <h1><i class="fas fa-shield-halved text-primary me-2"></i>Shadow Legion <small class="text-secondary fs-6">v26.0 – MongoDB</small></h1>
         <div>
             <span class="badge bg-secondary me-2" id="liveTime">{{ now }}</span>
             <i class="fas fa-sync-alt refresh-btn text-info" onclick="fetchAll()" title="تحديث يدوي"></i>
@@ -106,9 +100,7 @@ HTML_TEMPLATE = '''
         </div>
     </div>
 
-    <!-- ============================================================ -->
-    <!-- البث المباشر (Live Stream) -->
-    <!-- ============================================================ -->
+    <!-- البث المباشر -->
     <div class="row g-4 mb-4">
         <div class="col-12">
             <div class="card">
@@ -123,21 +115,10 @@ HTML_TEMPLATE = '''
                     <div class="stream-container">
                         <img id="streamImg" src="/live_stream" alt="البث المباشر">
                         <div class="stream-overlay">
-                            <div>
-                                <span style="color:#667;font-size:11px;">📌</span>
-                                <span id="overlayProject" style="color:#0af;font-size:13px;">-</span>
-                            </div>
-                            <div>
-                                <span style="color:#667;font-size:11px;">🌍</span>
-                                <span id="overlayRegion" style="color:#0af;font-size:13px;">-</span>
-                            </div>
-                            <div>
-                                <span style="color:#667;font-size:11px;">🍪</span>
-                                <span id="overlayCookies" style="color:#0af;font-size:13px;">-</span>
-                            </div>
-                            <div>
-                                <span id="overlayAction" style="color:#ffcc00;font-size:12px;">في انتظار الرابط</span>
-                            </div>
+                            <div><span style="color:#667;font-size:11px;">📌</span> <span id="overlayProject" style="color:#0af;font-size:13px;">-</span></div>
+                            <div><span style="color:#667;font-size:11px;">🌍</span> <span id="overlayRegion" style="color:#0af;font-size:13px;">-</span></div>
+                            <div><span style="color:#667;font-size:11px;">🍪</span> <span id="overlayCookies" style="color:#0af;font-size:13px;">-</span></div>
+                            <div><span id="overlayAction" style="color:#ffcc00;font-size:12px;">في انتظار الرابط</span></div>
                         </div>
                     </div>
                 </div>
@@ -147,48 +128,16 @@ HTML_TEMPLATE = '''
 
     <!-- Stats Cards -->
     <div class="row g-4 mb-4" id="statsCards">
-        <div class="col-md-3">
-            <div class="card p-3 bg-primary-soft">
-                <div class="d-flex justify-content-between">
-                    <div><i class="fas fa-users stat-icon"></i></div>
-                    <div class="text-end"><span class="fs-3 fw-bold" id="totalUsers">0</span><br><small>المستخدمين</small></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card p-3 bg-success-soft">
-                <div class="d-flex justify-content-between">
-                    <div><i class="fas fa-rocket stat-icon"></i></div>
-                    <div class="text-end"><span class="fs-3 fw-bold" id="totalDeploys">0</span><br><small>إجمالي النشرات</small></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card p-3 bg-warning-soft">
-                <div class="d-flex justify-content-between">
-                    <div><i class="fas fa-percent stat-icon"></i></div>
-                    <div class="text-end"><span class="fs-3 fw-bold" id="successRate">0%</span><br><small>نسبة النجاح</small></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card p-3 bg-danger-soft">
-                <div class="d-flex justify-content-between">
-                    <div><i class="fas fa-clock stat-icon"></i></div>
-                    <div class="text-end"><span class="fs-3 fw-bold" id="avgDuration">0s</span><br><small>متوسط المدة</small></div>
-                </div>
-            </div>
-        </div>
+        <div class="col-md-3"><div class="card p-3 bg-primary-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-users stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="totalUsers">0</span><br><small>المستخدمين</small></div></div></div></div>
+        <div class="col-md-3"><div class="card p-3 bg-success-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-rocket stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="totalDeploys">0</span><br><small>إجمالي النشرات</small></div></div></div></div>
+        <div class="col-md-3"><div class="card p-3 bg-warning-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-percent stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="successRate">0%</span><br><small>نسبة النجاح</small></div></div></div></div>
+        <div class="col-md-3"><div class="card p-3 bg-danger-soft"><div class="d-flex justify-content-between"><div><i class="fas fa-clock stat-icon"></i></div><div class="text-end"><span class="fs-3 fw-bold" id="avgDuration">0s</span><br><small>متوسط المدة</small></div></div></div></div>
     </div>
 
     <div class="row g-4">
-        <!-- History Table -->
         <div class="col-lg-8">
             <div class="card">
-                <div class="card-header d-flex justify-content-between">
-                    <span><i class="fas fa-list-ul me-2"></i>آخر النشرات</span>
-                    <span class="badge bg-dark" id="historyCount">0</span>
-                </div>
+                <div class="card-header d-flex justify-content-between"><span><i class="fas fa-list-ul me-2"></i>آخر النشرات</span><span class="badge bg-dark" id="historyCount">0</span></div>
                 <div class="card-body p-0" style="max-height: 380px; overflow-y: auto;">
                     <table class="table table-dark table-hover mb-0">
                         <thead><tr><th>#</th><th>المنطقة</th><th>النتيجة</th><th>المدة</th><th>التوقيت</th><th>الرابط</th></tr></thead>
@@ -197,7 +146,6 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
         </div>
-        <!-- Quick Debug -->
         <div class="col-lg-4">
             <div class="card">
                 <div class="card-header"><i class="fas fa-screwdriver-wrench me-2"></i>لوحة التصحيح</div>
@@ -210,17 +158,11 @@ HTML_TEMPLATE = '''
         </div>
     </div>
 
-    <!-- Live Logs -->
     <div class="row mt-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header d-flex justify-content-between">
-                    <span><i class="fas fa-terminal me-2"></i>سجل الأحداث المباشر</span>
-                    <span><span class="badge bg-dark" id="logAutoRefresh">تحديث تلقائي</span></span>
-                </div>
-                <div class="card-body">
-                    <div class="log-container" id="logContainer">⏳ جاري تحميل السجلات...</div>
-                </div>
+                <div class="card-header d-flex justify-content-between"><span><i class="fas fa-terminal me-2"></i>سجل الأحداث المباشر</span><span class="badge bg-dark">تحديث تلقائي</span></div>
+                <div class="card-body"><div class="log-container" id="logContainer">⏳ جاري تحميل السجلات...</div></div>
             </div>
         </div>
     </div>
@@ -229,9 +171,7 @@ HTML_TEMPLATE = '''
 <script>
     const BASE = '';
     let logInterval;
-    let streamReloadInterval;
 
-    // تحديث إحصائيات البطاقات
     function fetchStats() {
         fetch(BASE + '/api/stats').then(r => r.json()).then(d => {
             document.getElementById('totalUsers').innerText = d.total_users;
@@ -241,7 +181,6 @@ HTML_TEMPLATE = '''
         }).catch(e => console.error(e));
     }
 
-    // تحديث جدول السجل
     function fetchHistory() {
         fetch(BASE + '/api/history').then(r => r.json()).then(data => {
             const tbody = document.getElementById('historyBody');
@@ -249,20 +188,12 @@ HTML_TEMPLATE = '''
             data.forEach((row, i) => {
                 const status = row.success ? '<span class="badge badge-success">✅ نجاح</span>' : '<span class="badge badge-danger">❌ فشل</span>';
                 const link = row.vless_link ? `<a href="${row.vless_link}" target="_blank" class="text-info small">🔗</a>` : '-';
-                tbody.innerHTML += `<tr>
-                    <td>${i+1}</td>
-                    <td>${row.region_used || 'N/A'}</td>
-                    <td>${status}</td>
-                    <td>${row.duration_seconds || 0}s</td>
-                    <td>${row.deployed_at.slice(0,16)}</td>
-                    <td>${link}</td>
-                </tr>`;
+                tbody.innerHTML += `<tr><td>${i+1}</td><td>${row.region_used || 'N/A'}</td><td>${status}</td><td>${row.duration_seconds || 0}s</td><td>${row.deployed_at.slice(0,16)}</td><td>${link}</td></tr>`;
             });
             document.getElementById('historyCount').innerText = data.length;
         });
     }
 
-    // تحديث السجل النصي
     function fetchLogs() {
         fetch(BASE + '/api/logs').then(r => r.text()).then(text => {
             const container = document.getElementById('logContainer');
@@ -271,17 +202,11 @@ HTML_TEMPLATE = '''
         });
     }
 
-    // تحديث حالة البث المباشر
     function fetchStreamStatus() {
         fetch(BASE + '/api/stream_status').then(r => r.json()).then(d => {
             const badge = document.getElementById('streamStatus');
-            if (d.streaming) {
-                badge.textContent = '🔴 بث مباشر';
-                badge.className = 'status-badge running';
-            } else {
-                badge.textContent = '⏸ خامل';
-                badge.className = 'status-badge idle';
-            }
+            if (d.streaming) { badge.textContent = '🔴 بث مباشر'; badge.className = 'status-badge running'; }
+            else { badge.textContent = '⏸ خامل'; badge.className = 'status-badge idle'; }
             document.getElementById('overlayProject').textContent = d.project || '-';
             document.getElementById('overlayRegion').textContent = d.region || '-';
             document.getElementById('overlayCookies').textContent = d.cookies || '-';
@@ -290,56 +215,35 @@ HTML_TEMPLATE = '''
         }).catch(() => {});
     }
 
-    function fetchAll() {
-        fetchStats();
-        fetchHistory();
-        fetchLogs();
-        fetchStreamStatus();
-        document.getElementById('liveTime').innerText = new Date().toLocaleTimeString();
-    }
+    function fetchAll() { fetchStats(); fetchHistory(); fetchLogs(); fetchStreamStatus(); document.getElementById('liveTime').innerText = new Date().toLocaleTimeString(); }
 
-    // اختبار Playwright
     function testPlaywright() {
         document.getElementById('debugOutput').innerHTML = '⏳ جاري اختبار متصفح Chromium...';
         fetch(BASE + '/api/test_playwright').then(r => r.json()).then(d => {
-            document.getElementById('debugOutput').innerHTML = d.status === 'ok' ? 
-                '✅ ' + d.message : '❌ ' + d.message;
+            document.getElementById('debugOutput').innerHTML = d.status === 'ok' ? '✅ ' + d.message : '❌ ' + d.message;
         });
     }
 
-    // تنظيف السجل القديم
     function clearCache() {
         if(!confirm('⚠️ هل أنت متأكد من حذف سجل النشرات الأقدم من 30 يوم؟')) return;
         fetch(BASE + '/api/clear_old_history', {method: 'POST'}).then(r => r.json()).then(d => {
             document.getElementById('debugOutput').innerHTML = '🗑️ ' + d.message;
-            fetchHistory();
-            fetchStats();
+            fetchHistory(); fetchStats();
         });
     }
 
-    // تحميل أولي وتحديث دوري
     fetchAll();
     logInterval = setInterval(fetchLogs, 3000);
     setInterval(fetchStats, 10000);
     setInterval(fetchHistory, 15000);
     setInterval(fetchStreamStatus, 2000);
-
-    // إعادة تحميل البث إذا توقف (كحل احتياطي)
-    setInterval(() => {
-        const img = document.getElementById('streamImg');
-        if (img) {
-            img.src = '/live_stream?t=' + Date.now();
-        }
-    }, 5000);
+    setInterval(() => { const img = document.getElementById('streamImg'); if (img) img.src = '/live_stream?t=' + Date.now(); }, 3000);
 </script>
 </body>
 </html>
 '''
 
 # ============ دوال المساعدة ============
-def get_db_connection():
-    return sqlite3.connect(DB_PATH)
-
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -348,21 +252,12 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-# ============ مولد البث المباشر (MJPEG) ============
+# ============ مولد البث المباشر ============
 def generate_frames():
-    """مولد إطارات MJPEG للبث المباشر."""
-    last_frame = None
     while True:
         frame = stream_state.get_last_frame()
         if frame:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n'
-                   b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
-            last_frame = frame
-        else:
-            # إذا لم توجد صورة، ننتظر قليلاً
-            time.sleep(0.1)
-        # منع الحلقات اللانهائية السريعة جداً
+            yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
         time.sleep(0.05)
 
 # ============ Routes ============
@@ -394,36 +289,31 @@ def logout():
 @app.route('/live_stream')
 @login_required
 def live_stream():
-    """نقطة نهاية البث المباشر بصيغة MJPEG."""
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/api/stream_status')
 @login_required
 def api_stream_status():
-    """حالة البث المباشر."""
-    status = stream_state.get_status()
-    # حساب المدة التقريبية
+    s = stream_state.get_status()
     return jsonify({
-        "streaming": status["streaming"],
-        "project": status["project"],
-        "region": status["region"],
-        "cookies": status["cookies"],
-        "action": status["action"],
-        "duration": "00:00:00"  # يمكن تحسينه لاحقاً
+        "streaming": s["streaming"],
+        "project": s["project"],
+        "region": s["region"],
+        "cookies": s["cookies"],
+        "action": s["action"],
+        "duration": "00:00:00"
     })
 
 @app.route('/api/stats')
 @login_required
 def api_stats():
-    conn = get_db_connection()
-    c = conn.cursor()
-    total_users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    total_deploys = c.execute("SELECT COUNT(*) FROM deploy_history").fetchone()[0]
-    success = c.execute("SELECT COUNT(*) FROM deploy_history WHERE success=1").fetchone()[0]
-    rate = round((success / total_deploys * 100) if total_deploys > 0 else 0, 1)
-    avg = c.execute("SELECT AVG(duration_seconds) FROM deploy_history WHERE success=1").fetchone()[0] or 0
-    conn.close()
+    total_users = users_collection.count_documents({})
+    total_deploys = history_collection.count_documents({})
+    success_count = history_collection.count_documents({"success": 1})
+    rate = round((success_count / total_deploys * 100) if total_deploys > 0 else 0, 1)
+    pipeline = [{"$match": {"success": 1}}, {"$group": {"_id": None, "avg": {"$avg": "$duration_seconds"}}}]
+    avg_result = list(history_collection.aggregate(pipeline))
+    avg = avg_result[0]["avg"] if avg_result else 0
     return jsonify({
         "total_users": total_users,
         "total_deploys": total_deploys,
@@ -434,17 +324,17 @@ def api_stats():
 @app.route('/api/history')
 @login_required
 def api_history():
-    conn = get_db_connection()
-    c = conn.cursor()
-    rows = c.execute("""
-        SELECT region_used, success, duration_seconds, deployed_at, vless_link
-        FROM deploy_history ORDER BY deployed_at DESC LIMIT 20
-    """).fetchall()
-    conn.close()
-    return jsonify([{
-        "region_used": r[0], "success": bool(r[1]),
-        "duration_seconds": r[2], "deployed_at": r[3], "vless_link": r[4]
-    } for r in rows])
+    docs = history_collection.find({}, sort=[("deployed_at", -1)], limit=20)
+    result = []
+    for doc in docs:
+        result.append({
+            "region_used": doc.get("region_used"),
+            "success": doc.get("success", 0),
+            "duration_seconds": doc.get("duration_seconds", 0),
+            "deployed_at": doc.get("deployed_at", ""),
+            "vless_link": doc.get("vless_link", "")
+        })
+    return jsonify(result)
 
 @app.route('/api/logs')
 @login_required
@@ -480,14 +370,12 @@ def api_test_playwright():
 @app.route('/api/clear_old_history', methods=['POST'])
 @login_required
 def api_clear_old():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("DELETE FROM deploy_history WHERE deployed_at < datetime('now', '-30 days')")
-    deleted = c.rowcount
-    conn.commit()
-    conn.close()
-    return jsonify({"message": f"تم حذف {deleted} سجل قديم."})
+    cutoff = datetime.now() - timedelta(days=30)
+    result = history_collection.delete_many({"deployed_at": {"$lt": cutoff.isoformat()}})
+    return jsonify({"message": f"تم حذف {result.deleted_count} سجل قديم."})
 
 # ============ تشغيل الخادم ============
-def run_web_server(port=8080):
+def run_web_server(port=None):
+    if port is None:
+        port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
