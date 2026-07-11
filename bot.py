@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v49.0 – ULTIMATE_MASTER_EDITION
-- إزالة /deploy – يعمل فقط عبر /start
-- أزرار جانبية تفاعلية (Reply Keyboard)
-- جميع الميزات متكاملة (البث، التسجيل، التخفي، AddSession، MongoDB)
-- أزرار تعمل 100%
-- واجهة تأكيد احترافية (مثل البوت الآخر)
+SHADOW LEGION v51.0 – FINAL_MASTER_EDITION
+- زر واحد فقط (🚀 نشر جديد) في الرداء الجانبي
+- إزالة جميع الأوامر الإضافية (stats, history, login, done, help, retry)
+- جميع الميزات الأساسية: البث المباشر، التسجيل، التخفي، AddSession، MongoDB
+- واجهة تأكيد احترافية مع الرابط الكامل
 - دعم كامل لـ Railway
 """
 
@@ -68,7 +67,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v49.0 (Ultimate Master Edition) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v51.0 (Final Master Edition) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -85,7 +84,7 @@ except Exception as e:
     raise
 
 # ===================================================================
-# 3. دوال قاعدة البيانات
+# 3. دوال قاعدة البيانات (مختصرة)
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     doc = users_collection.find_one({"_id": user_id})
@@ -162,7 +161,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for doc in docs]
 
 # ===================================================================
-# 4. دوال مساعدة متقدمة
+# 4. دوال مساعدة
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -220,7 +219,7 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
         return None
 
 # ===================================================================
-# 5. استخراج البيانات المتقدم
+# 5. استخراج البيانات و AddSession
 # ===================================================================
 def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
     link = link.strip()
@@ -350,73 +349,7 @@ def build_add_session_url(project: str, token: str, email: str) -> str:
     return f"{base}?{query}#Email={email}"
 
 # ===================================================================
-# 6. نظام الجلسة الحية (Login / Done)
-# ===================================================================
-login_event = asyncio.Event()
-login_context = None
-login_browser = None
-
-async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global login_context, login_browser, login_event
-    try:
-        login_event.clear()
-        await update.message.reply_text(
-            "🔐 **جاري فتح متصفح متخفي لتسجيل الدخول...**\n"
-            "قم بتسجيل الدخول إلى Google ثم ارسل `/done`.",
-            parse_mode="Markdown"
-        )
-        async with async_playwright() as p:
-            login_browser = await p.chromium.launch(
-                headless=False,
-                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled", "--disable-gpu"]
-            )
-            login_context = await login_browser.new_context(
-                user_agent=random.choice(USER_AGENTS),
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US",
-                timezone_id=random.choice(TIMEZONES)
-            )
-            page = await login_context.new_page()
-            await page.goto("https://console.cloud.google.com", wait_until="networkidle")
-            await update.message.reply_text(
-                "🌐 **المتصفح المتخفي مفتوح.**\n"
-                "سجل الدخول ثم ارسل `/done`.",
-                parse_mode="Markdown"
-            )
-            await login_event.wait()
-    except Exception as e:
-        logger.error(f"فشل تسجيل الدخول: {e}")
-        await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
-        if login_browser:
-            await login_browser.close()
-            login_browser = None
-            login_context = None
-
-async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global login_context, login_browser, login_event
-    try:
-        if login_context is None:
-            await update.message.reply_text("❌ لا توجد جلسة نشطة. استخدم /login أولاً.")
-            return
-        cookies = await login_context.cookies()
-        with open(COOKIES_FILE, "w") as f:
-            json.dump(cookies, f, indent=2)
-        logger.info(f"✅ تم حفظ {len(cookies)} كوكي في {COOKIES_FILE}")
-        await update.message.reply_text(
-            f"✅ **تم حفظ الجلسة!**\n📦 {len(cookies)} كوكي\n📁 `{COOKIES_FILE}`",
-            parse_mode="Markdown"
-        )
-        if login_browser:
-            await login_browser.close()
-        login_context = None
-        login_browser = None
-        login_event.set()
-    except Exception as e:
-        logger.error(f"فشل حفظ الكوكيز: {e}")
-        await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
-
-# ===================================================================
-# 7. محرك التخفي (Z3R0-STEALTH v2)
+# 6. محرك التخفي (Z3R0-STEALTH v2)
 # ===================================================================
 async def load_cookies(context) -> List[Dict]:
     if os.path.exists(COOKIES_FILE):
@@ -518,7 +451,7 @@ async def simulate_mouse_movement(page):
         pass
 
 # ===================================================================
-# 8. دوال الأزرار والانتظار
+# 7. دوال الأزرار والانتظار
 # ===================================================================
 async def smart_click_button(page, texts: List[str]) -> bool:
     for text in texts:
@@ -555,7 +488,7 @@ async def wait_for_redirect(page, max_wait: int = 120) -> Tuple[bool, str]:
     return False, "⛔ انتهت المهلة"
 
 # ===================================================================
-# 9. Start Cloud Shell والطرفية
+# 8. Start Cloud Shell والطرفية
 # ===================================================================
 async def click_start_ultimate(page, max_attempts=6) -> bool:
     selectors = [
@@ -634,7 +567,7 @@ async def wait_for_terminal(page, timeout=300) -> Tuple[bool, str]:
     return False, f"⏰ انتهت مهلة الطرفية ({timeout} ثانية)"
 
 # ===================================================================
-# 10. البث المباشر
+# 9. البث المباشر
 # ===================================================================
 stream_stop_event = asyncio.Event()
 
@@ -665,7 +598,7 @@ async def live_stream_broadcaster(page):
         logger.info("⏹️ تم إيقاف البث")
 
 # ===================================================================
-# 11. سكريبت النشر
+# 10. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, region: str) -> str:
     svc = f"shadow-svc-{random.randint(1000,9999)}-{project_id[:4]}"
@@ -692,7 +625,7 @@ print(f"SERVICE_URL: {url}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة
+# 11. قلب الأتمتة
 # ===================================================================
 async def run_stealth_session(update, lab_url, region, start_time, add_session_url=None, project_id=None):
     stream_stop_event.clear()
@@ -879,7 +812,7 @@ async def run_in_cloudshell(update, lab_url, region, add_session_url=None, proje
     return False, "", "❌ فشل بعد 3 محاولات", int(time.time()-start), ""
 
 # ===================================================================
-# 13. تنظيف الملفات القديمة
+# 12. تنظيف الملفات القديمة
 # ===================================================================
 def cleanup_old_recordings():
     try:
@@ -898,7 +831,7 @@ def cleanup_old_recordings():
         logger.warning(f"⚠️ فشل تنظيف التسجيلات: {e}")
 
 # ===================================================================
-# 14. واجهة البوت (مع أزرار جانبية)
+# 13. واجهة البوت (زر واحد فقط)
 # ===================================================================
 WAITING_LINK, WAITING_REGION, WAITING_CONFIRMATION = range(3)
 
@@ -944,13 +877,8 @@ def confirmation_menu():
     return InlineKeyboardMarkup(kb)
 
 def main_menu_keyboard():
-    """لوحة مفاتيح جانبية (Reply Keyboard) تظهر عند /start."""
     keyboard = [
-        [KeyboardButton("🚀 بدء النشر")],
-        [KeyboardButton("📊 إحصائياتي")],
-        [KeyboardButton("📜 سجل النشر")],
-        [KeyboardButton("🔐 تسجيل الدخول")],
-        [KeyboardButton("❓ مساعدة")]
+        [KeyboardButton("🚀 نشر جديد")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -958,23 +886,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
     
-    # عرض رسالة الترحيب مع الأزرار الجانبية
     await update.message.reply_text(
         "⚡ **Shadow Legion**\n━━━━━━━━━━━━━━━━\n"
         "أرسل الرابط، وسأتكفل بالباقي.\n\n"
-        "📌 استخدم الأزرار أدناه للتنقل:",
+        "📌 اضغط على الزر أدناه لبدء النشر:",
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
     )
-    # الدخول مباشرة إلى حالة انتظار الرابط
     return WAITING_LINK
 
 async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الأزرار الجانبية."""
     text = update.message.text
     
-    if text == "🚀 بدء النشر":
-        # إعادة تعيين الجلسة والبدء من جديد
+    if text == "🚀 نشر جديد":
         context.user_data.clear()
         await update.message.reply_text(
             "📌 أرسل رابط Qwiklabs أو Google SSO:",
@@ -982,41 +906,9 @@ async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return WAITING_LINK
     
-    elif text == "📊 إحصائياتي":
-        await stats_command(update, context)
-        # إعادة عرض الأزرار الجانبية
-        await update.message.reply_text(
-            "📌 استخدم الأزرار أدناه:",
-            reply_markup=main_menu_keyboard()
-        )
-        return ConversationHandler.END
-    
-    elif text == "📜 سجل النشر":
-        await history_command(update, context)
-        await update.message.reply_text(
-            "📌 استخدم الأزرار أدناه:",
-            reply_markup=main_menu_keyboard()
-        )
-        return ConversationHandler.END
-    
-    elif text == "🔐 تسجيل الدخول":
-        await login_command(update, context)
-        return ConversationHandler.END
-    
-    elif text == "❓ مساعدة":
-        await help_command(update, context)
-        await update.message.reply_text(
-            "📌 استخدم الأزرار أدناه:",
-            reply_markup=main_menu_keyboard()
-        )
-        return ConversationHandler.END
-    
-    else:
-        # إذا كان نصاً عادياً (رابط)
-        return await receive_link(update, context)
+    return await receive_link(update, context)
 
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال الرابط من المستخدم."""
     text = update.message.text.strip()
     
     if text in ["❌ إلغاء", "🔄 إعادة المحاولة"]:
@@ -1031,14 +923,13 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not project or not token or not email:
         await update.message.reply_text(
             "❌ لم أستطع استخراج البيانات الكاملة من الرابط.\n"
-            "تأكد من أنه رابط Qwiklabs صالح (يحتوي على token و email).\n\n"
-            "💡 **نصيحة:** استخدم الرابط الكامل من متصفحك بعد تسجيل الدخول إلى Qwiklabs."
+            "تأكد من أنه رابط Qwiklabs صالح (يحتوي على token و email)."
         )
         return WAITING_LINK
     
     add_session_url = build_add_session_url(project, token, email)
     if not add_session_url:
-        await update.message.reply_text("❌ فشل بناء رابط AddSession. تأكد من البيانات.")
+        await update.message.reply_text("❌ فشل بناء رابط AddSession.")
         return WAITING_LINK
     
     user_id = update.effective_user.id
@@ -1056,7 +947,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🆔 Project: `{project}`\n"
         f"📧 Email: `{email}`\n"
         f"🔑 Token: `{token[:15]}...`\n"
-        f"🔗 سيتم استخدام AddSession لتجاوز تسجيل الدخول.\n\n"
+        f"🔗 سيتم استخدام AddSession.\n\n"
         f"🌍 اختر المنطقة:",
         parse_mode="Markdown",
         reply_markup=region_menu()
@@ -1067,7 +958,7 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     
-    logger.info(f"✅ region_callback تم استدعاؤها مع data: {q.data}")
+    logger.info(f"✅ region_callback: {q.data}")
     
     data = q.data
     if data == "cancel":
@@ -1090,7 +981,7 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     email = context.user_data.get("email")
     
     if not lab_url or not add_session_url or not project_id:
-        await q.edit_message_text("❌ انتهت الجلسة. أعد الإرسال.")
+        await q.edit_message_text("❌ انتهت الجلسة.")
         context.user_data.clear()
         return ConversationHandler.END
     
@@ -1120,7 +1011,7 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     
-    logger.info(f"✅ confirm_callback تم استدعاؤها مع data: {q.data}")
+    logger.info(f"✅ confirm_callback: {q.data}")
     
     if q.data == "confirm_no":
         await q.edit_message_text("❌ **تم إلغاء عملية النشر.**")
@@ -1134,11 +1025,11 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     region_name = context.user_data.get("temp_region_name", region)
     
     if not lab_url or not add_session_url or not project_id:
-        await q.edit_message_text("❌ **انتهت الجلسة. أعد الإرسال.**")
+        await q.edit_message_text("❌ **انتهت الجلسة.**")
         context.user_data.clear()
         return ConversationHandler.END
     
-    await q.edit_message_text(f"🚀 **جاري النشر على {region_name} ...**\n⏳ قد يستغرق 3-6 دقائق.")
+    await q.edit_message_text(f"🚀 **جاري النشر على {region_name} ...**\n⏳ 3-6 دقائق.")
     
     success, service, vless, duration, video = await run_in_cloudshell(
         update, lab_url, region, add_session_url, project_id
@@ -1168,59 +1059,16 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ تم الإلغاء.")
     return ConversationHandler.END
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u = get_user(update.effective_user.id)
-    if not u:
-        await update.message.reply_text("❌ لا توجد بيانات.")
-        return
-    await update.message.reply_text(
-        f"📊 **إحصائياتك**\n👤 {u['first_name']}\n📦 نشرات: {u['deploy_count']}\n📅 انضم: {u['joined_at'][:16]}",
-        parse_mode="Markdown"
-    )
-
-async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    history = get_history(update.effective_user.id, 5)
-    if not history:
-        await update.message.reply_text("📭 لا يوجد سجل.")
-        return
-    text = "📜 **آخر 5 نشرات:**\n"
-    for i, h in enumerate(history, 1):
-        status = "✅" if h['success'] else "❌"
-        region = KNOWN_REGIONS.get(h['region_used'], h['region_used'])
-        text += f"{i}. {status} {region} – {h['deployed_at'][:16]}\n"
-    await update.message.reply_text(text, parse_mode="Markdown")
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "❓ **الأوامر:**\n"
-        "/start – القائمة الرئيسية (مع أزرار جانبية)\n"
-        "/login – تسجيل الدخول لمرة واحدة (يحفظ الكوكيز)\n"
-        "/done – حفظ الجلسة بعد تسجيل الدخول\n"
-        "/stats – إحصائياتك\n"
-        "/history – سجل النشرات\n"
-        "/cancel – إلغاء العملية الحالية",
-        parse_mode="Markdown"
-    )
-
 async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج النصوص العادية (للتوجيه إلى الأزرار الجانبية)."""
-    text = update.message.text
-    if text == "🚀 بدء النشر":
-        return await handle_menu_buttons(update, context)
-    elif text == "📊 إحصائياتي":
-        return await handle_menu_buttons(update, context)
-    elif text == "📜 سجل النشر":
-        return await handle_menu_buttons(update, context)
-    elif text == "🔐 تسجيل الدخول":
-        return await handle_menu_buttons(update, context)
-    elif text == "❓ مساعدة":
-        return await handle_menu_buttons(update, context)
-    else:
-        # اعتبار أي نص آخر رابطاً
-        return await receive_link(update, context)
+    """أي رسالة أخرى – إعادة توجيه إلى البداية."""
+    await update.message.reply_text(
+        "⚠️ استخدم الزر **🚀 نشر جديد** لبدء النشر، أو أرسل الرابط مباشرة.",
+        reply_markup=main_menu_keyboard()
+    )
+    return ConversationHandler.END
 
 # ===================================================================
-# 15. التشغيل الرئيسي
+# 14. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1235,20 +1083,15 @@ def start_web_dashboard():
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     
-    # محادثة النشر مع واجهة تأكيد
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
-            MessageHandler(filters.Regex("^🚀 بدء النشر$"), handle_menu_buttons),
-            MessageHandler(filters.Regex("^📊 إحصائياتي$"), handle_menu_buttons),
-            MessageHandler(filters.Regex("^📜 سجل النشر$"), handle_menu_buttons),
-            MessageHandler(filters.Regex("^🔐 تسجيل الدخول$"), handle_menu_buttons),
-            MessageHandler(filters.Regex("^❓ مساعدة$"), handle_menu_buttons),
+            MessageHandler(filters.Regex("^🚀 نشر جديد$"), handle_menu_buttons),
         ],
         states={
             WAITING_LINK: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link),
-                MessageHandler(filters.Regex("^🚀 بدء النشر$"), handle_menu_buttons),
+                MessageHandler(filters.Regex("^🚀 نشر جديد$"), handle_menu_buttons),
             ],
             WAITING_REGION: [CallbackQueryHandler(region_callback)],
             WAITING_CONFIRMATION: [CallbackQueryHandler(confirm_callback)],
@@ -1258,16 +1101,11 @@ def main():
     )
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("login", login_command))
-    app.add_handler(CommandHandler("done", done_command))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(CommandHandler("history", history_command))
     app.add_handler(conv)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v49.0 (Ultimate Master Edition) جاهز")
+    logger.info("🔥 SHADOW LEGION v51.0 (Final Master Edition) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
