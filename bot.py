@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v43.0 – ULTIMATE_MASTER_EDITION
-- إصلاح أزرار المناطق (CallbackQuery)
-- استخراج متقدم للبيانات
-- واجهة تأكيد قبل النشر
+SHADOW LEGION v44.0 – ULTIMATE_MASTER_EDITION
+- إصلاح نهائي لأزرار المناطق (CallbackQuery)
+- استخراج متقدم للبيانات مع دعم جميع صيغ الروابط
+- واجهة تأكيد قبل النشر (تأكيد/إلغاء)
 - بث مباشر مع إيقاف آمن
-- تسجيل فيديو تلقائي
-- MongoDB
-- Z3R0-STEALTH v2
+- تسجيل فيديو تلقائي للجلسات
+- MongoDB لتخزين البيانات
+- Z3R0-STEALTH v2 (تمويه متقدم)
 - إعادة محاولة ذكية (3 محاولات)
+- دعم كامل لـ Railway و Cloud Run
 """
 
 import os
@@ -70,7 +71,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v43.0 (Ultimate Master Edition) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v44.0 (Ultimate Master Edition) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -346,9 +347,8 @@ def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
     
     return {"project_id": project, "token": token, "email": email}
 
-
 def build_add_session_url(project: str, token: str, email: str) -> str:
-    """بناء رابط AddSession."""
+    """بناء رابط AddSession لتجاوز شاشات تسجيل الدخول."""
     if not project or not token or not email:
         return ""
     
@@ -436,7 +436,7 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
 
 # ===================================================================
-# 7. محرك التخفي
+# 7. محرك التخفي (Z3R0-STEALTH v2)
 # ===================================================================
 async def load_cookies(context) -> List[Dict]:
     if os.path.exists(COOKIES_FILE):
@@ -654,7 +654,7 @@ async def wait_for_terminal(page, timeout=300) -> Tuple[bool, str]:
     return False, f"⏰ انتهت مهلة الطرفية ({timeout} ثانية)"
 
 # ===================================================================
-# 10. البث المباشر
+# 10. البث المباشر (مع إيقاف فوري)
 # ===================================================================
 stream_stop_event = asyncio.Event()
 
@@ -712,7 +712,7 @@ print(f"SERVICE_URL: {url}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة (مع AddSession)
+# 12. قلب الأتمتة (مع AddSession وإعادة محاولة)
 # ===================================================================
 async def run_stealth_session(update, lab_url, region, start_time, add_session_url=None, project_id=None):
     stream_stop_event.clear()
@@ -1255,7 +1255,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v43.0 (Ultimate Master Edition) جاهز")
+    logger.info("🔥 SHADOW LEGION v44.0 (Ultimate Master Edition) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
