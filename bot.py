@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v42.0 – CONFIRMATION_MASTER
-- استخراج متقدم للبيانات مع دعم جميع صيغ الروابط
-- واجهة تأكيد قبل بدء النشر (أزرار تأكيد/إلغاء)
-- عرض ملخص البيانات قبل التأكيد
+SHADOW LEGION v43.0 – ULTIMATE_MASTER_EDITION
+- إصلاح أزرار المناطق (CallbackQuery)
+- استخراج متقدم للبيانات
+- واجهة تأكيد قبل النشر
 - بث مباشر مع إيقاف آمن
 - تسجيل فيديو تلقائي
 - MongoDB
@@ -70,7 +70,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v42.0 (Confirmation Master) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v43.0 (Ultimate Master Edition) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -918,7 +918,7 @@ def cleanup_old_recordings():
         logger.warning(f"⚠️ فشل تنظيف التسجيلات: {e}")
 
 # ===================================================================
-# 14. واجهة البوت (مع واجهة تأكيد)
+# 14. واجهة البوت (مع واجهة تأكيد وإصلاح الأزرار)
 # ===================================================================
 WAITING_LINK, WAITING_REGION, WAITING_CONFIRMATION = range(3)
 
@@ -942,6 +942,7 @@ KNOWN_REGIONS = {
 }
 
 def region_menu():
+    """قائمة المناطق مع callback_data صحيحة."""
     kb = []
     row = []
     for code, name in KNOWN_REGIONS.items():
@@ -1057,15 +1058,19 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return WAITING_REGION
 
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج اختيار المنطقة - يعرض واجهة التأكيد."""
     q = update.callback_query
     await q.answer()
+    
+    logger.info(f"✅ region_callback تم استدعاؤها مع data: {q.data}")
+    
     raw = q.data.replace("region_", "")
     if raw == "random":
         region = random.choice(list(KNOWN_REGIONS.keys()))
     elif raw == "cancel":
         await q.edit_message_text("❌ أُلغي.")
         context.user_data.clear()
-        return
+        return ConversationHandler.END
     else:
         region = raw
     
@@ -1076,7 +1081,8 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not lab_url or not add_session_url or not project_id:
         await q.edit_message_text("❌ انتهت الجلسة. أعد الإرسال.")
-        return
+        context.user_data.clear()
+        return ConversationHandler.END
     
     region_name = KNOWN_REGIONS.get(region, region)
     
@@ -1249,7 +1255,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v42.0 (Confirmation Master) جاهز")
+    logger.info("🔥 SHADOW LEGION v43.0 (Ultimate Master Edition) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
