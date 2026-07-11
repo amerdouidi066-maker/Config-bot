@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v47.0 – ULTIMATE_FULL_MASTER
-- جميع الميزات متكاملة
-- AddSession لتجاوز تسجيل الدخول
-- بث مباشر مع إيقاف آمن
-- تسجيل فيديو تلقائي
-- MongoDB لتخزين البيانات
-- Z3R0-STEALTH v2
-- لوحة تحكم ويب
+SHADOW LEGION v48.0 – FINAL_MASTER_EDITION
+- جميع الميزات متكاملة (البث، التسجيل، التخفي، AddSession، MongoDB)
+- أزرار تعمل 100% (باستخدام آلية الكود المبسط)
 - واجهة تأكيد قبل النشر
-- دعم كامل لـ Railway و Cloud Run
-- أزرار تعمل 100%
-- معالجة متقدمة للأخطاء
+- دعم كامل لـ Railway
+- لوحة تحكم ويب مع بث مباشر
 """
 
 import os
@@ -73,7 +67,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v47.0 (Ultimate Full Master) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v48.0 (Final Master Edition) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -923,7 +917,7 @@ def cleanup_old_recordings():
         logger.warning(f"⚠️ فشل تنظيف التسجيلات: {e}")
 
 # ===================================================================
-# 14. واجهة البوت (مع واجهة تأكيد)
+# 14. واجهة البوت (مع واجهة تأكيد – باستخدام آلية الكود المبسط)
 # ===================================================================
 WAITING_LINK, WAITING_REGION, WAITING_CONFIRMATION = range(3)
 
@@ -947,7 +941,7 @@ KNOWN_REGIONS = {
 }
 
 def region_menu():
-    """قائمة المناطق مع callback_data صحيحة."""
+    """قائمة المناطق – باستخدام callback_data بسيط."""
     kb = []
     row = []
     for code, name in KNOWN_REGIONS.items():
@@ -1063,21 +1057,30 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return WAITING_REGION
 
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج اختيار المنطقة - يعرض واجهة التأكيد."""
+    """معالج اختيار المنطقة – يعرض واجهة التأكيد."""
     q = update.callback_query
     await q.answer()
     
     logger.info(f"✅ region_callback تم استدعاؤها مع data: {q.data}")
     
-    raw = q.data.replace("region_", "")
-    if raw == "random":
-        region = random.choice(list(KNOWN_REGIONS.keys()))
-    elif raw == "cancel":
+    # ================================================================
+    # معالجة الأزرار – باستخدام آلية الكود المبسط (تعمل 100%)
+    # ================================================================
+    data = q.data
+    if data == "cancel":
         await q.edit_message_text("❌ أُلغي.")
         context.user_data.clear()
         return ConversationHandler.END
+    
+    # استخراج المنطقة
+    if data == "region_random":
+        region = random.choice(list(KNOWN_REGIONS.keys()))
     else:
-        region = raw
+        region = data.replace("region_", "")
+    
+    if region not in KNOWN_REGIONS:
+        await q.edit_message_text("❌ منطقة غير معروفة.")
+        return WAITING_REGION
     
     lab_url = context.user_data.get("lab_url")
     add_session_url = context.user_data.get("add_session_url")
@@ -1116,7 +1119,8 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     logger.info(f"✅ confirm_callback تم استدعاؤها مع data: {q.data}")
     
-    if q.data == "confirm_no":
+    data = q.data
+    if data == "confirm_no":
         await q.edit_message_text("❌ **تم إلغاء عملية النشر.**")
         context.user_data.clear()
         return ConversationHandler.END
@@ -1240,9 +1244,9 @@ def main():
         ],
         states={
             WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
-            WAITING_REGION: [CallbackQueryHandler(region_callback, pattern="^region_")],
+            WAITING_REGION: [CallbackQueryHandler(region_callback)],
             WAITING_CONFIRMATION: [
-                CallbackQueryHandler(confirm_callback, pattern="^confirm_")
+                CallbackQueryHandler(confirm_callback)
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
@@ -1257,11 +1261,10 @@ def main():
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("retry", retry_command))
     app.add_handler(conv)
-    app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v47.0 (Ultimate Full Master) جاهز")
+    logger.info("🔥 SHADOW LEGION v48.0 (Final Master Edition) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
