@@ -1,8 +1,11 @@
-*.pyc
 __pycache__/
-bot.log
-screenshots/
+*.pyc
+*.pyo
+*.log
 recordings/
 cookies_live.json
-*.db
 .env
+*.webp
+*.mp4
+.DS_Store
+bot.log
