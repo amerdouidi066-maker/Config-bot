@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v52.0 – FINAL_MASTER_EDITION
+SHADOW LEGION v53.0 – FINAL_COMPLETE_EDITION
 - فتح الرابط الأصلي مباشرة (بدون استخراج أو بناء)
+- كوكيز مضمنة + قراءة من ملف مع سجلات
 - زر واحد فقط (🚀 نشر جديد) في الرداء الجانبي
-- جميع الميزات الأساسية: البث المباشر، التسجيل، التخفي، MongoDB
-- واجهة تأكيد احترافية مع الرابط الكامل
+- بث مباشر مع إيقاف آمن
+- تسجيل فيديو تلقائي
+- MongoDB
+- Z3R0-STEALTH v2
+- واجهة تأكيد احترافية
 - دعم كامل لـ Railway
 """
 
@@ -55,9 +59,19 @@ SHELL_TIMEOUT = int(os.environ.get("SHELL_TIMEOUT", "600"))
 CLEANUP_DAYS = int(os.environ.get("CLEANUP_DAYS", "7"))
 PROXY_LIST = [p.strip() for p in os.environ.get("PROXY_LIST", "").split(",") if p.strip()]
 TWOCAPTCHA_API_KEY = os.environ.get("TWOCAPTCHA_API_KEY", "")
-COOKIES_FILE = "cookies_live.json"
 RAILWAY_PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
 
+# ================================================================
+# تحديد مسار ملف الكوكيز (دعم Railway)
+# ================================================================
+if os.environ.get("RAILWAY_ENVIRONMENT") or os.path.exists("/app"):
+    COOKIES_FILE = "/app/cookies_live.json"
+else:
+    COOKIES_FILE = "cookies_live.json"
+
+# ================================================================
+# إعدادات التسجيل
+# ================================================================
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -67,7 +81,9 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v52.0 (Final Master Edition) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v53.0 (Final Complete Edition) بدأ التشغيل...")
+logger.info(f"📁 مسار ملف الكوكيز: {COOKIES_FILE}")
+logger.info(f"📁 المجلد الحالي: {os.getcwd()}")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -161,7 +177,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for doc in docs]
 
 # ===================================================================
-# 4. دوال مساعدة
+# 4. دوال مساعدة (تمويه، كابتشا)
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -219,34 +235,64 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
         return None
 
 # ===================================================================
-# 5. محرك التخفي (Z3R0-STEALTH v2)
+# 5. محرك التخفي (Z3R0-STEALTH v2) + تحميل الكوكيز
 # ===================================================================
 async def load_cookies(context) -> List[Dict]:
-    """تحميل الكوكيز من الملف أو استخدام الكوكيز الاحتياطية."""
+    """تحميل الكوكيز من الملف أو استخدام الكوكيز المضمنة."""
+    logger.info(f"🔍 جاري تحميل الكوكيز من: {COOKIES_FILE}")
+    
+    # محاولة تحميل الكوكيز من الملف
     if os.path.exists(COOKIES_FILE):
+        logger.info(f"✅ تم العثور على الملف: {COOKIES_FILE}")
         try:
             with open(COOKIES_FILE, "r") as f:
                 live_cookies = json.load(f)
+            logger.info(f"📋 تم قراءة {len(live_cookies)} كوكي من الملف")
             await context.add_cookies(live_cookies)
             cookies_loaded = await context.cookies()
-            logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي من {COOKIES_FILE}")
-            # سجل أسماء الكوكيز للتحقق
-            names = [c["name"] for c in cookies_loaded[:10]]
-            logger.info(f"📋 أسماء الكوكيز: {names}")
+            logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي بنجاح من الملف")
             return cookies_loaded
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ خطأ في تنسيق JSON: {e}")
         except Exception as e:
-            logger.error(f"⚠️ فشل تحميل الكوكيز: {e}")
+            logger.error(f"❌ خطأ في قراءة الملف: {e}")
+    else:
+        logger.warning(f"⚠️ الملف غير موجود: {COOKIES_FILE}")
+        # محاولة مسار بديل
+        alt_path = "/app/cookies_live.json"
+        if os.path.exists(alt_path):
+            logger.info(f"✅ تم العثور على الملف في {alt_path}")
+            try:
+                with open(alt_path, "r") as f:
+                    live_cookies = json.load(f)
+                await context.add_cookies(live_cookies)
+                return await context.cookies()
+            except Exception as e:
+                logger.error(f"❌ فشل قراءة الملف البديل: {e}")
     
-    # كوكيز احتياطية
-    fallback = [
-        {"name": "SAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
-        {"name": "__Secure-3PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
-        {"name": "SID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDf4E57O0vW0SExPoSYUJtkAACgYKARASARQSFQHGX2MivRer4LjlSHhMOnCsHRjnpBoVAUF8yKqWA_-BJRPIH__yizMU0i_Y0076", "domain": ".google.com", "path": "/", "secure": False},
-        {"name": "__Secure-3PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDiKinPT98rTDtiD4-SrNllQACgYKAbYSARQSFQHGX2MiUYFlgGm-fqgsDygOzSn6eRoVAUF8yKqi8zzCQgZxCxRqXq6JKSgU0076", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
+    # استخدام الكوكيز المضمنة
+    logger.warning("⚠️ استخدام الكوكيز المضمنة (من الكود)")
+    embedded_cookies = [
+        {"name": "SAPISID", "value": "dNAzbJqIULJ0jVSc/AATHsbA-KZD_zuxiL", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PAPISID", "value": "dNAzbJqIULJ0jVSc/AATHsbA-KZD_zuxiL", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
+        {"name": "__Secure-1PAPISID", "value": "dNAzbJqIULJ0jVSc/AATHsbA-KZD_zuxiL", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "APISID", "value": "X2mZPF3uFYIylxm9/ALLHRZzAxKM24FogV", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "HSID", "value": "AY8tMUKVcf_DaN_iC", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "SSID", "value": "AzMoFRRy6f8GYql9D", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "SID", "value": "g.a000_wgkKXPB_CsWeN_x-B0mhgTpejNJ6vF-ykbF3prSPeAdUcx3C78kk_17zGHRkt6bxOiUhQACgYKAaASARASFQHGX2Mipkth471EukxKUIdeC-6DqRoVAUF8yKqGTWsdk9FtVGe1ru_iJPo20076", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "__Secure-1PSID", "value": "g.a000_wgkKXPB_CsWeN_x-B0mhgTpejNJ6vF-ykbF3prSPeAdUcx3l5ujt8aTFG4Gc1nSaOZzpAACgYKAaASARASFQHGX2MijHmzp07ZrYObAyjsC9ZUehoVAUF8yKo6mUmMKXFeX8LHoueM3fut0076", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PSID", "value": "g.a000_wgkKXPB_CsWeN_x-B0mhgTpejNJ6vF-ykbF3prSPeAdUcx3Q1OtaIiJrXF7TXCYwlfWHwACgYKAbESARASFQHGX2Mia0STP8QK0ZBSuOCkkL6JrBoVAUF8yKrWPQHiRsnzRsJYNMdEb70o0076", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
+        {"name": "__Secure-1PSIDCC", "value": "AKEyXzWJe8XrIXepYQUzjb3xfbJSI_Gr48LMUsLe7pimZtPOQT5fiwieV-VB1W3_27iAXRSBsLY", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "__Secure-3PSIDCC", "value": "AKEyXzVFsr9Yq2ODHMDLweJlK-CqUq610bUGCqMtUzx1C-XM8nlgTiUxNm_wKvygVSReUpZdkYo", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
+        {"name": "SIDCC", "value": "AKEyXzXKyYn3HiEDAomhRdI0h4RkJSRd-on8-ZqDLpQXG-WuwNMsuzTEZyogwNhBwj2TVA5uMg", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "OSID", "value": "g.a000_wgkKaBpMilq4YvMDHzHqSxXuMSftEgaOWyMdqyOmgWCjccsLSireUUexYhk9JCmHNZX0AACgYKAV8SARASFQHGX2Mino-rB5wLJybQINs6TN3EBBoVAUF8yKrUQRAVQs0KqA6S6CBygR2c0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "hostOnly": True},
+        {"name": "__Secure-OSID", "value": "g.a000_wgkKaBpMilq4YvMDHzHqSxXuMSftEgaOWyMdqyOmgWCjccsWOHBS17DqN7ivtIGuHQj4AACgYKAWMSARASFQHGX2Mii9KcaNfB7PKv2c6EVshIwxoVAUF8yKq-JeZGTpwnoCBHeq3sfwhq0076", "domain": "console.cloud.google.com", "path": "/", "secure": True, "sameSite": "None", "hostOnly": True},
+        {"name": "__Secure-DIVERSION_ID", "value": "AXzjpdfZI74xRXVyHxMl51qoaA8XMGRR81lM7Ipd+G7x:e", "domain": ".console.cloud.google.com", "path": "/", "secure": True, "httpOnly": True}
     ]
-    await context.add_cookies(fallback)
-    logger.warning("⚠️ تم استخدام الكوكيز الاحتياطية (قد لا تعمل)")
-    return await context.cookies()
+    await context.add_cookies(embedded_cookies)
+    cookies_loaded = await context.cookies()
+    logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي من الكود المضمن")
+    return cookies_loaded
 
 async def create_stealth_context(browser):
     fingerprint = generate_random_fingerprint()
@@ -333,7 +379,7 @@ async def simulate_mouse_movement(page):
 # 6. اختبار صلاحية الكوكيز
 # ===================================================================
 async def test_cookies_validity() -> bool:
-    """اختبار سريع لصلاحية الكوكيز دون فتح المتصفح الرئيسي."""
+    """اختبار سريع لصلاحية الكوكيز."""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -538,8 +584,6 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
     video_path = None
     stream_task = None
     
-    logger.info(f"📌 فتح الرابط الأصلي: {target_url[:100]}...")
-    
     try:
         async with async_playwright() as p:
             async with await p.chromium.launch(
@@ -581,9 +625,9 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                     stream_stop_event.set()
                     if stream_task:
                         await asyncio.wait_for(stream_task, timeout=0.5)
-                    return False, "", "⚠️ الكوكيز غير مكتملة. استخدم /login", int(time.time()-start_time), ""
+                    return False, "", "⚠️ الكوكيز غير مكتملة", int(time.time()-start_time), ""
                 
-                # فتح الرابط الأصلي مباشرة
+                logger.info(f"📌 فتح الرابط: {target_url[:100]}...")
                 await page.goto(target_url, timeout=min(180000, SHELL_TIMEOUT*1000), wait_until="networkidle")
                 
                 ok, msg = await wait_for_redirect(page, 120)
@@ -598,7 +642,7 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                     stream_stop_event.set()
                     if stream_task:
                         await asyncio.wait_for(stream_task, timeout=0.5)
-                    return False, "", "⛔ فشل التجاوز: لا تزال شاشة الدخول", int(time.time()-start_time), ""
+                    return False, "", "⛔ شاشة تسجيل دخول", int(time.time()-start_time), ""
                 
                 for btn in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "Got it"]:
                     await smart_click_button(page, [btn])
@@ -623,7 +667,7 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                     stream_stop_event.set()
                     if stream_task:
                         await asyncio.wait_for(stream_task, timeout=0.5)
-                    return False, "", "⚠️ لم يتم العثور على زر Start", int(time.time()-start_time), ""
+                    return False, "", "⚠️ زر Start غير موجود", int(time.time()-start_time), ""
                 
                 for btn in ["Authorize", "تفويض", "Continue", "I understand"]:
                     await smart_click_button(page, [btn])
@@ -636,9 +680,7 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                         await asyncio.wait_for(stream_task, timeout=0.5)
                     return False, "", msg, int(time.time()-start_time), ""
                 
-                # استخراج project_id من الصفحة أو استخدام المعطى
                 if not project_id:
-                    # محاولة استخراج project من الرابط
                     match = re.search(r'project=([^&]+)', target_url)
                     if match:
                         project_id = match.group(1)
@@ -676,16 +718,11 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                     try:
                         await asyncio.wait_for(stream_task, timeout=1.0)
                     except asyncio.TimeoutError:
-                        logger.warning("⏰ مهلة إيقاف البث، إلغاء المهمة")
                         stream_task.cancel()
                         try:
                             await stream_task
                         except:
                             pass
-                    except asyncio.CancelledError:
-                        pass
-                    except Exception as e:
-                        logger.warning(f"⚠️ خطأ أثناء إيقاف البث: {e}")
                 
                 stream_state.set_streaming(False)
                 service_match = re.search(r'SERVICE_URL:\s*(https://[^\s]+)', result_content)
@@ -697,7 +734,8 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                     return False, "", f"⚠️ لم يتم العثور على النتيجة: {result_content[-200:]}", int(time.time()-start_time), video_path
                 
     except Exception as e:
-        logger.error(f"❌ خطأ: {e}")
+        error_msg = str(e)[:200]
+        logger.error(f"❌ خطأ في الجلسة: {e}")
         if stream_task and not stream_task.done():
             stream_stop_event.set()
             try:
@@ -705,13 +743,16 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
             except:
                 pass
         stream_state.set_streaming(False)
-        return False, "", f"❌ خطأ: {str(e)[:200]}", int(time.time()-start_time), ""
+        return False, "", f"❌ خطأ: {error_msg}", int(time.time()-start_time), ""
 
 async def run_in_cloudshell(update, target_url, region, project_id=None):
     start = time.time()
     
+    await update.message.reply_text("🔄 **جاري التحقق من الكوكيز...**")
+    
     # اختبار الكوكيز
-    if not await test_cookies_validity():
+    cookies_ok = await test_cookies_validity()
+    if not cookies_ok:
         await update.message.reply_text(
             "⚠️ **الكوكيز غير صالحة.**\n"
             "يرجى تحديث الجلسة عبر:\n"
@@ -720,17 +761,30 @@ async def run_in_cloudshell(update, target_url, region, project_id=None):
         )
         return False, "", "⚠️ الكوكيز غير صالحة", int(time.time()-start), ""
     
+    await update.message.reply_text("✅ **الكوكيز صالحة. جاري فتح المتصفح...**")
+    
     for attempt in range(3):
         try:
-            result = await run_stealth_session(update, target_url, region, start, project_id)
+            await update.message.reply_text(f"🔄 **محاولة {attempt+1}/3...**")
+            result = await asyncio.wait_for(
+                run_stealth_session(update, target_url, region, start, project_id),
+                timeout=SHELL_TIMEOUT
+            )
             if result[0]:
                 return result
             if attempt < 2:
+                await update.message.reply_text(f"⏳ **إعادة المحاولة بعد 5 ثوانٍ...**")
                 await asyncio.sleep(5)
-        except Exception as e:
-            logger.error(f"❌ المحاولة {attempt+1} فشلت: {e}")
+        except asyncio.TimeoutError:
+            await update.message.reply_text(f"⏰ **انتهت المهلة في المحاولة {attempt+1}**")
             if attempt < 2:
                 await asyncio.sleep(5)
+        except Exception as e:
+            error_msg = str(e)[:200]
+            await update.message.reply_text(f"❌ **خطأ في المحاولة {attempt+1}:**\n`{error_msg}`")
+            if attempt < 2:
+                await asyncio.sleep(5)
+    
     return False, "", "❌ فشل بعد 3 محاولات", int(time.time()-start), ""
 
 # ===================================================================
@@ -753,7 +807,7 @@ def cleanup_old_recordings():
         logger.warning(f"⚠️ فشل تنظيف التسجيلات: {e}")
 
 # ===================================================================
-# 13. واجهة البوت (زر واحد فقط)
+# 13. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION, WAITING_CONFIRMATION = range(3)
 
@@ -831,20 +885,18 @@ async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE
     return await receive_link(update, context)
 
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال الرابط – نستخدمه كما هو دون استخراج أي بيانات."""
     text = update.message.text.strip()
     
     if text in ["❌ إلغاء", "🔄 إعادة المحاولة"]:
         await update.message.reply_text("❌ تم الإلغاء.")
         return ConversationHandler.END
     
-    # نستخدم الرابط كما هو (لا نستخرج أي شيء)
     user_id = update.effective_user.id
     update_last_link(user_id, text)
     
     context.user_data.update({
         "lab_url": text,
-        "target_url": text,  # الرابط الأصلي
+        "target_url": text,
     })
     
     await update.message.reply_text(
@@ -885,7 +937,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     region_name = KNOWN_REGIONS.get(region, region)
     
-    # عرض واجهة التأكيد مع الرابط الكامل
     confirm_text = (
         f"📋 **تأكيد عملية النشر المباشر (Cloud Run)**\n\n"
         f"🔗 **الرابط:**\n`{target_url}`\n\n"
@@ -915,7 +966,6 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
     
-    # confirm_yes
     target_url = context.user_data.get("target_url")
     region = context.user_data.get("temp_region")
     region_name = context.user_data.get("temp_region_name", region)
@@ -925,7 +975,6 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
     
-    # محاولة استخراج project من الرابط (للنشر)
     project_id = None
     match = re.search(r'project=([^&]+)', target_url)
     if match:
@@ -962,7 +1011,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أي رسالة أخرى – إعادة توجيه إلى البداية."""
     await update.message.reply_text(
         "⚠️ استخدم الزر **🚀 نشر جديد** لبدء النشر، أو أرسل الرابط مباشرة.",
         reply_markup=main_menu_keyboard()
@@ -995,11 +1043,16 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link),
                 MessageHandler(filters.Regex("^🚀 نشر جديد$"), handle_menu_buttons),
             ],
-            WAITING_REGION: [CallbackQueryHandler(region_callback)],
-            WAITING_CONFIRMATION: [CallbackQueryHandler(confirm_callback)],
+            WAITING_REGION: [
+                CallbackQueryHandler(region_callback, pattern="^(region_|cancel)")
+            ],
+            WAITING_CONFIRMATION: [
+                CallbackQueryHandler(confirm_callback, pattern="^(confirm_|cancel)")
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
+        allow_reentry=True,
+        per_message=False
     )
     
     app.add_handler(CommandHandler("start", start))
@@ -1007,7 +1060,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v52.0 (Final Master Edition) جاهز")
+    logger.info("🔥 SHADOW LEGION v53.0 (Final Complete Edition) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
