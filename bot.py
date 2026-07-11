@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v56.0 – PROFESSIONAL_CLOUD_EDITION
-- يعمل مع stream_state.py و web_dashboard.py الخارجيين
-- يدير خادم Flask في خيط منفصل (متوافق مع Cloud Run)
-- جميع أخطاء Playwright و AsyncIO مصلحة
-- سجلات مفصلة، إعادة محاولة ذكية، دعم الـ Proxy
+SHADOW LEGION v57.0 – PROFESSIONAL_FIXED_EDITION
+- تم تصحيح RuntimeWarning: coroutine 'Application._bootstrap_initialize' was never awaited
+- استخدام حلقة أحداث صريحة مع asyncio.get_event_loop()
+- تشغيل Flask في خيط منفصل مع تأخير لضمان استقرار الحلقة
+- معالجة إشارات SIGINT و SIGTERM للإغلاق النظيف
+- متوافق مع Cloud Run / Railway / Docker
 """
 
 import os
@@ -17,6 +18,8 @@ import random
 import logging
 import asyncio
 import threading
+import signal
+import sys
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 
@@ -34,7 +37,6 @@ from telegram.ext import (
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from pymongo import MongoClient
 
-# استيراد الملفات الخارجية
 import stream_state
 import web_dashboard
 
@@ -66,7 +68,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
-logger.info("🔥 SHADOW LEGION v56.0 – Professional Edition")
+logger.info("🔥 SHADOW LEGION v57.0 – Professional Fixed Edition")
 
 # ===================================================================
 # 3. اتصال MongoDB
@@ -83,28 +85,79 @@ logger.info("✅ اتصال MongoDB ناجح")
 def get_user(user_id: int) -> Optional[Dict]:
     doc = users_collection.find_one({"_id": user_id})
     if doc:
-        return {"user_id": doc["_id"], "username": doc.get("username"), "first_name": doc.get("first_name"), "last_name": doc.get("last_name"), "deploy_count": doc.get("deploy_count", 0), "last_active": doc.get("last_active"), "joined_at": doc.get("joined_at"), "last_link": doc.get("last_link")}
+        return {
+            "user_id": doc["_id"],
+            "username": doc.get("username"),
+            "first_name": doc.get("first_name"),
+            "last_name": doc.get("last_name"),
+            "deploy_count": doc.get("deploy_count", 0),
+            "last_active": doc.get("last_active"),
+            "joined_at": doc.get("joined_at"),
+            "last_link": doc.get("last_link")
+        }
     return None
 
 def create_or_update_user(user_id: int, username: str = None, first_name: str = None, last_name: str = None):
     now = datetime.now().isoformat()
-    users_collection.update_one({"_id": user_id}, {"$set": {"username": username, "first_name": first_name, "last_name": last_name, "last_active": now, "joined_at": now}}, upsert=True)
+    users_collection.update_one(
+        {"_id": user_id},
+        {"$set": {
+            "username": username,
+            "first_name": first_name,
+            "last_name": last_name,
+            "last_active": now,
+            "joined_at": now
+        }},
+        upsert=True
+    )
 
 def update_last_link(user_id: int, link: str):
-    users_collection.update_one({"_id": user_id}, {"$set": {"last_link": link, "last_active": datetime.now().isoformat()}})
+    users_collection.update_one(
+        {"_id": user_id},
+        {"$set": {"last_link": link, "last_active": datetime.now().isoformat()}}
+    )
 
 def increment_deploy_count(user_id: int):
-    users_collection.update_one({"_id": user_id}, {"$inc": {"deploy_count": 1}, "$set": {"last_active": datetime.now().isoformat()}})
+    users_collection.update_one(
+        {"_id": user_id},
+        {"$inc": {"deploy_count": 1}, "$set": {"last_active": datetime.now().isoformat()}}
+    )
 
-def add_history(user_id: int, lab_url: str, service_url: str, vless: str, region: str, success: int = 1, error_msg: str = "", duration: int = 0, video_path: str = ""):
-    history_collection.insert_one({"user_id": user_id, "lab_url": lab_url, "service_url": service_url, "vless_link": vless, "region_used": region, "success": success, "error_msg": error_msg, "duration_seconds": duration, "video_path": video_path, "deployed_at": datetime.now().isoformat()})
+def add_history(user_id: int, lab_url: str, service_url: str, vless: str, region: str,
+                success: int = 1, error_msg: str = "", duration: int = 0, video_path: str = ""):
+    history_collection.insert_one({
+        "user_id": user_id,
+        "lab_url": lab_url,
+        "service_url": service_url,
+        "vless_link": vless,
+        "region_used": region,
+        "success": success,
+        "error_msg": error_msg,
+        "duration_seconds": duration,
+        "video_path": video_path,
+        "deployed_at": datetime.now().isoformat()
+    })
 
 def get_history(user_id: int, limit: int = 10) -> List[Dict]:
-    docs = history_collection.find({"user_id": user_id}, sort=[("deployed_at", -1)], limit=limit)
-    return [{"id": str(doc["_id"]), "lab_url": doc.get("lab_url"), "service_url": doc.get("service_url"), "vless_link": doc.get("vless_link"), "region_used": doc.get("region_used"), "deployed_at": doc.get("deployed_at"), "success": doc.get("success", 0), "error_msg": doc.get("error_msg"), "duration": doc.get("duration_seconds", 0)} for doc in docs]
+    docs = history_collection.find(
+        {"user_id": user_id},
+        sort=[("deployed_at", -1)],
+        limit=limit
+    )
+    return [{
+        "id": str(doc["_id"]),
+        "lab_url": doc.get("lab_url"),
+        "service_url": doc.get("service_url"),
+        "vless_link": doc.get("vless_link"),
+        "region_used": doc.get("region_used"),
+        "deployed_at": doc.get("deployed_at"),
+        "success": doc.get("success", 0),
+        "error_msg": doc.get("error_msg"),
+        "duration": doc.get("duration_seconds", 0)
+    } for doc in docs]
 
 # ===================================================================
-# 5. دوال مساعدة (الكوكيز، التخفي)
+# 5. دوال مساعدة
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -118,7 +171,12 @@ def get_random_proxy() -> Optional[str]:
     return random.choice(PROXY_LIST) if PROXY_LIST else None
 
 def get_random_referer() -> str:
-    return random.choice(["https://www.google.com/", "https://accounts.google.com/", "https://mail.google.com/", "https://www.cloudskillsboost.google.com/"])
+    return random.choice([
+        "https://www.google.com/",
+        "https://accounts.google.com/",
+        "https://mail.google.com/",
+        "https://www.cloudskillsboost.google.com/"
+    ])
 
 def generate_random_fingerprint() -> Dict:
     return {
@@ -141,11 +199,12 @@ async def load_cookies(context) -> List[Dict]:
             return await context.cookies()
         except Exception as e:
             logger.error(f"❌ فشل تحميل الكوكيز من الملف: {e}")
-    # كوكيز مضمنة (ضعيفة – يُفضل تحديثها عبر الواجهة)
     logger.warning("⚠️ استخدام كوكيز افتراضية – قد تكون منتهية")
     embedded = [
         {"name": "SAPISID", "value": "dNAzbJqIULJ0jVSc/AATHsbA-KZD_zuxiL", "domain": ".google.com", "path": "/", "secure": True},
         {"name": "__Secure-3PAPISID", "value": "dNAzbJqIULJ0jVSc/AATHsbA-KZD_zuxiL", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
+        {"name": "HSID", "value": "AY8tMUKVcf_DaN_iC", "domain": ".google.com", "path": "/", "secure": False},
+        {"name": "SSID", "value": "AzMoFRRy6f8GYql9D", "domain": ".google.com", "path": "/", "secure": True},
     ]
     await context.add_cookies(embedded)
     return await context.cookies()
@@ -212,7 +271,6 @@ async def create_stealth_context(browser):
         console.log('[Z3R0] بصمة مخفية.');
     """)
     page = await context.new_page()
-    # محاكاة حركة الماوس
     for _ in range(random.randint(3, 5)):
         x = random.randint(100, 1800)
         y = random.randint(100, 900)
@@ -284,7 +342,7 @@ async def execute_command(page, cmd: str) -> bool:
         return False
 
 # ===================================================================
-# 7. البث المباشر (يستخدم stream_state)
+# 7. البث المباشر
 # ===================================================================
 async def live_stream_broadcaster(page):
     stream_state.set_streaming(True)
@@ -313,7 +371,7 @@ async def live_stream_broadcaster(page):
         logger.info("⏹️ تم إيقاف البث")
 
 # ===================================================================
-# 8. جوهر الأتمتة (مع إعادة محاولة متقدمة)
+# 8. جوهر الأتمتة
 # ===================================================================
 async def run_stealth_session(update, target_url, region, start_time, project_id=None):
     stream_task = None
@@ -351,38 +409,31 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
             
             stream_task = asyncio.create_task(live_stream_broadcaster(page))
             
-            # فتح الرابط الأصلي
             await page.goto(target_url, timeout=180000, wait_until="networkidle")
             await asyncio.sleep(2)
             
-            # تجاوز شاشات الموافقة
             for btn in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "Got it"]:
                 await smart_click_button(page, [btn])
                 await asyncio.sleep(1)
             
-            # الانتقال إلى Cloud Shell إذا لم يكن
             if "shell.cloud.google.com" not in page.url:
                 await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
                 await asyncio.sleep(3)
             
-            # الضغط على Start مع إعادة محاولة
             clicked = False
             for attempt in range(8):
                 if await click_start_ultimate(page):
                     clicked = True
                     break
                 await asyncio.sleep(3)
-                # محاولة التمرير لظهور الزر
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
             if not clicked:
                 raise Exception("⚠️ زر Start غير موجود بعد 8 محاولات")
             
-            # تفويض
             for btn in ["Authorize", "تفويض", "Continue"]:
                 await smart_click_button(page, [btn])
                 await asyncio.sleep(2)
             
-            # انتظار الطرفية
             terminal_ready = False
             for _ in range(60):
                 if await page.locator(".xterm-screen").count() > 0:
@@ -392,7 +443,6 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
             if not terminal_ready:
                 raise Exception("⏰ انتهت مهلة الطرفية (60 ثانية)")
             
-            # استخراج Project ID إن لم يكن معطى
             if not project_id:
                 match = re.search(r'project=([^&]+)', target_url)
                 if match:
@@ -407,12 +457,10 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                 await update.message.reply_text("⚠️ لم أستخرج Project ID. يمكنك إدخال الأوامر يدوياً.")
                 await asyncio.sleep(30)
             
-            # قراءة النتيجة
             await execute_command(page, "cat /tmp/result.txt")
             await asyncio.sleep(3)
             result_content = await page.inner_text("body")
             
-            # إيقاف البث بأمان
             stream_state.set_streaming(False)
             if stream_task and not stream_task.done():
                 stream_task.cancel()
@@ -421,7 +469,6 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                 except asyncio.CancelledError:
                     pass
             
-            # حفظ الفيديو إن وجد
             video_path = None
             try:
                 if context.video:
@@ -459,16 +506,13 @@ PROJECT_ID = "{project_id}"
 REGION = "{region}"
 SERVICE_NAME = "{svc}"
 
-# تأكيد الاتصال
 subprocess.run("gcloud config set project {PROJECT_ID}", shell=True, capture_output=True)
 subprocess.run("gcloud services enable run.googleapis.com cloudbuild.googleapis.com", shell=True, capture_output=True)
 
-# نشر الخدمة
 cmd = f"gcloud run deploy {SERVICE_NAME} --region {REGION} --platform managed --image gcr.io/cloudrun/hello --allow-unauthenticated --quiet"
 res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 print(res.stdout)
 
-# استخراج الرابط
 url = None
 if "Service URL" in res.stdout:
     m = re.search(r'Service URL[ :]+(https://[a-zA-Z0-9\\-]+\\.run\\.app)', res.stdout)
@@ -476,7 +520,6 @@ if "Service URL" in res.stdout:
 if not url:
     url = f"https://{SERVICE_NAME}-{PROJECT_ID[:8]}.run.app"
 
-# تخزين النتيجة
 with open("/tmp/result.txt", "w") as f:
     f.write(f"SERVICE_URL: {url}\\nVLESS: vless://{PROJECT_ID}@example.com:443?security=tls\\n")
 print(f"SERVICE_URL: {url}")
@@ -511,7 +554,7 @@ async def run_in_cloudshell(update, target_url, region, project_id=None):
     return False, "", "❌ فشل بعد 3 محاولات", int(time.time()-start), ""
 
 # ===================================================================
-# 9. واجهة البوت (ConversationHandler)
+# 9. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION, WAITING_CONFIRMATION = range(3)
 
@@ -667,10 +710,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ===================================================================
-# 10. التشغيل الرئيسي – بدء خادم Flask في خيط + البوت
+# 10. تشغيل خادم Flask في خيط منفصل
 # ===================================================================
 def start_flask_server():
-    """تشغيل خادم Flask في خيط منفصل (متوافق مع Cloud Run)"""
+    """تشغيل خادم Flask في خيط منفصل"""
     try:
         thread = threading.Thread(
             target=web_dashboard.run_web_server,
@@ -682,12 +725,25 @@ def start_flask_server():
     except Exception as e:
         logger.error(f"❌ فشل تشغيل خادم Flask: {e}")
 
+# ===================================================================
+# 11. معالجة إشارات الإيقاف
+# ===================================================================
+def signal_handler(sig, frame):
+    logger.info("🛑 استلام إشارة إيقاف، جاري الإغلاق النظيف...")
+    sys.exit(0)
+
+# ===================================================================
+# 12. الوظيفة الرئيسية
+# ===================================================================
 async def main():
-    # بدء خادم Flask
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    await asyncio.sleep(0.1)
     start_flask_server()
     
-    # تشغيل البوت
     app = ApplicationBuilder().token(TOKEN).build()
+    
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
@@ -713,8 +769,22 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, cancel))
     
-    logger.info("🔥 SHADOW LEGION v56.0 جاهز للعمل على Cloud Run")
+    logger.info("🔥 SHADOW LEGION v57.0 جاهز للعمل على Cloud Run")
     await app.run_polling()
 
+# ===================================================================
+# 13. نقطة الدخول
+# ===================================================================
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        logger.info("⏹️ تم إيقاف البوت بواسطة المستخدم")
+    finally:
+        loop.close()
