@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v51.0 – FINAL_MASTER_EDITION
+SHADOW LEGION v52.0 – FINAL_MASTER_EDITION
+- فتح الرابط الأصلي مباشرة (بدون استخراج أو بناء)
 - زر واحد فقط (🚀 نشر جديد) في الرداء الجانبي
-- إزالة جميع الأوامر الإضافية (stats, history, login, done, help, retry)
-- جميع الميزات الأساسية: البث المباشر، التسجيل، التخفي، AddSession، MongoDB
+- جميع الميزات الأساسية: البث المباشر، التسجيل، التخفي، MongoDB
 - واجهة تأكيد احترافية مع الرابط الكامل
 - دعم كامل لـ Railway
 """
@@ -67,7 +67,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v51.0 (Final Master Edition) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v52.0 (Final Master Edition) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -84,7 +84,7 @@ except Exception as e:
     raise
 
 # ===================================================================
-# 3. دوال قاعدة البيانات (مختصرة)
+# 3. دوال قاعدة البيانات
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     doc = users_collection.find_one({"_id": user_id})
@@ -219,147 +219,25 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
         return None
 
 # ===================================================================
-# 5. استخراج البيانات و AddSession
-# ===================================================================
-def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
-    link = link.strip()
-    if not link:
-        return {"project_id": None, "token": None, "email": None}
-    
-    decoded = link
-    for _ in range(5):
-        decoded = urllib.parse.unquote(decoded)
-    
-    logger.info(f"🔍 تحليل الرابط: {decoded[:200]}...")
-    
-    project = None
-    token = None
-    email = None
-    
-    parsed = urllib.parse.urlparse(decoded)
-    params = urllib.parse.parse_qs(parsed.query)
-    
-    # استخراج token
-    token_candidates = ['token', 'display_token', 'auth_token', 'access_token', 'code']
-    for t in token_candidates:
-        if t in params and params[t][0]:
-            token = params[t][0]
-            logger.info(f"✅ تم استخراج token من {t}")
-            break
-    
-    if not token:
-        token_match = re.search(r'[?&](?:token|display_token|auth_token)=([^&]+)', decoded)
-        if token_match:
-            token = token_match.group(1)
-            logger.info("✅ تم استخراج token من النص")
-    
-    # استخراج project
-    if 'continue' in params:
-        try:
-            continue_url = urllib.parse.unquote(params['continue'][0])
-            continue_parsed = urllib.parse.urlparse(continue_url)
-            continue_params = urllib.parse.parse_qs(continue_parsed.query)
-            
-            if 'project' in continue_params:
-                project = continue_params['project'][0]
-                logger.info("✅ تم استخراج project من continue")
-            else:
-                match = re.search(r'/projects/([^/?#]+)', continue_parsed.path)
-                if match:
-                    project = match.group(1)
-                    logger.info("✅ تم استخراج project من مسار continue")
-        except Exception as e:
-            logger.warning(f"⚠️ فشل تحليل continue: {e}")
-    
-    if not project:
-        if 'project' in params:
-            project = params['project'][0]
-            logger.info("✅ تم استخراج project من params")
-        elif 'projectId' in params:
-            project = params['projectId'][0]
-            logger.info("✅ تم استخراج projectId من params")
-        else:
-            match = re.search(r'/projects/([^/?#]+)', parsed.path)
-            if match:
-                project = match.group(1)
-                logger.info("✅ تم استخراج project من المسار")
-    
-    # استخراج البريد الإلكتروني
-    if '#' in decoded:
-        try:
-            fragment = decoded.split('#')[1] if len(decoded.split('#')) > 1 else ''
-            email_match = re.search(r'[?&]Email=([^&]+)', fragment)
-            if email_match:
-                email = urllib.parse.unquote(email_match.group(1))
-                logger.info("✅ تم استخراج email من fragment")
-        except:
-            pass
-    
-    if not email and 'Email' in params:
-        email = params['Email'][0]
-        logger.info("✅ تم استخراج email من params")
-    
-    if not email and 'email' in params:
-        email = params['email'][0]
-        logger.info("✅ تم استخراج email من params (email)")
-    
-    if not email:
-        email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
-        all_emails = re.findall(email_pattern, decoded)
-        if all_emails:
-            for em in all_emails:
-                if 'qwiklabs' in em or 'student' in em:
-                    email = em
-                    logger.info("✅ تم استخراج email من النص (qwiklabs/student)")
-                    break
-            if not email:
-                email = all_emails[0]
-                logger.info("✅ تم استخراج email من النص (أول بريد)")
-    
-    if project:
-        project = project.strip('/"\'')
-    if token:
-        token = token.strip('/"\'')
-    if email:
-        email = email.strip('/"\'')
-    
-    logger.info(f"📊 نتائج الاستخراج: project={project}, token={'...' if token else '❌'}, email={email if email else '❌'}")
-    
-    return {"project_id": project, "token": token, "email": email}
-
-def build_add_session_url(project: str, token: str, email: str) -> str:
-    if not project or not token or not email:
-        return ""
-    
-    continue_url = (
-        f"https://console.cloud.google.com/home/dashboard"
-        f"?project={project}"
-        f"&walkthrough_id=https%3A%2F%2Fwww.skills.google%2Fdisplay_in_context%3Fdisplay_token%3D{token}"
-    )
-    encoded_continue = urllib.parse.quote(continue_url, safe='')
-    
-    base = "https://accounts.google.com/AddSession"
-    params = {
-        "service": "accountsettings",
-        "sarp": "1",
-        "continue": encoded_continue,
-        "Email": email
-    }
-    query = urllib.parse.urlencode(params)
-    return f"{base}?{query}#Email={email}"
-
-# ===================================================================
-# 6. محرك التخفي (Z3R0-STEALTH v2)
+# 5. محرك التخفي (Z3R0-STEALTH v2)
 # ===================================================================
 async def load_cookies(context) -> List[Dict]:
+    """تحميل الكوكيز من الملف أو استخدام الكوكيز الاحتياطية."""
     if os.path.exists(COOKIES_FILE):
         try:
             with open(COOKIES_FILE, "r") as f:
                 live_cookies = json.load(f)
             await context.add_cookies(live_cookies)
-            return await context.cookies()
-        except:
-            pass
+            cookies_loaded = await context.cookies()
+            logger.info(f"✅ تم تحميل {len(cookies_loaded)} كوكي من {COOKIES_FILE}")
+            # سجل أسماء الكوكيز للتحقق
+            names = [c["name"] for c in cookies_loaded[:10]]
+            logger.info(f"📋 أسماء الكوكيز: {names}")
+            return cookies_loaded
+        except Exception as e:
+            logger.error(f"⚠️ فشل تحميل الكوكيز: {e}")
+    
+    # كوكيز احتياطية
     fallback = [
         {"name": "SAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True},
         {"name": "__Secure-3PAPISID", "value": "24YAxem4FqDbuFEk/Av3t8V1lvBUoZEhHl", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
@@ -367,6 +245,7 @@ async def load_cookies(context) -> List[Dict]:
         {"name": "__Secure-3PSID", "value": "g.a000_wjNRT4QclMabSkctYvjiKX8isVmrjvsXjn-sIu83AjYzcxDiKinPT98rTDtiD4-SrNllQACgYKAbYSARQSFQHGX2MiUYFlgGm-fqgsDygOzSn6eRoVAUF8yKqi8zzCQgZxCxRqXq6JKSgU0076", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
     ]
     await context.add_cookies(fallback)
+    logger.warning("⚠️ تم استخدام الكوكيز الاحتياطية (قد لا تعمل)")
     return await context.cookies()
 
 async def create_stealth_context(browser):
@@ -449,6 +328,33 @@ async def simulate_mouse_movement(page):
             await asyncio.sleep(random.uniform(0.1, 0.3))
     except:
         pass
+
+# ===================================================================
+# 6. اختبار صلاحية الكوكيز
+# ===================================================================
+async def test_cookies_validity() -> bool:
+    """اختبار سريع لصلاحية الكوكيز دون فتح المتصفح الرئيسي."""
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled", "--disable-gpu"]
+            )
+            context = await browser.new_context()
+            await load_cookies(context)
+            page = await context.new_page()
+            await page.goto("https://console.cloud.google.com", timeout=15000, wait_until="networkidle")
+            await asyncio.sleep(3)
+            body = await page.inner_text("body")
+            await browser.close()
+            if "sign in" in body.lower() or "choose an account" in body.lower():
+                logger.warning("⚠️ الكوكيز غير صالحة – شاشة تسجيل دخول")
+                return False
+            logger.info("✅ الكوكيز صالحة")
+            return True
+    except Exception as e:
+        logger.error(f"⚠️ فشل اختبار الكوكيز: {e}")
+        return False
 
 # ===================================================================
 # 7. دوال الأزرار والانتظار
@@ -625,16 +531,14 @@ print(f"SERVICE_URL: {url}")
 '''
 
 # ===================================================================
-# 11. قلب الأتمتة
+# 11. قلب الأتمتة (فتح الرابط الأصلي مباشرة)
 # ===================================================================
-async def run_stealth_session(update, lab_url, region, start_time, add_session_url=None, project_id=None):
+async def run_stealth_session(update, target_url, region, start_time, project_id=None):
     stream_stop_event.clear()
     video_path = None
     stream_task = None
     
-    target_url = add_session_url if add_session_url else lab_url
-    if add_session_url:
-        logger.info(f"🔑 استخدام رابط AddSession لتجاوز تسجيل الدخول")
+    logger.info(f"📌 فتح الرابط الأصلي: {target_url[:100]}...")
     
     try:
         async with async_playwright() as p:
@@ -679,7 +583,7 @@ async def run_stealth_session(update, lab_url, region, start_time, add_session_u
                         await asyncio.wait_for(stream_task, timeout=0.5)
                     return False, "", "⚠️ الكوكيز غير مكتملة. استخدم /login", int(time.time()-start_time), ""
                 
-                logger.info(f"📌 فتح الرابط: {target_url[:80]}...")
+                # فتح الرابط الأصلي مباشرة
                 await page.goto(target_url, timeout=min(180000, SHELL_TIMEOUT*1000), wait_until="networkidle")
                 
                 ok, msg = await wait_for_redirect(page, 120)
@@ -731,6 +635,13 @@ async def run_stealth_session(update, lab_url, region, start_time, add_session_u
                     if stream_task:
                         await asyncio.wait_for(stream_task, timeout=0.5)
                     return False, "", msg, int(time.time()-start_time), ""
+                
+                # استخراج project_id من الصفحة أو استخدام المعطى
+                if not project_id:
+                    # محاولة استخراج project من الرابط
+                    match = re.search(r'project=([^&]+)', target_url)
+                    if match:
+                        project_id = match.group(1)
                 
                 if project_id:
                     script = generate_deploy_script(project_id, region)
@@ -796,11 +707,22 @@ async def run_stealth_session(update, lab_url, region, start_time, add_session_u
         stream_state.set_streaming(False)
         return False, "", f"❌ خطأ: {str(e)[:200]}", int(time.time()-start_time), ""
 
-async def run_in_cloudshell(update, lab_url, region, add_session_url=None, project_id=None):
+async def run_in_cloudshell(update, target_url, region, project_id=None):
     start = time.time()
+    
+    # اختبار الكوكيز
+    if not await test_cookies_validity():
+        await update.message.reply_text(
+            "⚠️ **الكوكيز غير صالحة.**\n"
+            "يرجى تحديث الجلسة عبر:\n"
+            "`/login` ثم `/done`",
+            parse_mode="Markdown"
+        )
+        return False, "", "⚠️ الكوكيز غير صالحة", int(time.time()-start), ""
+    
     for attempt in range(3):
         try:
-            result = await run_stealth_session(update, lab_url, region, start, add_session_url, project_id)
+            result = await run_stealth_session(update, target_url, region, start, project_id)
             if result[0]:
                 return result
             if attempt < 2:
@@ -909,45 +831,25 @@ async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE
     return await receive_link(update, context)
 
 async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """استقبال الرابط – نستخدمه كما هو دون استخراج أي بيانات."""
     text = update.message.text.strip()
     
     if text in ["❌ إلغاء", "🔄 إعادة المحاولة"]:
         await update.message.reply_text("❌ تم الإلغاء.")
         return ConversationHandler.END
     
-    extracted = extract_data_from_link(text)
-    project = extracted.get("project_id")
-    token = extracted.get("token")
-    email = extracted.get("email")
-    
-    if not project or not token or not email:
-        await update.message.reply_text(
-            "❌ لم أستطع استخراج البيانات الكاملة من الرابط.\n"
-            "تأكد من أنه رابط Qwiklabs صالح (يحتوي على token و email)."
-        )
-        return WAITING_LINK
-    
-    add_session_url = build_add_session_url(project, token, email)
-    if not add_session_url:
-        await update.message.reply_text("❌ فشل بناء رابط AddSession.")
-        return WAITING_LINK
-    
+    # نستخدم الرابط كما هو (لا نستخرج أي شيء)
     user_id = update.effective_user.id
     update_last_link(user_id, text)
+    
     context.user_data.update({
         "lab_url": text,
-        "add_session_url": add_session_url,
-        "project_id": project,
-        "token": token,
-        "email": email
+        "target_url": text,  # الرابط الأصلي
     })
     
     await update.message.reply_text(
-        f"✅ **تم استخراج البيانات بنجاح**\n"
-        f"🆔 Project: `{project}`\n"
-        f"📧 Email: `{email}`\n"
-        f"🔑 Token: `{token[:15]}...`\n"
-        f"🔗 سيتم استخدام AddSession.\n\n"
+        f"✅ **تم استلام الرابط**\n"
+        f"🌐 سأفتحه مباشرة في متصفح متخفي.\n\n"
         f"🌍 اختر المنطقة:",
         parse_mode="Markdown",
         reply_markup=region_menu()
@@ -975,23 +877,18 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("❌ منطقة غير معروفة.")
         return WAITING_REGION
     
-    lab_url = context.user_data.get("lab_url")
-    add_session_url = context.user_data.get("add_session_url")
-    project_id = context.user_data.get("project_id")
-    email = context.user_data.get("email")
-    
-    if not lab_url or not add_session_url or not project_id:
-        await q.edit_message_text("❌ انتهت الجلسة.")
+    target_url = context.user_data.get("target_url")
+    if not target_url:
+        await q.edit_message_text("❌ لا يوجد رابط. أعد الإرسال.")
         context.user_data.clear()
         return ConversationHandler.END
     
     region_name = KNOWN_REGIONS.get(region, region)
     
+    # عرض واجهة التأكيد مع الرابط الكامل
     confirm_text = (
         f"📋 **تأكيد عملية النشر المباشر (Cloud Run)**\n\n"
-        f"🔗 **الرابط:**\n`{lab_url}`\n\n"
-        f"🆔 **المشروع:** `{project_id}`\n"
-        f"📧 **البريد:** `{email}`\n"
+        f"🔗 **الرابط:**\n`{target_url}`\n\n"
         f"🌍 **المنطقة:** {region_name}\n\n"
         f"⚠️ **اضغط على تأكيد لإرسال طلب النشر إلى الخادم فوراً.**"
     )
@@ -1018,27 +915,32 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
     
-    lab_url = context.user_data.get("lab_url")
-    add_session_url = context.user_data.get("add_session_url")
-    project_id = context.user_data.get("project_id")
+    # confirm_yes
+    target_url = context.user_data.get("target_url")
     region = context.user_data.get("temp_region")
     region_name = context.user_data.get("temp_region_name", region)
     
-    if not lab_url or not add_session_url or not project_id:
-        await q.edit_message_text("❌ **انتهت الجلسة.**")
+    if not target_url:
+        await q.edit_message_text("❌ **انتهت الجلسة. أعد الإرسال.**")
         context.user_data.clear()
         return ConversationHandler.END
+    
+    # محاولة استخراج project من الرابط (للنشر)
+    project_id = None
+    match = re.search(r'project=([^&]+)', target_url)
+    if match:
+        project_id = match.group(1)
     
     await q.edit_message_text(f"🚀 **جاري النشر على {region_name} ...**\n⏳ 3-6 دقائق.")
     
     success, service, vless, duration, video = await run_in_cloudshell(
-        update, lab_url, region, add_session_url, project_id
+        update, target_url, region, project_id
     )
     
     user_id = q.from_user.id
     if success:
         increment_deploy_count(user_id)
-        add_history(user_id, lab_url, service, vless, region, success=1, duration=duration, video_path=video or "")
+        add_history(user_id, target_url, service, vless, region, success=1, duration=duration, video_path=video or "")
         await q.message.reply_text(
             f"✅ **تم التنفيذ بنجاح**\n🌍 {region_name}\n⏱️ {duration} ثانية\n🌐 `{service}`\n\n🔗 **VLESS:**\n`{vless}`",
             parse_mode="Markdown"
@@ -1046,7 +948,7 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if video and os.path.exists(video):
             await q.message.reply_text(f"📹 **تم تسجيل الفيديو:**\n`{video}`", parse_mode="Markdown")
     else:
-        add_history(user_id, lab_url, "", "", region, success=0, error_msg=vless[:200], duration=duration, video_path=video or "")
+        add_history(user_id, target_url, "", "", region, success=0, error_msg=vless[:200], duration=duration, video_path=video or "")
         await q.message.reply_text(
             f"❌ **فشل التنفيذ**\n\n```\n{vless}\n```",
             parse_mode="Markdown"
@@ -1105,7 +1007,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v51.0 (Final Master Edition) جاهز")
+    logger.info("🔥 SHADOW LEGION v52.0 (Final Master Edition) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
