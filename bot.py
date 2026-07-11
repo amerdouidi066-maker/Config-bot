@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v40.0 – ADD_SESSION_NO_COOKIE_COMMANDS
+SHADOW LEGION v41.0 – ULTIMATE_MASTER_EDITION
+- استخراج متقدم للبيانات من روابط Qwiklabs
 - استخدام AddSession لتجاوز شاشات تسجيل الدخول
-- إزالة أوامر الكوكيز (/setcookies, /getcookies, /cookieguide)
 - بث مباشر مع إيقاف آمن
 - تسجيل فيديو تلقائي
 - MongoDB
 - Z3R0-STEALTH v2
 - واجهة بوت مبسطة وغامضة
+- إعادة محاولة ذكية (3 محاولات)
 """
 
 import os
@@ -69,7 +70,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v40.0 (Add Session No Cookie Commands) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v41.0 (Ultimate Master Edition) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -86,7 +87,7 @@ except Exception as e:
     raise
 
 # ===================================================================
-# 3. دوال قاعدة البيانات (مختصرة)
+# 3. دوال قاعدة البيانات
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     doc = users_collection.find_one({"_id": user_id})
@@ -163,7 +164,7 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for doc in docs]
 
 # ===================================================================
-# 4. دوال مساعدة (تمويه، استخراج، بناء AddSession)
+# 4. دوال مساعدة متقدمة
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -220,42 +221,110 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
     except:
         return None
 
+# ===================================================================
+# 5. استخراج البيانات المتقدم (يدعم جميع صيغ الروابط)
+# ===================================================================
 def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
-    """استخراج project, token, email من الرابط."""
+    """
+    استخراج project, token, email من الرابط
+    يدعم: Qwiklabs, Google SSO, AddSession, والروابط المباشرة
+    """
     link = link.strip()
+    if not link:
+        return {"project_id": None, "token": None, "email": None}
+    
     decoded = link
     for _ in range(5):
         decoded = urllib.parse.unquote(decoded)
+    
+    logger.info(f"🔍 تحليل الرابط: {decoded[:200]}...")
     
     project = None
     token = None
     email = None
     
-    # استخراج token من المعاملات
+    # ================================================================
+    # 1. استخراج token
+    # ================================================================
     parsed = urllib.parse.urlparse(decoded)
     params = urllib.parse.parse_qs(parsed.query)
-    token = params.get('token', [None])[0] or params.get('display_token', [None])[0]
     
-    # استخراج project
-    continue_match = re.search(r'[?&]continue=([^&]+)', decoded)
-    if continue_match:
-        continue_url = urllib.parse.unquote(continue_match.group(1))
-        project_match = re.search(r'[?&]project=([^&]+)', continue_url)
-        if project_match:
-            project = project_match.group(1)
-        else:
-            project_match = re.search(r'/projects/([^/?#]+)', continue_url)
-            if project_match:
-                project = project_match.group(1)
+    token_candidates = ['token', 'display_token', 'auth_token', 'access_token', 'code']
+    for t in token_candidates:
+        if t in params and params[t][0]:
+            token = params[t][0]
+            logger.info(f"✅ تم استخراج token من {t}")
+            break
+    
+    # البحث في النص الكامل
+    if not token:
+        token_match = re.search(r'[?&](?:token|display_token|auth_token)=([^&]+)', decoded)
+        if token_match:
+            token = token_match.group(1)
+            logger.info("✅ تم استخراج token من النص")
+    
+    # ================================================================
+    # 2. استخراج project
+    # ================================================================
+    # 2a. من معامل continue
+    if 'continue' in params:
+        try:
+            continue_url = urllib.parse.unquote(params['continue'][0])
+            continue_parsed = urllib.parse.urlparse(continue_url)
+            continue_params = urllib.parse.parse_qs(continue_parsed.query)
+            
+            if 'project' in continue_params:
+                project = continue_params['project'][0]
+                logger.info("✅ تم استخراج project من continue")
+            else:
+                # البحث في مسار continue
+                match = re.search(r'/projects/([^/?#]+)', continue_parsed.path)
+                if match:
+                    project = match.group(1)
+                    logger.info("✅ تم استخراج project من مسار continue")
+        except Exception as e:
+            logger.warning(f"⚠️ فشل تحليل continue: {e}")
+    
+    # 2b. من الرابط مباشرة
     if not project:
-        project = params.get('project', [None])[0] or params.get('projectId', [None])[0]
+        if 'project' in params:
+            project = params['project'][0]
+            logger.info("✅ تم استخراج project من params")
+        elif 'projectId' in params:
+            project = params['projectId'][0]
+            logger.info("✅ تم استخراج projectId من params")
+        else:
+            # البحث في المسار
+            match = re.search(r'/projects/([^/?#]+)', parsed.path)
+            if match:
+                project = match.group(1)
+                logger.info("✅ تم استخراج project من المسار")
     
-    # استخراج البريد الإلكتروني
+    # ================================================================
+    # 3. استخراج البريد الإلكتروني
+    # ================================================================
+    # 3a. من #Email في fragment
     if '#' in decoded:
-        fragment = decoded.split('#')[1] if len(decoded.split('#')) > 1 else ''
-        email_match = re.search(r'[?&]?Email=([^&]+)', fragment)
-        if email_match:
-            email = urllib.parse.unquote(email_match.group(1))
+        try:
+            fragment = decoded.split('#')[1] if len(decoded.split('#')) > 1 else ''
+            email_match = re.search(r'[?&]Email=([^&]+)', fragment)
+            if email_match:
+                email = urllib.parse.unquote(email_match.group(1))
+                logger.info("✅ تم استخراج email من fragment")
+        except:
+            pass
+    
+    # 3b. من معامل Email
+    if not email and 'Email' in params:
+        email = params['Email'][0]
+        logger.info("✅ تم استخراج email من params")
+    
+    # 3c. من معامل email (حرف صغير)
+    if not email and 'email' in params:
+        email = params['email'][0]
+        logger.info("✅ تم استخراج email من params (email)")
+    
+    # 3d. من النص باستخدام regex
     if not email:
         email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
         all_emails = re.findall(email_pattern, decoded)
@@ -263,11 +332,15 @@ def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
             for em in all_emails:
                 if 'qwiklabs' in em or 'student' in em:
                     email = em
+                    logger.info("✅ تم استخراج email من النص (qwiklabs/student)")
                     break
             if not email:
                 email = all_emails[0]
+                logger.info("✅ تم استخراج email من النص (أول بريد)")
     
-    # تنظيف
+    # ================================================================
+    # 4. تنظيف
+    # ================================================================
     if project:
         project = project.strip('/"\'')
     if token:
@@ -275,19 +348,26 @@ def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
     if email:
         email = email.strip('/"\'')
     
+    # ================================================================
+    # 5. تسجيل النتائج
+    # ================================================================
+    logger.info(f"📊 نتائج الاستخراج: project={project}, token={'...' if token else '❌'}, email={email if email else '❌'}")
+    
     return {"project_id": project, "token": token, "email": email}
 
+
 def build_add_session_url(project: str, token: str, email: str) -> str:
-    """بناء رابط AddSession لتجاوز شاشة تسجيل الدخول."""
+    """بناء رابط AddSession مع ترميز صحيح."""
     if not project or not token or not email:
         return ""
     
-    # بناء رابط continue
+    # بناء continue URL
     continue_url = (
         f"https://console.cloud.google.com/home/dashboard"
         f"?project={project}"
         f"&walkthrough_id=https%3A%2F%2Fwww.skills.google%2Fdisplay_in_context%3Fdisplay_token%3D{token}"
     )
+    # ترميز continue_url بشكل صحيح (مرتان حسب الحاجة)
     encoded_continue = urllib.parse.quote(continue_url, safe='')
     
     base = "https://accounts.google.com/AddSession"
@@ -298,10 +378,13 @@ def build_add_session_url(project: str, token: str, email: str) -> str:
         "Email": email
     }
     query = urllib.parse.urlencode(params)
-    return f"{base}?{query}#Email={email}"
+    full_url = f"{base}?{query}#Email={email}"
+    
+    logger.info(f"🔗 تم بناء رابط AddSession: {full_url[:100]}...")
+    return full_url
 
 # ===================================================================
-# 5. نظام الجلسة الحية (Login / Done)
+# 6. نظام الجلسة الحية (Login / Done)
 # ===================================================================
 login_event = asyncio.Event()
 login_context = None
@@ -367,7 +450,7 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
 
 # ===================================================================
-# 6. محرك التخفي
+# 7. محرك التخفي
 # ===================================================================
 async def load_cookies(context) -> List[Dict]:
     if os.path.exists(COOKIES_FILE):
@@ -469,7 +552,7 @@ async def simulate_mouse_movement(page):
         pass
 
 # ===================================================================
-# 7. دوال الأزرار والانتظار
+# 8. دوال الأزرار والانتظار
 # ===================================================================
 async def smart_click_button(page, texts: List[str]) -> bool:
     for text in texts:
@@ -506,7 +589,7 @@ async def wait_for_redirect(page, max_wait: int = 120) -> Tuple[bool, str]:
     return False, "⛔ انتهت المهلة"
 
 # ===================================================================
-# 8. Start Cloud Shell والطرفية
+# 9. Start Cloud Shell والطرفية
 # ===================================================================
 async def click_start_ultimate(page, max_attempts=6) -> bool:
     selectors = [
@@ -585,7 +668,7 @@ async def wait_for_terminal(page, timeout=300) -> Tuple[bool, str]:
     return False, f"⏰ انتهت مهلة الطرفية ({timeout} ثانية)"
 
 # ===================================================================
-# 9. البث المباشر (مع إيقاف فوري عبر Event)
+# 10. البث المباشر (مع إيقاف فوري)
 # ===================================================================
 stream_stop_event = asyncio.Event()
 
@@ -616,7 +699,7 @@ async def live_stream_broadcaster(page):
         logger.info("⏹️ تم إيقاف البث")
 
 # ===================================================================
-# 10. سكريبت النشر
+# 11. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, region: str) -> str:
     svc = f"shadow-svc-{random.randint(1000,9999)}-{project_id[:4]}"
@@ -643,7 +726,7 @@ print(f"SERVICE_URL: {url}")
 '''
 
 # ===================================================================
-# 11. قلب الأتمتة (مع AddSession)
+# 12. قلب الأتمتة (مع AddSession وإعادة محاولة)
 # ===================================================================
 async def run_stealth_session(update, lab_url, region, start_time, add_session_url=None, project_id=None):
     stream_stop_event.clear()
@@ -830,7 +913,7 @@ async def run_in_cloudshell(update, lab_url, region, add_session_url=None, proje
     return False, "", "❌ فشل بعد 3 محاولات", int(time.time()-start), ""
 
 # ===================================================================
-# 12. دوال تنظيف الملفات القديمة
+# 13. دوال تنظيف الملفات القديمة
 # ===================================================================
 def cleanup_old_recordings():
     try:
@@ -849,7 +932,7 @@ def cleanup_old_recordings():
         logger.warning(f"⚠️ فشل تنظيف التسجيلات: {e}")
 
 # ===================================================================
-# 13. واجهة البوت (مبسطة مع AddSession)
+# 14. واجهة البوت
 # ===================================================================
 WAITING_LINK, WAITING_REGION = range(2)
 
@@ -915,7 +998,8 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not project or not token or not email:
         await update.message.reply_text(
             "❌ لم أستطع استخراج البيانات الكاملة من الرابط.\n"
-            "تأكد من أنه رابط Qwiklabs صالح (يحتوي على token و email)."
+            "تأكد من أنه رابط Qwiklabs صالح (يحتوي على token و email).\n\n"
+            "💡 **نصيحة:** استخدم الرابط الكامل من متصفحك بعد تسجيل الدخول إلى Qwiklabs."
         )
         return WAITING_LINK
     
@@ -1083,7 +1167,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 14. التشغيل الرئيسي
+# 15. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1115,7 +1199,7 @@ def main():
     app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v40.0 (Add Session No Cookie Commands) جاهز")
+    logger.info("🔥 SHADOW LEGION v41.0 (Ultimate Master Edition) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
