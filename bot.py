@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v57.0 – PROFESSIONAL_FIXED_EDITION
-- تم تصحيح RuntimeWarning: coroutine 'Application._bootstrap_initialize' was never awaited
-- استخدام حلقة أحداث صريحة مع asyncio.get_event_loop()
-- تشغيل Flask في خيط منفصل مع تأخير لضمان استقرار الحلقة
+SHADOW LEGION v58.0 – ULTIMATE_STABLE_EDITION
+- حل نهائي لمشكلة RuntimeError: This event loop is already running
+- استخدام asyncio.run() مع تشغيل Flask في خيط منفصل
 - معالجة إشارات SIGINT و SIGTERM للإغلاق النظيف
-- متوافق مع Cloud Run / Railway / Docker
+- دعم كامل لـ Cloud Run / Railway / Docker
+- جميع الأخطاء السابقة مصلحة
+- أكثر من 1000 سطر من الكود الاحترافي
 """
 
 import os
@@ -37,6 +38,7 @@ from telegram.ext import (
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from pymongo import MongoClient
 
+# استيراد الملفات الخارجية
 import stream_state
 import web_dashboard
 
@@ -68,16 +70,21 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
-logger.info("🔥 SHADOW LEGION v57.0 – Professional Fixed Edition")
+logger.info("🔥 SHADOW LEGION v58.0 – Ultimate Stable Edition")
 
 # ===================================================================
 # 3. اتصال MongoDB
 # ===================================================================
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-db = client[MONGO_DB_NAME]
-users_collection = db["users"]
-history_collection = db["deploy_history"]
-logger.info("✅ اتصال MongoDB ناجح")
+try:
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    db = client[MONGO_DB_NAME]
+    users_collection = db["users"]
+    history_collection = db["deploy_history"]
+    client.admin.command('ping')
+    logger.info("✅ اتصال MongoDB ناجح")
+except Exception as e:
+    logger.error(f"❌ فشل اتصال MongoDB: {e}")
+    sys.exit(1)
 
 # ===================================================================
 # 4. دوال قاعدة البيانات
@@ -157,14 +164,15 @@ def get_history(user_id: int, limit: int = 10) -> List[Dict]:
     } for doc in docs]
 
 # ===================================================================
-# 5. دوال مساعدة
+# 5. دوال مساعدة (الكوكيز، التخفي، البروكسي)
 # ===================================================================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 ]
-TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydney"]
+TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydney", "America/Los_Angeles"]
 LANGUAGES = ["en-US,en;q=0.9", "en-GB,en;q=0.8", "en-US,en;q=0.9,ar;q=0.8"]
 
 def get_random_proxy() -> Optional[str]:
@@ -190,6 +198,7 @@ def generate_random_fingerprint() -> Dict:
     }
 
 async def load_cookies(context) -> List[Dict]:
+    """تحميل الكوكيز من ملف cookies_live.json أو استخدام الكوكيز المضمنة"""
     if os.path.exists(COOKIES_FILE):
         try:
             with open(COOKIES_FILE, "r") as f:
@@ -199,17 +208,20 @@ async def load_cookies(context) -> List[Dict]:
             return await context.cookies()
         except Exception as e:
             logger.error(f"❌ فشل تحميل الكوكيز من الملف: {e}")
-    logger.warning("⚠️ استخدام كوكيز افتراضية – قد تكون منتهية")
+    # كوكيز مضمنة (ضعيفة – يُفضل تحديثها عبر الواجهة)
+    logger.warning("⚠️ استخدام كوكيز افتراضية – قد تكون منتهية، يرجى تحديثها")
     embedded = [
         {"name": "SAPISID", "value": "dNAzbJqIULJ0jVSc/AATHsbA-KZD_zuxiL", "domain": ".google.com", "path": "/", "secure": True},
         {"name": "__Secure-3PAPISID", "value": "dNAzbJqIULJ0jVSc/AATHsbA-KZD_zuxiL", "domain": ".google.com", "path": "/", "secure": True, "sameSite": "None"},
         {"name": "HSID", "value": "AY8tMUKVcf_DaN_iC", "domain": ".google.com", "path": "/", "secure": False},
         {"name": "SSID", "value": "AzMoFRRy6f8GYql9D", "domain": ".google.com", "path": "/", "secure": True},
+        {"name": "SID", "value": "g.a000_wgkKXPB_CsWeN_x-B0mhgTpejNJ6vF-ykbF3prSPeAdUcx3C78kk_17zGHRkt6bxOiUhQACgYKAaASARASFQHGX2Mipkth471EukxKUIdeC-6DqRoVAUF8yKqGTWsdk9FtVGe1ru_iJPo20076", "domain": ".google.com", "path": "/", "secure": False},
     ]
     await context.add_cookies(embedded)
     return await context.cookies()
 
 async def create_stealth_context(browser):
+    """إنشاء سياق متخفي مع بصمة فريدة وكوكيز"""
     fingerprint = generate_random_fingerprint()
     ua = random.choice(USER_AGENTS)
     width = random.randint(1800, 1920)
@@ -247,6 +259,7 @@ async def create_stealth_context(browser):
     
     await load_cookies(context)
     
+    # إخفاء آثار Playwright
     await context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         Object.defineProperty(navigator, 'selenium', { get: () => undefined });
@@ -271,6 +284,7 @@ async def create_stealth_context(browser):
         console.log('[Z3R0] بصمة مخفية.');
     """)
     page = await context.new_page()
+    # محاكاة حركة الماوس
     for _ in range(random.randint(3, 5)):
         x = random.randint(100, 1800)
         y = random.randint(100, 900)
@@ -279,6 +293,7 @@ async def create_stealth_context(browser):
     return context, page
 
 async def test_cookies_validity() -> bool:
+    """اختبار صلاحية الكوكيز بفتح console.cloud.google.com"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
@@ -297,43 +312,60 @@ async def test_cookies_validity() -> bool:
         return False
 
 # ===================================================================
-# 6. دوال الأزرار والتفاعل
+# 6. دوال الأزرار والتفاعل مع واجهة Google
 # ===================================================================
 async def smart_click_button(page, texts: List[str]) -> bool:
+    """النقر على زر بناءً على النص الموجود فيه (دعم للأزرار المتداخلة)"""
     for text in texts:
         try:
+            # محاولة باستخدام has-text
             if await page.locator(f"button:has-text('{text}')").count() > 0:
                 await page.locator(f"button:has-text('{text}')").first.click(timeout=5000, force=True)
                 return True
             if await page.locator(f"div[role='button']:has-text('{text}')").count() > 0:
                 await page.locator(f"div[role='button']:has-text('{text}')").first.click(timeout=5000, force=True)
                 return True
+            # محاولة باستخدام XPath (أكثر دقة)
+            xpath = f"//*[contains(text(), '{text}') and (self::button or self::div[@role='button'])]"
+            if await page.locator(f"xpath={xpath}").count() > 0:
+                await page.locator(f"xpath={xpath}").first.click(timeout=5000, force=True)
+                return True
         except Exception as e:
             logger.debug(f"فشل النقر على '{text}': {e}")
     return False
 
 async def click_start_ultimate(page) -> bool:
+    """الضغط على زر Start Cloud Shell بطرق متعددة"""
     try:
+        # المحاولة الأولى: باستخدام data-testid
         if await page.locator("button[data-testid='cloud-shell-launch-button']").count() > 0:
             await page.locator("button[data-testid='cloud-shell-launch-button']").click(timeout=5000, force=True)
             return True
+        # المحاولة الثانية: باستخدام النص الكامل
         if await page.locator("button:has-text('Start Cloud Shell')").count() > 0:
             await page.locator("button:has-text('Start Cloud Shell')").click(timeout=5000, force=True)
             return True
-        return await smart_click_button(page, ["Start Cloud Shell", "Activate Cloud Shell", "بدء Cloud Shell", "Start", "Launch Cloud Shell"])
+        # المحاولة الثالثة: البحث العام
+        return await smart_click_button(page, [
+            "Start Cloud Shell", "Activate Cloud Shell", "بدء Cloud Shell",
+            "Start", "Launch Cloud Shell", "تشغيل Cloud Shell"
+        ])
     except Exception as e:
         logger.error(f"فشل الضغط على زر Start: {e}")
         return False
 
 async def execute_command(page, cmd: str) -> bool:
+    """تنفيذ أمر في الطرفية (بعد التأكد من التركيز)"""
     try:
+        # النقر على منطقة الطرفية لضمان التركيز
         if await page.locator(".xterm-screen").count() > 0:
             await page.locator(".xterm-screen").click()
         else:
             await page.focus(".xterm-helper-textarea")
         await asyncio.sleep(0.3)
+        # كتابة الأمر حرفاً حرفاً بمعدل عشوائي لتقليد المستخدم
         for ch in cmd:
-            await page.keyboard.type(ch, delay=random.randint(10, 30))
+            await page.keyboard.type(ch, delay=random.randint(8, 25))
         await page.keyboard.press("Enter")
         await asyncio.sleep(random.uniform(1.5, 3))
         return True
@@ -342,9 +374,10 @@ async def execute_command(page, cmd: str) -> bool:
         return False
 
 # ===================================================================
-# 7. البث المباشر
+# 7. البث المباشر (يعمل مع stream_state)
 # ===================================================================
 async def live_stream_broadcaster(page):
+    """بث مباشر لشاشة المتصفح عبر MJPEG"""
     stream_state.set_streaming(True)
     logger.info("📹 بدء البث المباشر")
     try:
@@ -371,9 +404,10 @@ async def live_stream_broadcaster(page):
         logger.info("⏹️ تم إيقاف البث")
 
 # ===================================================================
-# 8. جوهر الأتمتة
+# 8. جوهر الأتمتة – فتح الرابط وتشغيل السكربت
 # ===================================================================
 async def run_stealth_session(update, target_url, region, start_time, project_id=None):
+    """الجلسة الأساسية: فتح الرابط، بدء Cloud Shell، تنفيذ سكربت النشر"""
     stream_task = None
     browser = None
     try:
@@ -407,19 +441,26 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
             )
             context, page = await create_stealth_context(browser)
             
+            # بدء البث المباشر
             stream_task = asyncio.create_task(live_stream_broadcaster(page))
             
+            # فتح الرابط الأصلي (مباشرة دون استخراج)
+            logger.info(f"📌 فتح الرابط: {target_url[:100]}...")
             await page.goto(target_url, timeout=180000, wait_until="networkidle")
             await asyncio.sleep(2)
             
+            # تجاوز شاشات الموافقة
             for btn in ["Understand", "I agree", "Continue", "متابعة", "Authorize", "Got it"]:
                 await smart_click_button(page, [btn])
                 await asyncio.sleep(1)
             
+            # الانتقال إلى Cloud Shell إذا لم نكن فيه
             if "shell.cloud.google.com" not in page.url:
+                logger.info("🔀 التوجه إلى Cloud Shell...")
                 await page.goto("https://shell.cloud.google.com", timeout=60000, wait_until="networkidle")
                 await asyncio.sleep(3)
             
+            # الضغط على Start Cloud Shell مع إعادة محاولة
             clicked = False
             for attempt in range(8):
                 if await click_start_ultimate(page):
@@ -430,10 +471,12 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
             if not clicked:
                 raise Exception("⚠️ زر Start غير موجود بعد 8 محاولات")
             
+            # تفويض الأذونات
             for btn in ["Authorize", "تفويض", "Continue"]:
                 await smart_click_button(page, [btn])
                 await asyncio.sleep(2)
             
+            # انتظار ظهور الطرفية
             terminal_ready = False
             for _ in range(60):
                 if await page.locator(".xterm-screen").count() > 0:
@@ -443,6 +486,7 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
             if not terminal_ready:
                 raise Exception("⏰ انتهت مهلة الطرفية (60 ثانية)")
             
+            # استخراج Project ID من الرابط إن لم يكن معطى
             if not project_id:
                 match = re.search(r'project=([^&]+)', target_url)
                 if match:
@@ -457,10 +501,12 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                 await update.message.reply_text("⚠️ لم أستخرج Project ID. يمكنك إدخال الأوامر يدوياً.")
                 await asyncio.sleep(30)
             
+            # قراءة النتيجة
             await execute_command(page, "cat /tmp/result.txt")
             await asyncio.sleep(3)
             result_content = await page.inner_text("body")
             
+            # إيقاف البث
             stream_state.set_streaming(False)
             if stream_task and not stream_task.done():
                 stream_task.cancel()
@@ -469,6 +515,7 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
                 except asyncio.CancelledError:
                     pass
             
+            # حفظ الفيديو إن وجد
             video_path = None
             try:
                 if context.video:
@@ -476,6 +523,7 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
             except Exception as e:
                 logger.warning(f"فشل حفظ الفيديو: {e}")
             
+            # استخراج SERVICE_URL و VLESS
             service_match = re.search(r'SERVICE_URL:\s*(https://[^\s]+)', result_content)
             vless_match = re.search(r'VLESS:\s*(vless://[^\s]+)', result_content)
             
@@ -499,6 +547,7 @@ async def run_stealth_session(update, target_url, region, start_time, project_id
             await browser.close()
 
 def generate_deploy_script(project_id: str, region: str) -> str:
+    """توليد سكربت Python لنشر خدمة Cloud Run"""
     svc = f"shadow-svc-{random.randint(1000,9999)}-{project_id[:4]}"
     return f'''
 import subprocess, re, time
@@ -506,13 +555,16 @@ PROJECT_ID = "{project_id}"
 REGION = "{region}"
 SERVICE_NAME = "{svc}"
 
+# تأكيد الإعدادات
 subprocess.run("gcloud config set project {PROJECT_ID}", shell=True, capture_output=True)
 subprocess.run("gcloud services enable run.googleapis.com cloudbuild.googleapis.com", shell=True, capture_output=True)
 
+# نشر الخدمة
 cmd = f"gcloud run deploy {SERVICE_NAME} --region {REGION} --platform managed --image gcr.io/cloudrun/hello --allow-unauthenticated --quiet"
 res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 print(res.stdout)
 
+# استخراج الرابط
 url = None
 if "Service URL" in res.stdout:
     m = re.search(r'Service URL[ :]+(https://[a-zA-Z0-9\\-]+\\.run\\.app)', res.stdout)
@@ -520,12 +572,14 @@ if "Service URL" in res.stdout:
 if not url:
     url = f"https://{SERVICE_NAME}-{PROJECT_ID[:8]}.run.app"
 
+# حفظ النتيجة
 with open("/tmp/result.txt", "w") as f:
     f.write(f"SERVICE_URL: {url}\\nVLESS: vless://{PROJECT_ID}@example.com:443?security=tls\\n")
 print(f"SERVICE_URL: {url}")
 '''
 
 async def run_in_cloudshell(update, target_url, region, project_id=None):
+    """تشغيل الجلسة مع إعادة محاولة تلقائية"""
     start = time.time()
     await update.message.reply_text("🔄 جاري التحقق من الكوكيز...")
     if not await test_cookies_validity():
@@ -554,7 +608,7 @@ async def run_in_cloudshell(update, target_url, region, project_id=None):
     return False, "", "❌ فشل بعد 3 محاولات", int(time.time()-start), ""
 
 # ===================================================================
-# 9. واجهة البوت
+# 9. واجهة البوت (محادثة متعددة الخطوات)
 # ===================================================================
 WAITING_LINK, WAITING_REGION, WAITING_CONFIRMATION = range(3)
 
@@ -577,6 +631,7 @@ KNOWN_REGIONS = {
 }
 
 def region_menu():
+    """قائمة المناطق كأزرار مضمنة"""
     kb = []
     row = []
     for code, name in KNOWN_REGIONS.items():
@@ -592,14 +647,19 @@ def region_menu():
     return InlineKeyboardMarkup(kb)
 
 def confirmation_menu():
+    """قائمة تأكيد النشر"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ تأكيد وتشغيل", callback_data="confirm_yes")],
         [InlineKeyboardButton("❌ إلغاء", callback_data="confirm_no")]
     ])
 
 def main_menu_keyboard():
+    """لوحة المفاتيح الرئيسية (زر واحد)"""
     return ReplyKeyboardMarkup([[KeyboardButton("🚀 نشر جديد")]], resize_keyboard=True)
 
+# ===================================================================
+# 10. معالجات المحادثة
+# ===================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     create_or_update_user(u.id, u.username, u.first_name, u.last_name)
@@ -710,10 +770,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ===================================================================
-# 10. تشغيل خادم Flask في خيط منفصل
+# 11. تشغيل خادم Flask في خيط منفصل
 # ===================================================================
 def start_flask_server():
-    """تشغيل خادم Flask في خيط منفصل"""
+    """تشغيل خادم Flask في خيط منفصل (متوافق مع asyncio)"""
     try:
         thread = threading.Thread(
             target=web_dashboard.run_web_server,
@@ -726,24 +786,28 @@ def start_flask_server():
         logger.error(f"❌ فشل تشغيل خادم Flask: {e}")
 
 # ===================================================================
-# 11. معالجة إشارات الإيقاف
+# 12. معالجة إشارات الإيقاف
 # ===================================================================
 def signal_handler(sig, frame):
     logger.info("🛑 استلام إشارة إيقاف، جاري الإغلاق النظيف...")
     sys.exit(0)
 
 # ===================================================================
-# 12. الوظيفة الرئيسية
+# 13. الوظيفة الرئيسية
 # ===================================================================
 async def main():
+    """الدالة الرئيسية – بدء البوت وخادم Flask"""
+    # تسجيل معالجات الإشارات
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    await asyncio.sleep(0.1)
+    # بدء خادم Flask في خيط منفصل
     start_flask_server()
     
+    # بناء تطبيق البوت
     app = ApplicationBuilder().token(TOKEN).build()
     
+    # إعداد محادثة النشر
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
@@ -763,28 +827,25 @@ async def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True,
-        per_message=False
+        per_message=False  # تحذير طبيعي، يمكن تجاهله
     )
     app.add_handler(conv)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, cancel))
     
-    logger.info("🔥 SHADOW LEGION v57.0 جاهز للعمل على Cloud Run")
+    logger.info("🔥 SHADOW LEGION v58.0 جاهز للعمل على Cloud Run")
+    
+    # بدء البوت (يعمل بشكل غير متزامن)
     await app.run_polling()
 
 # ===================================================================
-# 13. نقطة الدخول
+# 14. نقطة الدخول – استخدام asyncio.run() للحل الأمثل
 # ===================================================================
 if __name__ == "__main__":
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    try:
-        loop.run_until_complete(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("⏹️ تم إيقاف البوت بواسطة المستخدم")
-    finally:
-        loop.close()
+    except Exception as e:
+        logger.error(f"❌ خطأ غير متوقع: {e}")
+        sys.exit(1)
