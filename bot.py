@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SHADOW LEGION v44.0 – ULTIMATE_MASTER_EDITION
-- إصلاح نهائي لأزرار المناطق (CallbackQuery)
-- استخراج متقدم للبيانات مع دعم جميع صيغ الروابط
-- واجهة تأكيد قبل النشر (تأكيد/إلغاء)
+SHADOW LEGION v45.0 – ULTIMATE_MASTER_EDITION
+- إصلاح نهائي لتداخل الأوامر (CallbackQuery)
+- جميع المعالجات داخل ConversationHandler
+- إضافة سجلات لتأكيد وصول البيانات
+- دعم كامل لـ AddSession
 - بث مباشر مع إيقاف آمن
-- تسجيل فيديو تلقائي للجلسات
-- MongoDB لتخزين البيانات
-- Z3R0-STEALTH v2 (تمويه متقدم)
-- إعادة محاولة ذكية (3 محاولات)
-- دعم كامل لـ Railway و Cloud Run
+- تسجيل فيديو تلقائي
+- MongoDB
+- Z3R0-STEALTH v2
 """
 
 import os
@@ -71,7 +70,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 SHADOW LEGION v44.0 (Ultimate Master Edition) بدأ التشغيل...")
+logger.info("🚀 SHADOW LEGION v45.0 (No Conflict) بدأ التشغيل...")
 
 # ===================================================================
 # 2. اتصال MongoDB
@@ -88,7 +87,7 @@ except Exception as e:
     raise
 
 # ===================================================================
-# 3. دوال قاعدة البيانات
+# 3. دوال قاعدة البيانات (مختصرة)
 # ===================================================================
 def get_user(user_id: int) -> Optional[Dict]:
     doc = users_collection.find_one({"_id": user_id})
@@ -222,11 +221,8 @@ async def solve_captcha_2captcha(page, sitekey: str) -> Optional[str]:
     except:
         return None
 
-# ===================================================================
-# 5. استخراج البيانات المتقدم
-# ===================================================================
 def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
-    """استخراج project, token, email من الرابط (يدعم جميع الصيغ)."""
+    """استخراج project, token, email من الرابط."""
     link = link.strip()
     if not link:
         return {"project_id": None, "token": None, "email": None}
@@ -263,7 +259,6 @@ def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
     # ================================================================
     # 2. استخراج project
     # ================================================================
-    # من معامل continue
     if 'continue' in params:
         try:
             continue_url = urllib.parse.unquote(params['continue'][0])
@@ -281,7 +276,6 @@ def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
         except Exception as e:
             logger.warning(f"⚠️ فشل تحليل continue: {e}")
     
-    # من الرابط مباشرة
     if not project:
         if 'project' in params:
             project = params['project'][0]
@@ -298,7 +292,6 @@ def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
     # ================================================================
     # 3. استخراج البريد الإلكتروني
     # ================================================================
-    # من #Email في fragment
     if '#' in decoded:
         try:
             fragment = decoded.split('#')[1] if len(decoded.split('#')) > 1 else ''
@@ -309,17 +302,14 @@ def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
         except:
             pass
     
-    # من معامل Email
     if not email and 'Email' in params:
         email = params['Email'][0]
         logger.info("✅ تم استخراج email من params")
     
-    # من معامل email (حرف صغير)
     if not email and 'email' in params:
         email = params['email'][0]
         logger.info("✅ تم استخراج email من params (email)")
     
-    # من النص
     if not email:
         email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
         all_emails = re.findall(email_pattern, decoded)
@@ -333,9 +323,6 @@ def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
                 email = all_emails[0]
                 logger.info("✅ تم استخراج email من النص (أول بريد)")
     
-    # ================================================================
-    # 4. تنظيف
-    # ================================================================
     if project:
         project = project.strip('/"\'')
     if token:
@@ -348,7 +335,7 @@ def extract_data_from_link(link: str) -> Dict[str, Optional[str]]:
     return {"project_id": project, "token": token, "email": email}
 
 def build_add_session_url(project: str, token: str, email: str) -> str:
-    """بناء رابط AddSession لتجاوز شاشات تسجيل الدخول."""
+    """بناء رابط AddSession."""
     if not project or not token or not email:
         return ""
     
@@ -370,7 +357,7 @@ def build_add_session_url(project: str, token: str, email: str) -> str:
     return f"{base}?{query}#Email={email}"
 
 # ===================================================================
-# 6. نظام الجلسة الحية (Login / Done)
+# 5. نظام الجلسة الحية (Login / Done)
 # ===================================================================
 login_event = asyncio.Event()
 login_context = None
@@ -436,7 +423,7 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ فشل: {str(e)[:200]}")
 
 # ===================================================================
-# 7. محرك التخفي (Z3R0-STEALTH v2)
+# 6. محرك التخفي
 # ===================================================================
 async def load_cookies(context) -> List[Dict]:
     if os.path.exists(COOKIES_FILE):
@@ -538,7 +525,7 @@ async def simulate_mouse_movement(page):
         pass
 
 # ===================================================================
-# 8. دوال الأزرار والانتظار
+# 7. دوال الأزرار والانتظار
 # ===================================================================
 async def smart_click_button(page, texts: List[str]) -> bool:
     for text in texts:
@@ -575,7 +562,7 @@ async def wait_for_redirect(page, max_wait: int = 120) -> Tuple[bool, str]:
     return False, "⛔ انتهت المهلة"
 
 # ===================================================================
-# 9. Start Cloud Shell والطرفية
+# 8. Start Cloud Shell والطرفية
 # ===================================================================
 async def click_start_ultimate(page, max_attempts=6) -> bool:
     selectors = [
@@ -654,7 +641,7 @@ async def wait_for_terminal(page, timeout=300) -> Tuple[bool, str]:
     return False, f"⏰ انتهت مهلة الطرفية ({timeout} ثانية)"
 
 # ===================================================================
-# 10. البث المباشر (مع إيقاف فوري)
+# 9. البث المباشر
 # ===================================================================
 stream_stop_event = asyncio.Event()
 
@@ -685,7 +672,7 @@ async def live_stream_broadcaster(page):
         logger.info("⏹️ تم إيقاف البث")
 
 # ===================================================================
-# 11. سكريبت النشر
+# 10. سكريبت النشر
 # ===================================================================
 def generate_deploy_script(project_id: str, region: str) -> str:
     svc = f"shadow-svc-{random.randint(1000,9999)}-{project_id[:4]}"
@@ -712,7 +699,7 @@ print(f"SERVICE_URL: {url}")
 '''
 
 # ===================================================================
-# 12. قلب الأتمتة (مع AddSession وإعادة محاولة)
+# 11. قلب الأتمتة
 # ===================================================================
 async def run_stealth_session(update, lab_url, region, start_time, add_session_url=None, project_id=None):
     stream_stop_event.clear()
@@ -899,7 +886,7 @@ async def run_in_cloudshell(update, lab_url, region, add_session_url=None, proje
     return False, "", "❌ فشل بعد 3 محاولات", int(time.time()-start), ""
 
 # ===================================================================
-# 13. دوال تنظيف الملفات القديمة
+# 12. تنظيف الملفات القديمة
 # ===================================================================
 def cleanup_old_recordings():
     try:
@@ -918,7 +905,7 @@ def cleanup_old_recordings():
         logger.warning(f"⚠️ فشل تنظيف التسجيلات: {e}")
 
 # ===================================================================
-# 14. واجهة البوت (مع واجهة تأكيد وإصلاح الأزرار)
+# 13. واجهة البوت (جميع المعالجات داخل ConversationHandler)
 # ===================================================================
 WAITING_LINK, WAITING_REGION, WAITING_CONFIRMATION = range(3)
 
@@ -942,7 +929,6 @@ KNOWN_REGIONS = {
 }
 
 def region_menu():
-    """قائمة المناطق مع callback_data صحيحة."""
     kb = []
     row = []
     for code, name in KNOWN_REGIONS.items():
@@ -958,7 +944,6 @@ def region_menu():
     return InlineKeyboardMarkup(kb)
 
 def confirmation_menu(project: str, email: str, region: str):
-    """قائمة تأكيد النشر."""
     kb = [
         [InlineKeyboardButton("✅ تأكيد وتشغيل", callback_data="confirm_yes")],
         [InlineKeyboardButton("❌ إلغاء", callback_data="confirm_no")]
@@ -993,8 +978,7 @@ async def receive_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not project or not token or not email:
         await update.message.reply_text(
             "❌ لم أستطع استخراج البيانات الكاملة من الرابط.\n"
-            "تأكد من أنه رابط Qwiklabs صالح (يحتوي على token و email).\n\n"
-            "💡 **نصيحة:** استخدم الرابط الكامل من متصفحك بعد تسجيل الدخول إلى Qwiklabs."
+            "تأكد من أنه رابط Qwiklabs صالح (يحتوي على token و email)."
         )
         return WAITING_LINK
     
@@ -1058,10 +1042,8 @@ async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return WAITING_REGION
 
 async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج اختيار المنطقة - يعرض واجهة التأكيد."""
     q = update.callback_query
     await q.answer()
-    
     logger.info(f"✅ region_callback تم استدعاؤها مع data: {q.data}")
     
     raw = q.data.replace("region_", "")
@@ -1086,7 +1068,6 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     region_name = KNOWN_REGIONS.get(region, region)
     
-    # عرض واجهة التأكيد
     await q.edit_message_text(
         f"📋 **مراجعة عملية النشر**\n\n"
         f"🆔 **المشروع:** `{project_id}`\n"
@@ -1098,24 +1079,21 @@ async def region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=confirmation_menu(project_id, email, region_name)
     )
     
-    # تخزين البيانات مؤقتاً للتأكيد
     context.user_data["temp_region"] = region
     context.user_data["temp_region_name"] = region_name
-    
     return WAITING_CONFIRMATION
 
 async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج تأكيد النشر."""
     q = update.callback_query
     await q.answer()
+    logger.info(f"✅ confirm_callback تم استدعاؤها مع data: {q.data}")
     
-    data = q.data
-    if data == "confirm_no":
+    if q.data == "confirm_no":
         await q.edit_message_text("❌ **تم إلغاء عملية النشر.**")
         context.user_data.clear()
         return ConversationHandler.END
     
-    # data == "confirm_yes"
+    # confirm_yes
     lab_url = context.user_data.get("lab_url")
     add_session_url = context.user_data.get("add_session_url")
     project_id = context.user_data.get("project_id")
@@ -1211,7 +1189,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await receive_link(update, context)
 
 # ===================================================================
-# 15. التشغيل الرئيسي
+# 14. التشغيل الرئيسي
 # ===================================================================
 def start_web_dashboard():
     try:
@@ -1226,7 +1204,6 @@ def start_web_dashboard():
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     
-    # محادثة النشر مع واجهة تأكيد
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("deploy", deploy_command),
@@ -1235,9 +1212,7 @@ def main():
         states={
             WAITING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link)],
             WAITING_REGION: [CallbackQueryHandler(region_callback, pattern="^region_")],
-            WAITING_CONFIRMATION: [
-                CallbackQueryHandler(confirm_callback, pattern="^confirm_")
-            ],
+            WAITING_CONFIRMATION: [CallbackQueryHandler(confirm_callback, pattern="^confirm_")],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
@@ -1251,11 +1226,11 @@ def main():
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("retry", retry_command))
     app.add_handler(conv)
-    app.add_handler(CallbackQueryHandler(lambda u,c: c.user_data.clear() or u.edit_message_text("❌ أُلغي."), pattern="^cancel$"))
+    # لا تضيف أي CallbackQueryHandler خارج الـ Conversation
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
     
     start_web_dashboard()
-    logger.info("🔥 SHADOW LEGION v44.0 (Ultimate Master Edition) جاهز")
+    logger.info("🔥 SHADOW LEGION v45.0 (No Conflict) جاهز")
     app.run_polling()
 
 if __name__ == "__main__":
